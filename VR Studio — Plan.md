@@ -118,19 +118,31 @@ Rejected alternatives, and why:
 - **`feature/beat-detection`:** `player/beats/` (BeatDetector, BeatGrid, BeatClock), beat uniforms, three beat shaders, the Camera tab's beat row. It forked before M0, so its `main.gd` wiring was moved to `stage.gd` (`Stage.beats`: made in `_init_video`, advanced in `_process`, bound to layers and spawned visualizers, loaded per video from `media.beats`); `main.gd` binds it to the Camera tab. Studio gets the beat clock for free through the Stage.
 - After both: 195/195 tests; `drive.gd`, `drive_controls.gd`, `drive_stage.gd`, `drive_studio.gd`, `drive_studio_m2.gd`, `drive_script_fx.gd` print as before. The CI workflow itself hasn't run on this branch yet.
 
-## Next: M3, inspector
-Goal (see *Milestones*): retune a screen's glow and add / reorder effects without touching the desktop.
+### Inspector (milestone M3)
+- **Edit logic** (`studio/tools/config_edits.gd`, `StudioConfigEdits`, headless-testable): the sections an object has (by its node, else its prefab path: screen / layer / anything else): *Transform* (values and a diamond per channel; moving stays with grabbing), *Display* (curvature, v. curvature, opacity on the `display` slot; render scale / resolution config-only), a screen's artist shader or a layer's shader (picker plus its hinted params on `surface` / `layer`), each effect (its hinted params on `effect<N>` while it's on), a custom prefab's own material (`surface`, from the runner's `surface_material`), *Modifiers* (opacity for plain objects, tint, flash, speed, sort offset) and *Reactive* (spin, pulse). Values at the playhead: the track's, else the config's, else the shader's default. Diamond state: key (a key within 50 ms), animated, still, or none.
+  - **What a change writes:** auto-key on → a key at the playhead (onto a key within 50 ms if there is one). Off → the spawn config; an animated property's whole curve **scales** by new / old at the playhead (handles too), or shifts where that value is 0, so a fade from 0 still starts at 0 (shifting, as first built, made a switched-off glow glow). A switch that's animated keys; a property with no config place (a custom prefab's material) keys either way (one key = a still value).
+  - **Live preview:** while a slider is dragged the runner shows the value through the same route as a track (`ScriptRunner.preview_param`, split out of `_apply_shader_param_track` as `_set_slot_param`) and skips that track (`held_params`); letting go commits one undo step. Config commits are structural, so the object respawns once on release (children too: checked).
+- **Model** (`EditModel`): `set_config` walks arrays (`["effects", 1, "params", "radius"]`), takes a label, and changes **every spawn of the object that has the same value** there as the first (forest_tunnel's `main_screen` spawns at 0 and 160 s). Effects stack: `add_effect` (names the shader in `shaders` if needed), `move_effect`, `set_effect_enabled`, `remove_effect`, `set_shader` (a layer's), `effect_slot`, `effects_of`, `config_of`, `spawn_indices`, `shader_key_of`. Every stack change renumbers the object's `effect<N>` tracks to follow their effect; a switched-off effect **keeps its tracks inside its entry** (`"tracks": [{param, keyframes}]`, validated; the player skips the entry, the importer warns it drops them) and gets them back when switched on; removing an effect removes its tracks.
+- **Hints:** `VisualizerShaders.parse_hints` also returns `colors` (`vec3` / `vec4` with `source_color`) and each uniform's `group` (`group_uniforms`) and source position, so fields come in the shader's order under its group names. `params` is unchanged for the player's own users (camera effects feed it to a float buffer).
+- **Inspector UI** (`studio/ui/inspector.tscn`, `StudioInspector`): one scene, a side panel on the desktop (right, 440 px) and in the headset a `Viewport2DIn3D` (0.42 × 0.6 m, 720 × 1030 px) 0.75 m away to the right of the selection (far enough right to clear it as you see it plus the panel's half-width, 32–60°), a little below eye height, facing you; placed on select and when shown, and again when you fly more than 2 m from it. Inside a SubViewport it switches to headset sizes itself (26 px text, 2× slider grabbers, targets ≥ about 2.5 cm, On / Off switches instead of checkboxes). Sections fold (Transform and Display open at first); the colour wheel (HSV wheel only) opens under its row and commits when closed; *+ Add effect* lists the built-ins and the piece's own effect shaders. Rebuilt only when the document or selection changes (deferred, never inside a control's signal, never while a change is pending); values and diamonds follow the playhead at 10 Hz. `reveal(key)` scrolls a row or the add menu into view.
+- **Controls:** `studio_toggle_inspector` (N; the wrist's *Inspector* button, which took *Deselect*'s place: the inspector's ✕ deselects). Status hints rewrapped to four lines so the status stays clear of the inspector. The camera effect leaves the headset inspector alone (`add_masked_panel`).
+- **Proof:** 206/206 tests (new `test_studio_inspector.gd`, 11: config across spawns and arrays, move / off-and-on / add / remove with renumbering and parking, the layer shader, colour hints and groups, fields and values for a screen, auto-key on / off / scaling / near keys / colours / config-only, curve scaling, diamonds, preview holding a track). `checks/drive_studio_m3.gd` (forest_tunnel copy) drives the inspector's own controls through their signals: radius 0.64 → 0.9 into both spawns (the screen respawns, `backdrop` comes back under it), the animated intensity scaled (0 stays 0), auto-key keying inner strength at 20 s, a diamond tap on and off, the tint on the wheel, *Rounded corners* added and moved up (edge blur's track goes effect3 → effect4), the oval mask off (its size track parked, the screen runs four effects) and on again, undo / redo, the headset panel, save (valid) and the **player** plays it with the new stack, radius and tint. The earlier checks print as before. Renders: `docs/studio/m3_studio.png`.
+- **Not verified (no headset):** pointer clicks and slider drags on the headset panel (XR Tools' pointer on a `Viewport2DIn3D`; the M2 Phase 4b question again), its size, distance and legibility, stick scrolling of it, and the colour wheel with a laser.
+- **Left for later:** a curve view for one property's bezier handles, per-key interpolation (M4's ribbon), user-library shaders in the add menu (M5 bundles them into the piece), a looks / presets shelf, typing exact numbers, and a minimal-diff writer (still re-stringified on save).
+
+## Next: M4, timeline ribbon
+Goal (see *Milestones*): retime a key to a beat by dragging; loop a passage.
 
 **Before starting**
-- If a headset turns up, run the M2 list under *Not verified* first; above all, pointer clicks on the wrist palette, since the inspector is all pointer UI.
+- If a headset turns up, run the M2 and M3 *Not verified* lists first; the ribbon is pointer UI too.
 
 **Steps**
-1. **Inspector panel** (`studio/ui/inspector.tscn`, a `Viewport2DIn3D` that follows the selection at arm's length, and a desktop side panel from the same scene): transform fields, then the object's config.
-2. **Hint-generated params:** reuse `camera_tab._param_control` for every hinted uniform of the object's shader and of each effect; colours get a colour wheel.
-3. **Effects stack:** add from a menu, reorder, enable / disable (`enabled: false`), remove; all through new `EditModel` commands with undo, structural where the runner must respawn.
-4. **Key diamonds:** filled = key at the playhead, hollow = animated, dot = static; tap to add / remove a key. With auto-key on, changing a value keys a `shader_param` track; off, it edits the spawn config (as transforms do in M2).
-5. **Display and modifiers:** curvature, opacity, render scale / resolution, tint, flash, speed, sort offset, reactive spin / pulse.
-6. **Prove it:** model tests for the new commands; a drive check that selects the screen in forest_tunnel, retunes the glow, adds and reorders an effect, keys a param, saves and plays it in the player; renders of the inspector on the desktop and the wrist.
+1. **Ribbon panel** (`studio/ui/timeline_ribbon.tscn`): in the headset a wide, gently curved `Viewport2DIn3D` band at waist height that you can move; on the desktop a strip along the bottom. A time axis with zoom (both hands / wheel) and scroll, the playhead (drag to scrub), and the time under it.
+2. **Waveform and beats:** the song's envelope drawn along the band, from the audio the beat detector already decodes (`BeatDetector._extract`: keep its envelopes for drawing), with beat and bar ticks from `Stage.beats` (the BeatGrid), and nudging the grid (tap tempo / offset: `BeatClock.shift_downbeat`, `scale_tempo`).
+3. **Lanes:** one per object (spawn → despawn bars from the events, children indented), cut markers, the selection's lane open with a row per animated property and its key diamonds.
+4. **Keys:** drag a diamond to retime it (`EditModel.move_key`, one undo step per drag; snaps to beats when snapping is on); tap to select it; an interpolation picker for the selected key (new `EditModel.set_key_interp`, with bezier presets ease-in / ease-out / overshoot); delete.
+5. **Loop region:** in / out handles on the ribbon; Studio's playback loops between them (the runner seeks back at the out point; the video follows through `Stage.seek_to`).
+6. **Prove it:** model tests (`set_key_interp`, move_key with beat snapping), a drive check that drags a key onto a beat, sets an interpolation, loops a passage and plays it in the player; renders of the ribbon on the desktop and in the world.
 
 ## Studio design
 
@@ -387,7 +399,7 @@ Each ends in something usable, with a clear "done when".
 | M0 ✅ | **Stage extraction** from `main.gd` (no behaviour change) | All tests pass and the checks match the previous version; the player works unchanged on a headset (not yet tried) |
 | M1 ✅ | **Studio skeleton**: open a piece, Play/Edit toggle, save, undo/redo, edit model with tests | Open forest_tunnel, toggle modes, save → the file is byte-identical when nothing changed |
 | M2 ✅ | **Select and move**: pick boxes, ray/direct grab, two-hand, snapping, auto-key, noclip flight, jump buttons, audience seat | Re-lay out moving_screen by hand, flying around it; auto-key keys play back right in the player |
-| M3 | **Inspector**: hint-generated params, effects stack, key diamonds, colour wheel | Retune a screen's glow and add/reorder effects without touching the desktop |
+| M3 ✅ | **Inspector**: hint-generated params, effects stack, key diamonds, colour wheel | Retune a screen's glow and add/reorder effects without touching the desktop |
 | M4 | **Timeline ribbon**: waveform, lanes, key diamonds, retime, loop region, interpolation picker | Retime a key to a beat by dragging; loop a passage |
 | M5 | **Asset shelf**: library, thumbnails, drag-to-spawn, bundling into the piece | Start from an empty piece and build a scene only from the shelf; the folder zips and plays elsewhere |
 | M6 | **Performance recording + beat snap** | Record a knob sweep to the music, punch-in a fix, and it plays back tight |
@@ -402,7 +414,7 @@ M1–M3 are the smallest thing that's already better than the desktop for layout
 **IN and FX don't depend on Studio**; IN should land before M2, since Studio's controls build on it. FX can be built any time, even before M0: it's a player feature, testable on the desktop first. Its first step is a headset check that `hint_screen_texture` works per eye with the quad approach.
 
 ### Prerequisites and risks
-- **Phase 4b headset checklist:** the wrist HUD, and pointer clicks in every menu tab, aren't recorded as confirmed. Still open after M2 (the wrist palette has buttons now); check before M3's inspector.
+- **Phase 4b headset checklist:** the wrist HUD, and pointer clicks in every menu tab, aren't recorded as confirmed. Still open after M3 (the wrist palette has buttons, and the inspector is all pointer UI); check before M4's ribbon.
 - ~~**Seeking back past a cut**~~: done in M1 (the Stage restores the cut in effect after a seek).
 - ~~**`_read_transform` in `script_runner.gd`**~~: fixed before M2 (rotation × local scale, tested).
 - **Performance with many edits:** a full reconcile per drag frame is too slow. The edit model has to patch the runner incrementally (M1 design point). Recording writes to a buffer and commits once at the end.
@@ -416,9 +428,23 @@ M1–M3 are the smallest thing that's already better than the desktop for layout
 - **Should Studio also open plain videos**, to start a new piece from a video file (create `clip.json` next to it)? I'd say yes. It's the natural "new piece" flow.
 
 ## Known issues
-- All 176 player tests pass, as does the round-trip test.
+- All 206 player tests pass, as does the round-trip test.
 - `scripts/forest_tunnel/video.json` is still a v1 export (bezier tracks baked to linear keys, within 0.001 of the curves). Its events match the current scene; re-export from the editor for the exact curves and format v2.
 - `scripts/minimal` has no objects, so the exporter refuses it (by design). The round-trip test skips it.
+
+## Working locally on Windows
+The user's machine has Godot 4.7.2 (Chocolatey) and a GPU, but no headset connected. `tools/local/run.sh` (Git Bash) is the counterpart of `tools/cloud/run.sh`: same checks, same patched copy, rendered on the real GPU.
+
+```
+bash ci/fetch_addons.sh                               # once: XR Tools (then the 4.7 patch from tools/cloud/setup.sh)
+tools/local/run.sh checks/drive_studio_m3.gd          # rendered -> $WORK/shots (default %TEMP%/vj_local)
+HEADLESS=1 tools/local/run.sh checks/drive.gd
+tools/local/run.sh tests                              # the player tests, in the copy
+```
+
+- **The player's user data here is the user's own** (`%APPDATA%/Godot/app_userdata/Scripted VJ Video Player`: their settings and presets), and they may have their own editor and player running on another checkout meanwhile. The copy uses its own user dir (`%APPDATA%/VJ checks`), which is the one to reset between runs; never delete the real one (the cloud notes below say to delete the user data before a check: here that means `VJ checks` only). Running the tests straight in `project_engine` leaves their temp files in the real folder.
+- Call Godot's console build directly (the script does): a `timeout` on Chocolatey's `godot.exe` shim leaves the real process running. Check a Godot process's command line before stopping it.
+- A Python heredoc through the Bash tool can turn `\n` into a real newline and breaks on apostrophes; write such scripts to a file first.
 
 ## Working in the cloud container
 The container has no Godot, no GPU and no headset. Two scripts set everything up and run checks against the real player (all state in `$WORK`, default `/tmp/vj_cloud`; point it at the scratchpad if preferred):
@@ -430,7 +456,7 @@ HEADLESS=1 tools/cloud/run.sh checks/drive.gd         # no rendering
 tools/cloud/sheet.sh out.png a.png b.png ...          # contact sheet to send the user
 ```
 
-- **Checks** (`tools/cloud/checks/`): `drive.gd` (every command, keys, contexts), `drive_stage.gd` (a script's cuts and fade, seeking past cuts, looks, projection, reset view), `drive_studio.gd` (Studio end to end, see *Studio skeleton*; rendered it shoots `studio_*.png`), `drive_controls.gd` (rebinding), `drive_script_fx.gd` (script camera effect, limits), `shot_fx.gd` (each camera effect over a test card, menu mask), `shot_ui.gd` (Camera tab effect section, compile error, Config tab), `shot_controls.gd` (Controls tab; `SCROLL=1` for the bottom). Copy one to write a new check: a `SceneTree` script that instantiates `res://player/main.tscn`, waits a few frames, drives it (the player shell is `main`, the rendering core `main.stage`), and saves `root.get_texture().get_image()` (the 3D view) or a panel's `content.get_viewport()` image (open it first with `floating_panel.toggle()`: a hidden panel doesn't redraw).
+- **Checks** (`tools/cloud/checks/`): `drive.gd` (every command, keys, contexts), `drive_stage.gd` (a script's cuts and fade, seeking past cuts, looks, projection, reset view), `drive_studio.gd` (Studio end to end, see *Studio skeleton*; rendered it shoots `studio_*.png`), `drive_studio_m2.gd` (select and move), `drive_studio_m3.gd` (the inspector), `drive_controls.gd` (rebinding), `drive_script_fx.gd` (script camera effect, limits), `shot_fx.gd` (each camera effect over a test card, menu mask), `shot_ui.gd` (Camera tab effect section, compile error, Config tab), `shot_controls.gd` (Controls tab; `SCROLL=1` for the bottom). Copy one to write a new check: a `SceneTree` script that instantiates `res://player/main.tscn`, waits a few frames, drives it (the player shell is `main`, the rendering core `main.stage`), and saves `root.get_texture().get_image()` (the 3D view) or a panel's `content.get_viewport()` image (open it first with `floating_panel.toggle()`: a hidden panel doesn't redraw).
 - **Checks share the player's user data** (`~/.local/share/godot/app_userdata/Scripted VJ Video Player`: settings, presets, bindings) and some change it, so delete that folder before each check when comparing runs, and never run two checks at once (they also share `$WORK/engine_copy`; give a second run its own `WORK`).
 - **Comparing with an earlier version:** `git worktree add <dir> <commit>`, copy `project_engine/addons/godot-xr-tools` into it, and run its own `tools/cloud/run.sh` with a separate `WORK`. Animated camera effects never render the same twice; compare those by eye.
 - **Why a copy:** `run.sh` copies `project_engine` to `$WORK/engine_copy` and makes the gde_gozen classes dynamic (`ClassDB.instantiate`), since there's no Linux decoder build and `main.gd` wouldn't compile otherwise. The screen shows a placeholder instead of video (checks can put a test image on it with `set_source_texture`). Never commit that patch.

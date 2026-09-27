@@ -374,6 +374,8 @@ static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> void:
 	_set_params(mat, e.get("params", {}))
 	effect.material = mat
 	effect.enabled = e.get("enabled", true) != false
+	if typeof(e.get("tracks")) == TYPE_ARRAY and not e["tracks"].is_empty():
+		ctx.warn("'%s': the switched-off %s effect's kept animation is dropped (switch it on in Studio first to keep it)" % [node.name, key])
 	node.add_child(effect)
 	effect.owner = ctx.root
 

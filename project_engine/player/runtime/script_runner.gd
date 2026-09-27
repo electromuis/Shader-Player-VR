@@ -61,6 +61,9 @@ const CAMERA_TARGET := "$camera"
 ## ids an editor is holding (dragging): their transform tracks and
 ## reactive motion aren't applied, so the editor's live move shows.
 var held: Dictionary = {}
+## "<id>.<slot>:<param>" an editor is dragging a control for: its
+## shader_param track isn't applied (see preview_param).
+var held_params: Dictionary = {}
 ## slot ("effect0") -> {param: value} from `$camera` tracks at the playhead.
 var _camera_params: Dictionary = {}
 var _mods_lookup := func(n: Node) -> Dictionary: return n.get_meta(_MODS_META, {})
@@ -613,6 +616,9 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 	if parts[0] == CAMERA_TARGET:
 		_apply_camera_track(parts[1], track)
 		return
+	var param: String = String(track.get("param", ""))
+	if held_params.has(target_path + ":" + param):
+		return
 	var node := _registry.get_node_by_id(parts[0])
 	if node == null:
 		return
@@ -620,9 +626,34 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 	var value = Interpolation.evaluate(kfs, playhead)
 	if value == null:
 		return
-	var param: String = String(track.get("param", ""))
+	_set_slot_param(parts[0], node, parts[1], param, value)
+
+
+## Show `value` for `param` of `id`'s `slot` now ("display", "effect1",
+## "modifiers", ...), as a track would set it; an editor's live preview
+## while a control is dragged (hold it with held_params so tracks don't
+## write over it).
+func preview_param(id: String, slot: String, param: String, value: Variant) -> void:
+	var node := _registry.get_node_by_id(id)
+	if node != null and is_instance_valid(node):
+		_set_slot_param(id, node, slot, param, value)
+
+
+## The material a `<id>.surface` track sets params on, for a node that
+## routes by slot itself (set_material_param) or not; null if none.
+static func surface_material(node: Node) -> ShaderMaterial:
+	if node.has_method("get_shader_material"):
+		return node.call("get_shader_material")
+	if node is GeometryInstance3D:
+		var active: Material = (node as GeometryInstance3D).get_active_material(0)
+		if active is ShaderMaterial:
+			return active
+	return null
+
+
+func _set_slot_param(id: String, node: Node, slot: String, param: String, value: Variant) -> void:
 	value = shader_value(value)
-	if parts[1] == "modifiers":
+	if slot == "modifiers":
 		var mods: Dictionary = node.get_meta(_MODS_META, {}).duplicate()
 		value = Modifiers.normalize(param, value)
 		if mods.get(param) != value:
@@ -630,23 +661,17 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 			node.set_meta(_MODS_META, mods)
 			Modifiers.refresh(node, _mods_lookup)
 		return
-	if parts[1] == "reactive":
-		if _reactive.has(parts[0]) and param == "pulse":
-			_reactive[parts[0]].pulse = float(value)
+	if slot == "reactive":
+		if _reactive.has(id) and param == "pulse":
+			_reactive[id].pulse = float(value)
 		return  # spin is integrated from its keyframes in _reactive_end
 	# Prefabs with several materials (e.g. Screen: artist shader + display
 	# pass) route by slot name. Otherwise prefer a get_shader_material()
 	# hook, then fall back to GeometryInstance3D's active material.
 	if node.has_method("set_material_param"):
-		node.call("set_material_param", parts[1], param, value)
+		node.call("set_material_param", slot, param, value)
 		return
-	var mat: ShaderMaterial = null
-	if node.has_method("get_shader_material"):
-		mat = node.call("get_shader_material")
-	elif node is GeometryInstance3D:
-		var active: Material = (node as GeometryInstance3D).get_active_material(0)
-		if active is ShaderMaterial:
-			mat = active
+	var mat := surface_material(node)
 	if mat != null:
 		mat.set_shader_parameter(param, value)
 

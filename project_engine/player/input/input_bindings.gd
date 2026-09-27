@@ -96,6 +96,7 @@ const COMMANDS := {
 	"studio_goto_selection": {"label": "Go to the selection", "context": "studio_edit", "app": "studio"},
 	"studio_jump_back": {"label": "Back to where you were", "context": "studio_edit", "app": "studio"},
 	"studio_deselect": {"label": "Deselect", "context": "studio_edit", "app": "studio"},
+	"studio_toggle_inspector": {"label": "Show / hide the inspector", "context": "studio_edit", "app": "studio"},
 	"studio_fly": {"label": "Fly", "context": "studio_edit", "kind": "axis", "app": "studio"},
 	"studio_right_stick": {"label": "Turn, rise / sink; while grabbing: push / pull", "context": "studio_edit", "kind": "axis", "app": "studio"},
 }
@@ -143,6 +144,7 @@ const DEFAULTS := {
 	"studio_goto_selection": [{"input": "key:F"}],
 	"studio_jump_back": [{"input": "key:Shift+F"}],
 	"studio_deselect": [{"input": "key:Escape"}],
+	"studio_toggle_inspector": [{"input": "key:N"}],
 	"studio_fly": [{"input": "L.stick"}],
 	"studio_right_stick": [{"input": "R.stick"}],
 }

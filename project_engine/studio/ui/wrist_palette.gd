@@ -6,7 +6,7 @@ extends PanelContainer
 ## controllers don't have a button for. Press them with the right laser.
 ## Each button asks Studio to run a command (`action`, the same ids as the
 ## router's Studio commands); toggles show their state (auto-key red,
-## snapping blue) via show_toggles().
+## snapping and the inspector blue) via show_toggles().
 
 signal action(id: StringName)
 
@@ -25,7 +25,7 @@ const BUTTONS := [
 	[&"studio_seat", "Seat", false],
 	[&"studio_goto_selection", "Go to it", false],
 	[&"studio_jump_back", "Back", false],
-	[&"studio_deselect", "Deselect", false],
+	[&"studio_toggle_inspector", "Inspector", true],
 ]
 
 var status: StudioStatus
@@ -65,12 +65,14 @@ func _ready() -> void:
 		_buttons[b[0]] = button
 
 
-## Auto-key and snapping as they are in Studio (not what a click toggled).
-func show_toggles(auto_key: bool, snap: bool) -> void:
+## Auto-key, snapping and the inspector as they are in Studio (not what a
+## click toggled).
+func show_toggles(auto_key: bool, snap: bool, inspector: bool = false) -> void:
 	if _buttons.is_empty():
 		return
 	_buttons[&"studio_toggle_autokey"].set_pressed_no_signal(auto_key)
 	_buttons[&"studio_toggle_snap"].set_pressed_no_signal(snap)
+	_buttons[&"studio_toggle_inspector"].set_pressed_no_signal(inspector)
 
 
 func _style(state: String, id: StringName) -> StyleBoxFlat:

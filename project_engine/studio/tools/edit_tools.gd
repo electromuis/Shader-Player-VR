@@ -19,6 +19,8 @@ extends Node3D
 ## so the live move shows even where tracks animate it.
 
 signal said(text: String)
+## The selection changed (to "" when nothing is selected).
+signal selection_changed(id: String)
 
 const SELECT_COLOR := Color(0.3, 0.79, 0.94)
 const GRAB_COLOR := Color(1.0, 0.85, 0.3)
@@ -94,6 +96,7 @@ func select(id: String) -> void:
 	_bounds_cache.clear()
 	if id != "":
 		_say("Selected %s." % id)
+	selection_changed.emit(id)
 
 
 # ---------- grabbing ----------

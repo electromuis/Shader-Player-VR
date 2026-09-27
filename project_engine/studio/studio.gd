@@ -18,6 +18,12 @@ extends Node3D
 ## On the desktop the mouse does the same: click selects, drag moves (the
 ## wheel pushes / pulls while dragging).
 ##
+## The inspector (StudioInspector) shows the selection's settings: display,
+## the layer's shader, the effects stack, modifiers and reactive motion,
+## with a key diamond per property. On the desktop it's a side panel; in
+## the headset a panel beside the selection, placed when you select
+## something (or show it again) and turned toward you.
+##
 ## Command line (after `--`): --piece <script.json, or a video with a
 ## same-name .json next to it>, --start <seconds>, --vr, --desktop.
 
@@ -34,12 +40,26 @@ const WRIST_PIXELS := Vector2(780, 840)
 const PUSH_SPEED := 2.5
 ## Desktop: a mouse wheel notch pushes / pulls this far.
 const WHEEL_PUSH := 0.25
+const INSPECTOR_SCENE := preload("res://studio/ui/inspector.tscn")
+const VP2D3D_SCENE := preload("res://addons/godot-xr-tools/objects/viewport_2d_in_3d.tscn")
+## The headset inspector's size in metres and pixels, and where it goes:
+## this far from your head, turned right of the selection (enough to clear
+## it as you see it, within these angles), a little below eye height. It's
+## placed again when you're further than INSPECTOR_REPLACE from it.
+const INSPECTOR_SIZE := Vector2(0.42, 0.6)
+const INSPECTOR_PIXELS := Vector2(720, 1030)
+const INSPECTOR_DISTANCE := 0.75
+const INSPECTOR_ANGLE := 32.0
+const INSPECTOR_MAX_ANGLE := 60.0
+const INSPECTOR_DROP := 0.12
+const INSPECTOR_REPLACE := 2.0
 
 enum Mode { PLAY, EDIT }
 
 @onready var stage: Stage = $Stage
 @onready var runner: ScriptRunner = $Stage/ScriptRunner
 @onready var status_view: StudioStatus = $UI/Status
+@onready var inspector: StudioInspector = $UI/Inspector
 
 ## The piece being edited; null until one is open.
 var model: EditModel
@@ -55,6 +75,12 @@ var _cli_desktop: bool = false
 var _wrist: StudioWristPalette
 var tools: StudioEditTools
 var flight: StudioFlight
+var edits: StudioConfigEdits
+## Whether the inspector shows (with something selected, in Edit).
+var inspector_on := true
+## The headset's inspector: its panel and the inspector inside it.
+var inspector_panel: XRToolsViewport2DIn3D
+var _inspector_vr: StudioInspector
 ## Where the viewer was before the last Seat / Go to it jump (for Back).
 var _back_pose: Dictionary = {}
 var _mouse_down := false
@@ -91,6 +117,11 @@ func _ready() -> void:
 	flight.router = stage.router
 	flight.rig = stage.xr_rig
 	add_child(flight)
+	edits = StudioConfigEdits.new()
+	edits.runner = runner
+	_bind_inspector(inspector)
+	tools.selection_changed.connect(_on_selection_changed)
+	_make_inspector_panel()
 	set_mode(Mode.EDIT)
 
 	if _cli_piece != "":
@@ -108,6 +139,7 @@ func _process(delta: float) -> void:
 	_scrub(delta)
 	_follow_hands(delta)
 	_show_status()
+	_keep_inspector_near()
 
 
 ## Open a script (or a video with its sidecar script) for editing. Returns
@@ -130,6 +162,7 @@ func open_piece(path: String) -> bool:
 	model = r.model
 	model.changed.connect(_on_model_changed)
 	tools.model = model
+	edits.model = model
 	runner.load_timeline(model.timeline())
 	runner.pause()
 	stage.seek_to(_cli_start)
@@ -155,6 +188,7 @@ func _apply_mode() -> void:
 			tools.cancel()
 		tools.visible = editing
 		flight.enabled = editing and stage.xr_mode.is_in_vr()
+		_show_inspector()
 
 
 func save() -> bool:
@@ -184,6 +218,8 @@ func _on_model_changed(structural: bool) -> void:
 	var data := model.timeline()
 	if data != null:
 		runner.apply_edit(data, structural)
+	for view in _inspectors():
+		view.request_rebuild()
 
 
 func _on_command(id: StringName) -> void:
@@ -223,6 +259,11 @@ func _on_command(id: StringName) -> void:
 		&"studio_jump_back": _jump_back()
 		&"studio_deselect":
 			tools.select("")
+		&"studio_toggle_inspector":
+			inspector_on = not inspector_on
+			if inspector_on:
+				_place_inspector_panel()
+			_show_inspector()
 
 
 func _on_command_released(id: StringName) -> void:
@@ -321,6 +362,115 @@ func _unhandled_input(event: InputEvent) -> void:
 		tools.move_hand("M", _mouse_hand())
 
 
+# ---------- the inspector ----------
+
+func _bind_inspector(view: StudioInspector) -> void:
+	view.edits = edits
+	view.tools = tools
+	view.said.connect(_say)
+	view.close_requested.connect(func(): tools.select(""))
+	view.show_object(tools.selected)
+
+
+func _inspectors() -> Array:
+	var out: Array = [inspector]
+	if _inspector_vr != null and is_instance_valid(_inspector_vr):
+		out.append(_inspector_vr)
+	return out
+
+
+func _make_inspector_panel() -> void:
+	inspector_panel = VP2D3D_SCENE.instantiate()
+	inspector_panel.name = "InspectorPanel"
+	inspector_panel.scene = INSPECTOR_SCENE
+	inspector_panel.viewport_size = INSPECTOR_PIXELS
+	inspector_panel.screen_size = INSPECTOR_SIZE
+	inspector_panel.material = FloatingPanel.ui_material()
+	inspector_panel.visible = false
+	add_child(inspector_panel)
+	var sub := inspector_panel.get_node_or_null("Viewport") as SubViewport
+	if sub != null:
+		sub.gui_embed_subwindows = true
+	stage.add_masked_panel(inspector_panel)
+
+
+## The inspector inside the headset panel, bound once it exists (the panel
+## makes its scene a frame or two after it's ready).
+func _vr_inspector() -> StudioInspector:
+	if _inspector_vr != null and is_instance_valid(_inspector_vr):
+		return _inspector_vr
+	var sub := inspector_panel.get_node_or_null("Viewport") as SubViewport if inspector_panel != null else null
+	if sub == null or sub.get_child_count() == 0:
+		return null
+	_inspector_vr = sub.get_child(0) as StudioInspector
+	if _inspector_vr != null:
+		_bind_inspector(_inspector_vr)
+	return _inspector_vr
+
+
+func _on_selection_changed(id: String) -> void:
+	for view in _inspectors():
+		view.show_object(id)
+	if id != "":
+		_place_inspector_panel()
+	_show_inspector()
+
+
+## Desktop panel or headset panel: in Edit, with something selected, while
+## it's on.
+func _show_inspector() -> void:
+	if inspector == null or tools == null:
+		return
+	var show := mode == Mode.EDIT and inspector_on and tools.selected != ""
+	var in_vr := stage.xr_mode.is_in_vr()
+	inspector.visible = show and not in_vr
+	if inspector_panel != null:
+		if show and in_vr and not inspector_panel.visible:
+			_place_inspector_panel()
+		inspector_panel.visible = show and in_vr
+
+
+## Beside the selection as you see it: INSPECTOR_DISTANCE from your head,
+## to the right of the line to it, turned to face you.
+func _place_inspector_panel() -> void:
+	if inspector_panel == null:
+		return
+	var head := stage.viewer_transform()
+	var toward := -head.basis.z
+	var angle := INSPECTOR_ANGLE
+	var node := runner.registry().get_node_by_id(tools.selected) if tools.selected != "" else null
+	if node != null and is_instance_valid(node):
+		var box := StudioPicker.local_bounds(node)
+		var center := node.global_transform * box.get_center() if box.size != Vector3.ZERO else node.global_transform.origin
+		toward = center - head.origin
+		# Clear the object: its half-width as you see it, plus the panel's.
+		var half := (node.global_transform.basis * box.size).length() * 0.5
+		var dist := Vector2(toward.x, toward.z).length()
+		if dist > half:
+			angle = clampf(rad_to_deg(asin(half / dist) + atan(INSPECTOR_SIZE.x * 0.5 / INSPECTOR_DISTANCE)) + 4.0, INSPECTOR_ANGLE, INSPECTOR_MAX_ANGLE)
+		else:
+			angle = INSPECTOR_MAX_ANGLE  # inside it: off to the side
+	toward.y = 0.0
+	if toward.length() < 0.01:
+		toward = Vector3(0, 0, -1)
+	toward = toward.normalized().rotated(Vector3.UP, -deg_to_rad(angle))
+	var at := head.origin + toward * INSPECTOR_DISTANCE - Vector3(0, INSPECTOR_DROP, 0)
+	# The quad's front is +Z: look away from the head.
+	inspector_panel.global_transform = Transform3D(Basis.looking_at(at - head.origin, Vector3.UP), at)
+	var view := _vr_inspector()
+	if view != null:
+		view.show_object(tools.selected)
+
+
+## After flying off (or jumping), bring the headset panel along.
+func _keep_inspector_near() -> void:
+	_vr_inspector()
+	if inspector_panel == null or not inspector_panel.visible:
+		return
+	if stage.viewer_transform().origin.distance_to(inspector_panel.global_transform.origin) > INSPECTOR_REPLACE:
+		_place_inspector_panel()
+
+
 # ---------- getting around ----------
 
 func _remember_pose() -> void:
@@ -412,7 +562,7 @@ func _show_status() -> void:
 			_wrist.action.connect(_on_command)
 	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
 		_wrist.status.callv("show_state", args)
-		_wrist.show_toggles(tools.auto_key, tools.snap)
+		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on)
 
 
 func _piece_name() -> String:

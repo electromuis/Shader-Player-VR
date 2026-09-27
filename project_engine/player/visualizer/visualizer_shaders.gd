@@ -154,10 +154,24 @@ static func hints_for(key: String) -> Dictionary:
 
 ## {resolution: Vector2i (ZERO = none given, x 0 = height only), channels: {index: source}
 ## (always has 0), params: [{name, type ("float" / "int" / "bool"), min,
-## max, step, default}]} from shader source. Only uniforms with a
-## hint_range, and bools, become params; unknown channel sources are skipped.
+## max, step, default, group, at}], colors: [{name, alpha, default (Color),
+## group, at}]} from shader source. Only uniforms with a hint_range, and bools,
+## become params; `vec3` / `vec4` uniforms with source_color become colors
+## (alpha: a vec4). `group` is the group_uniforms section a uniform is in
+## ("" outside any); `at` its place in the source, to list both in order.
+## Unknown channel sources are skipped.
 static func parse_hints(code: String) -> Dictionary:
-	var out := {"resolution": Vector2i.ZERO, "channels": {0: "audio"}, "params": []}
+	var out := {"resolution": Vector2i.ZERO, "channels": {0: "audio"}, "params": [], "colors": []}
+	var groups: Array = []  # [[position, name]], in source order
+	for g in RegEx.create_from_string("(?m)^\\s*group_uniforms\\s*(\\w*)[^;]*;").search_all(code):
+		groups.append([g.get_start(), g.get_string(1)])
+	var group_at := func(pos: int) -> String:
+		var name := ""
+		for g in groups:
+			if g[0] > pos:
+				break
+			name = g[1]
+		return name
 	var res_re := RegEx.create_from_string("@resolution\\s+(\\d+)(?:\\s*[xX×]\\s*(\\d+))?")
 	var m := res_re.search(code)
 	if m != null:
@@ -177,7 +191,7 @@ static func parse_hints(code: String) -> Dictionary:
 		var type := u.get_string(1)
 		if u.get_string(2) in CHAIN_INPUTS:
 			continue
-		var p := {"name": u.get_string(2), "type": type}
+		var p := {"name": u.get_string(2), "type": type, "group": group_at.call(u.get_start()), "at": u.get_start()}
 		var default_src := u.get_string(4).strip_edges()
 		if type == "bool":
 			p.default = default_src == "true"
@@ -191,6 +205,22 @@ static func parse_hints(code: String) -> Dictionary:
 			p.step = _eval(nums[2], 0.0) if nums.size() > 2 else (1.0 if type == "int" else 0.01)
 			p.default = _eval(default_src, p.min) if default_src != "" else p.min
 		out.params.append(p)
+	var color_re := RegEx.create_from_string(
+			"(?m)^\\s*uniform\\s+(vec3|vec4)\\s+(\\w+)\\s*:[^=;]*source_color[^=;]*(?:=\\s*([^;]+))?;")
+	for u in color_re.search_all(code):
+		var alpha := u.get_string(1) == "vec4"
+		var c := Color(1, 1, 1, 1)
+		var src := u.get_string(3).strip_edges()
+		var open := src.find("(")
+		if open >= 0 and src.ends_with(")"):
+			var nums := src.substr(open + 1, src.length() - open - 2).split(",")
+			if nums.size() == 1:  # vec3(1.0): every component
+				var x := _eval(nums[0], 1.0)
+				c = Color(x, x, x, x if alpha else 1.0)
+			elif nums.size() >= 3:
+				c = Color(_eval(nums[0], 1.0), _eval(nums[1], 1.0), _eval(nums[2], 1.0),
+						_eval(nums[3], 1.0) if alpha and nums.size() > 3 else 1.0)
+		out.colors.append({"name": u.get_string(2), "alpha": alpha, "default": c, "group": group_at.call(u.get_start()), "at": u.get_start()})
 	return out
 
 

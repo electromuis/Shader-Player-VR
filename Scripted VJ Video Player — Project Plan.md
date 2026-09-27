@@ -206,7 +206,7 @@ my-video-script/
 Two track kinds:
 
 - **Continuous tracks** — `transform`, `shader_param`. Interpolated every frame between keyframes. A key's `interp` shapes the segment after it: `linear` (default), `step` (hold), `ease` (smoothstep, easing out of and into each key), `cubic` (a spline through the keys, Godot's cubic value-track interpolation) or `bezier` (Godot's bezier curve, from the key's `out` handle and the next key's `in` handle, each `[dt, dv]` relative to its key, or one per element for array values). Format version 2 added `ease` and `bezier` and changed `cubic`: version 1's `cubic` was the smoothstep, so version 1 scripts load with it read as `ease`.
-- A screen's or layer's `config.effects` entry with `"enabled": false` is kept in the file (for editors) but skipped by the player, and doesn't count towards `effect<N>`.
+- A screen's or layer's `config.effects` entry with `"enabled": false` is kept in the file (for editors) but skipped by the player, and doesn't count towards `effect<N>`. It may keep its own `shader_param` tracks inside it, `"tracks": [{"param", "keyframes", ...}]` (no `type` / `target`), so switching it back on brings its animation back; Studio does this, the player ignores them.
 - **Discrete events** — `spawn`, `despawn`, `vr_cut`, `vr_teleport`. Fired at their exact time. Seeking or a live reload rebuilds what exists at the playhead; an object whose spawn event changed (config, transform, parent) is respawned.
 
 Special references:

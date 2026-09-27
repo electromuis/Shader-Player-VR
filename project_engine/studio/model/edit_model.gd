@@ -197,6 +197,56 @@ func spawn_index(id: String) -> int:
 	return -1
 
 
+## Indices in tracks() of every spawn event of `id` (a piece can bring an
+## object back later), in file order.
+func spawn_indices(id: String) -> Array:
+	var out: Array = []
+	var list := tracks()
+	for i in list.size():
+		if list[i].get("type") == "event" and list[i].get("action") == "spawn" and list[i].get("id") == id:
+			out.append(i)
+	return out
+
+
+## `id`'s spawn config as the file has it (its first spawn's), to read;
+## {} if it has none.
+func config_of(id: String) -> Dictionary:
+	var i := spawn_index(id)
+	var cfg = tracks()[i].get("config") if i >= 0 else null
+	return cfg if typeof(cfg) == TYPE_DICTIONARY else {}
+
+
+## `id`'s effect list (switched-off effects included), to read.
+func effects_of(id: String) -> Array:
+	var effects = config_of(id).get("effects")
+	return effects if typeof(effects) == TYPE_ARRAY else []
+
+
+## Effect `i`'s `effect<N>` slot: its place among the switched-on effects
+## (what `shader_param` tracks target), -1 if it's off or not there.
+static func effect_slot(effects: Array, i: int) -> int:
+	if i < 0 or i >= effects.size() or not _effect_on(effects[i]):
+		return -1
+	var n := 0
+	for k in i:
+		if _effect_on(effects[k]):
+			n += 1
+	return n
+
+
+static func _effect_on(e) -> bool:
+	return typeof(e) == TYPE_DICTIONARY and e.get("enabled", true) != false
+
+
+## The key in `shaders` that names `shader_path`, or "" if none does.
+func shader_key_of(shader_path: String) -> String:
+	var shaders = _doc.get("shaders", {})
+	for k in shaders:
+		if shaders[k] == shader_path:
+			return k
+	return ""
+
+
 ## The transform or shader_param track for `target` and `name` (a channel
 ## for transforms, a param for shader params), -1 if none.
 func find_track(type: String, target: String, name: String) -> int:
@@ -235,43 +285,248 @@ func set_keyframes(ti: int, kfs: Array, label: String = "") -> bool:
 
 
 ## A value in `id`'s spawn config: `key` is a field ("opacity") or a path
-## into it (["modifiers", "tint"]). A null value removes it.
-func set_config(id: String, key, value) -> bool:
-	var i := spawn_index(id)
-	if i < 0:
-		return false
+## into it (["modifiers", "tint"], ["effects", 1, "params", "radius"]). A
+## null value removes it. Every spawn of `id` that has the same value there
+## as the first spawn changes with it (an object that comes back later is
+## the same object); one that was given a value of its own keeps it.
+func set_config(id: String, key, value, label: String = "") -> bool:
 	var keys: Array = key if typeof(key) == TYPE_ARRAY else [key]
-	if keys.is_empty():
+	var changes = _config_changes(id, keys, value)
+	if changes == null:
 		return false
-	var p: Array = ["tracks", i, "config"]
-	# Create missing parents along the way (as part of the same command).
+	if label == "":
+		label = "Set %s %s" % [id, ".".join(keys.map(func(k): return str(k)))]
+	return _do(label, true, changes)
+
+
+## set_config's changes, or null if it doesn't apply.
+func _config_changes(id: String, keys: Array, value):
+	var spawns := spawn_indices(id)
+	if spawns.is_empty() or keys.is_empty():
+		return null
+	var first := JSON.stringify(_value_at(["tracks", spawns[0], "config"] + keys))
 	var changes: Array = []
+	for i in spawns:
+		if i != spawns[0] and JSON.stringify(_value_at(["tracks", i, "config"] + keys)) != first:
+			continue
+		var c = _config_change(i, keys, value)
+		if c == null:
+			if i == spawns[0]:
+				return null
+			continue
+		changes.append(c)
+	return changes
+
+
+## The change that puts `value` at `keys` in spawn `i`'s config (null:
+## removes it), or null if it can't (an array index that isn't there).
+## Missing parent objects are made: then the whole config is replaced.
+func _config_change(i: int, keys: Array, value):
+	var p: Array = ["tracks", i, "config"]
 	var node = _value_at(p)
-	for k in keys.slice(0, keys.size() - 1):
-		if node == null or typeof(node) != TYPE_DICTIONARY:
-			return _set_config_whole(id, i, keys, value)
-		p = p + [k]
-		node = node.get(k)
-	if node == null or typeof(node) != TYPE_DICTIONARY:
-		return _set_config_whole(id, i, keys, value)
-	p = p + [keys.back()]
-	changes.append(_change(p, value) if value != null else _removal(p))
-	return _do("Set %s %s" % [id, ".".join(keys.map(func(k): return str(k)))], true, changes)
-
-
-## set_config where a parent dictionary is missing: build the config anew.
-func _set_config_whole(id: String, i: int, keys: Array, value) -> bool:
+	var whole := typeof(node) != TYPE_DICTIONARY
+	if not whole:
+		for k in keys.slice(0, keys.size() - 1):
+			var child = _value_at(p + [k])
+			if typeof(child) != TYPE_DICTIONARY and typeof(child) != TYPE_ARRAY:
+				whole = true
+				break
+			p = p + [k]
+			node = child
+	if not whole:
+		if typeof(node) == TYPE_ARRAY and not _has_path(p + [keys.back()]):
+			return null
+		p = p + [keys.back()]
+		return _change(p, value) if value != null else _removal(p)
 	if value == null:
-		return false  # nothing to remove
+		return null  # nothing there to remove
 	var cfg = _value_at(["tracks", i, "config"])
 	cfg = cfg.duplicate(true) if typeof(cfg) == TYPE_DICTIONARY else {}
-	var node: Dictionary = cfg
+	var at = cfg
 	for k in keys.slice(0, keys.size() - 1):
-		if typeof(node.get(k)) != TYPE_DICTIONARY:
-			node[k] = {}
-		node = node[k]
-	node[keys.back()] = value
-	return _do("Set %s %s" % [id, ".".join(keys.map(func(k): return str(k)))], true, [_change(["tracks", i, "config"], cfg)])
+		if typeof(at) == TYPE_ARRAY:
+			if typeof(k) != TYPE_INT or k < 0 or k >= at.size() or typeof(at[k]) not in [TYPE_DICTIONARY, TYPE_ARRAY]:
+				return null
+		elif typeof(at.get(k)) not in [TYPE_DICTIONARY, TYPE_ARRAY]:
+			at[k] = {}
+		at = at[k]
+	if typeof(at) == TYPE_ARRAY:
+		return null
+	at[keys.back()] = value
+	return _change(["tracks", i, "config"], cfg)
+
+
+# ---------- the effects stack ----------
+# Effects are addressed by their place in the list (switched-off ones
+# included). Tracks address the switched-on ones by `<id>.effect<N>`, so
+# every change here renumbers them to follow their effect. A switched-off
+# effect keeps its tracks inside its entry ("tracks": [{param, keyframes,
+# ...}]; the player skips it whole), and switching it back on puts them
+# back. Removing an effect removes its tracks. Every spawn of the object
+# with the same effect list as the first changes with it.
+
+## Add the effect at `shader_path` to `id`'s list (at `at`, else the end),
+## naming it in `shaders` if nothing does yet.
+func add_effect(id: String, shader_path: String, params: Dictionary = {}, at: int = -1) -> bool:
+	if shader_path == "" or spawn_index(id) < 0:
+		return false
+	var extra: Array = []
+	var key := _shader_key_for(shader_path, extra)
+	var entries := _effect_entries(id)
+	if at < 0 or at > entries.size():
+		at = entries.size()
+	entries.insert(at, [-1, {"shader": key, "params": params}])
+	return _rework_effects(id, "Add %s to %s" % [key, id], entries, extra)
+
+
+## Move effect `from` to place `to` in the list.
+func move_effect(id: String, from: int, to: int) -> bool:
+	var entries := _effect_entries(id)
+	if from < 0 or from >= entries.size() or to < 0 or to >= entries.size() or from == to:
+		return false
+	var e = entries.pop_at(from)
+	entries.insert(to, e)
+	return _rework_effects(id, "Move %s's %s %s" % [id, e[1].get("shader", "effect"), "up" if to < from else "down"], entries)
+
+
+func set_effect_enabled(id: String, i: int, on: bool) -> bool:
+	var entries := _effect_entries(id)
+	if i < 0 or i >= entries.size() or _effect_on(entries[i][1]) == on:
+		return false
+	if on:
+		entries[i][1].erase("enabled")
+	else:
+		entries[i][1]["enabled"] = false
+	return _rework_effects(id, "Turn %s's %s %s" % [id, entries[i][1].get("shader", "effect"), "on" if on else "off"], entries)
+
+
+## Remove effect `i` (and its tracks).
+func remove_effect(id: String, i: int) -> bool:
+	var entries := _effect_entries(id)
+	if i < 0 or i >= entries.size():
+		return false
+	var e = entries.pop_at(i)
+	return _rework_effects(id, "Remove %s's %s" % [id, e[1].get("shader", "effect")], entries)
+
+
+## [[index in the current list, a copy of the entry]] for `id`'s effects.
+func _effect_entries(id: String) -> Array:
+	var out: Array = []
+	var effects := effects_of(id)
+	for i in effects.size():
+		out.append([i, effects[i].duplicate(true) if typeof(effects[i]) == TYPE_DICTIONARY else {}])
+	return out
+
+
+## One command: `id`'s effect list becomes `entries` ([[old index or -1
+## for a new effect, entry]]), its effect tracks renumbered, parked or
+## unparked to match, plus `extra` changes.
+func _rework_effects(id: String, label: String, entries: Array, extra: Array = []) -> bool:
+	var spawns := spawn_indices(id)
+	if spawns.is_empty():
+		return false
+	var old := effects_of(id)
+	var old_json := JSON.stringify(old)
+	var new_list: Array = entries.map(func(e): return e[1])
+	var index_of_slot := {}  # old slot N -> old index
+	for i in old.size():
+		var n := effect_slot(old, i)
+		if n >= 0:
+			index_of_slot[n] = i
+	var new_of_old := {}  # old index -> new index
+	for j in entries.size():
+		if entries[j][0] >= 0:
+			new_of_old[entries[j][0]] = j
+	var prefix := id + ".effect"
+	var out: Array = []
+	for t in tracks():
+		var target := String(t.get("target", ""))
+		if t.get("type") == ScriptFormat.TRACK_SHADER_PARAM and target.begins_with(prefix) \
+				and target.substr(prefix.length()).is_valid_int() and index_of_slot.has(int(target.substr(prefix.length()))):
+			var i: int = index_of_slot[int(target.substr(prefix.length()))]
+			if not new_of_old.has(i):
+				continue  # its effect is gone
+			var j: int = new_of_old[i]
+			var slot := effect_slot(new_list, j)
+			var moved: Dictionary = t.duplicate(true)
+			if slot < 0:  # switched off: the effect keeps it
+				moved.erase("type")
+				moved.erase("target")
+				var parked: Array = new_list[j].get("tracks", [])
+				parked.append(moved)
+				new_list[j]["tracks"] = parked
+				continue
+			moved["target"] = prefix + str(slot)
+			out.append(moved)
+		else:
+			out.append(t)  # spawn events get the new list below, once it's final
+	for j in new_list.size():
+		var slot := effect_slot(new_list, j)
+		if slot >= 0 and new_list[j].has("tracks"):
+			for parked in new_list[j]["tracks"]:
+				var back := {"type": ScriptFormat.TRACK_SHADER_PARAM, "target": prefix + str(slot)}
+				back.merge(parked)
+				out.append(back)
+			new_list[j].erase("tracks")
+	var first: Dictionary = tracks()[spawns[0]]
+	for k in out.size():
+		var t: Dictionary = out[k]
+		if t.get("type") == "event" and t.get("action") == "spawn" and t.get("id") == id \
+				and (is_same(t, first) or JSON.stringify(_effects_in(t)) == old_json):
+			var ev: Dictionary = t.duplicate(true)
+			var cfg: Dictionary = ev.get("config", {}) if typeof(ev.get("config")) == TYPE_DICTIONARY else {}
+			if new_list.is_empty():
+				cfg.erase("effects")
+			else:
+				cfg["effects"] = new_list.duplicate(true)
+			ev["config"] = cfg
+			out[k] = ev
+	return _do(label, true, extra + [_change(["tracks"], out)])
+
+
+static func _effects_in(spawn: Dictionary) -> Array:
+	var cfg = spawn.get("config")
+	var effects = cfg.get("effects") if typeof(cfg) == TYPE_DICTIONARY else null
+	return effects if typeof(effects) == TYPE_ARRAY else []
+
+
+## A layer's shader (its `shader` config), naming the file in `shaders` if
+## nothing does yet. Its params stay (a shader that doesn't have them
+## ignores them).
+func set_shader(id: String, shader_path: String) -> bool:
+	if shader_path == "" or spawn_index(id) < 0:
+		return false
+	var changes: Array = []
+	var key := _shader_key_for(shader_path, changes)
+	var config = _config_changes(id, ["shader"], key)
+	if config == null:
+		return false
+	return _do("Set %s's shader to %s" % [id, key], true, changes + config)
+
+
+## The `shaders` key for `shader_path`; when there's none yet, a new one,
+## and the change that adds it goes on `changes`.
+func _shader_key_for(shader_path: String, changes: Array) -> String:
+	var key := shader_key_of(shader_path)
+	if key != "":
+		return key
+	key = _new_shader_key(shader_path.get_file().get_basename())
+	var shaders = _doc.get("shaders", {})
+	shaders = shaders.duplicate() if typeof(shaders) == TYPE_DICTIONARY else {}
+	shaders[key] = shader_path
+	changes.append(_change(["shaders"], shaders))
+	return key
+
+
+## A `shaders` key made from `base` that isn't taken.
+func _new_shader_key(base: String) -> String:
+	var shaders = _doc.get("shaders", {})
+	var key := base if base != "" else "effect"
+	var n := 2
+	while typeof(shaders) == TYPE_DICTIONARY and shaders.has(key):
+		key = "%s_%d" % [base, n]
+		n += 1
+	return key
 
 
 ## A key at `t` on the `type` track of `target` / `name` (made if there's

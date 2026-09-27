@@ -303,6 +303,19 @@ static func _validate_config(cfg, loc: String, errors: Array) -> void:
 			errors.append("%s.effects[%d].params must be an object" % [loc, i])
 		elif e.has("enabled") and typeof(e["enabled"]) != TYPE_BOOL:
 			errors.append("%s.effects[%d].enabled must be true or false" % [loc, i])
+		elif e.has("tracks"):
+			# A switched-off effect's own shader_param tracks, kept for when
+			# it's switched back on (Studio); {param, keyframes} each.
+			var parked = e["tracks"]
+			if typeof(parked) != TYPE_ARRAY:
+				errors.append("%s.effects[%d].tracks must be an array" % [loc, i])
+				continue
+			for k in parked.size():
+				var ploc := "%s.effects[%d].tracks[%d]" % [loc, i, k]
+				if typeof(parked[k]) != TYPE_DICTIONARY or typeof(parked[k].get("param")) != TYPE_STRING:
+					errors.append("%s must be an object with a param" % ploc)
+				else:
+					_validate_keyframes(parked[k].get("keyframes"), ploc, -1, errors)
 
 
 ## `camera`: {"effects": [...]}, each effect like a screen's (shader,

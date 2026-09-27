@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://studio/studio.gd" id="1_studio"]
 [ext_resource type="PackedScene" uid="uid://cvjstage00001" path="res://player/stage/stage.tscn" id="2_stage"]
 [ext_resource type="Script" path="res://studio/ui/studio_status.gd" id="3_status"]
+[ext_resource type="PackedScene" path="res://studio/ui/inspector.tscn" id="4_inspector"]
 
 [node name="Studio" type="Node3D"]
 script = ExtResource("1_studio")
@@ -18,3 +19,16 @@ offset_top = 12.0
 offset_right = 700.0
 offset_bottom = 60.0
 script = ExtResource("3_status")
+
+[node name="Inspector" parent="UI" instance=ExtResource("4_inspector")]
+visible = false
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -452.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 0
+mouse_filter = 0

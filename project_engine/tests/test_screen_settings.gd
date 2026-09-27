@@ -129,6 +129,35 @@ static func test_move_effect(t: TestCase) -> void:
 	t.assert_eq(counts.structure, 3, "moves past either end do nothing")
 
 
+static func test_add_effect_at_top(t: TestCase) -> void:
+	var s := ScreenSettings.new()
+	s.add_effect(VisualizerShaders.BLUR)
+	s.add_effect(VisualizerShaders.GLOW, ScreenSettings.EFFECTS, 0)
+	s.add_effect(VisualizerShaders.KEY_BLACK, ScreenSettings.EFFECTS, 9)
+	t.assert_eq(s.effects.map(func(e): return e.shader),
+			[VisualizerShaders.GLOW, VisualizerShaders.BLUR, VisualizerShaders.KEY_BLACK])
+
+
+static func test_effect_on_off(t: TestCase) -> void:
+	var s := ScreenSettings.new()
+	s.add_effect(VisualizerShaders.GLOW)
+	s.set_effect_param(0, "intensity", 2.0)
+	var counts := {"structure": 0}
+	s.structure_changed.connect(func(): counts.structure += 1)
+	s.set_effect_enabled(0, false)
+	s.set_effect_enabled(0, false)
+	t.assert_eq(counts.structure, 1, "switching to the same state does nothing")
+	t.assert_false(ScreenSettings.is_enabled(s.effects[0]))
+	var copy := ScreenSettings.new()
+	copy.from_dict(s.to_dict())
+	t.assert_false(ScreenSettings.is_enabled(copy.effects[0]), "off survives a round trip")
+	t.assert_eq(copy.effects[0].params.intensity, 2.0, "and keeps its params")
+	s.set_effect_shader(0, VisualizerShaders.BLUR)
+	t.assert_false(ScreenSettings.is_enabled(s.effects[0]), "re-picking keeps it off")
+	s.set_effect_enabled(0, true)
+	t.assert_false(s.effects[0].has("enabled"), "on is the default, not stored")
+
+
 static func test_legacy_mask_becomes_oval_effect(t: TestCase) -> void:
 	var s := ScreenSettings.new()
 	s.from_dict({"mask": {"enabled": true, "outside": false, "feather": 0.3, "level": 1}})

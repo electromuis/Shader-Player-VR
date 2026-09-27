@@ -29,11 +29,12 @@
 // Gaussian in six more prepass steps (none at 0), so the full-size pass
 // reads it once.
 //
-// Picture edge: the halo's looks start `edge_width` in from the edge (off
-// the picture's outline shrunk by that much), and over that band `edge_brighten`
-// brightens the picture's own colours (keeping its detail) and `edge_fade`
-// feathers it into the halo (1: fully at the border), so it runs into the
-// halo without a step. The picture itself is never blurred.
+// Picture edge: `edge_brighten` brightens the picture's own colours
+// (keeping its detail) over a band `edge_width` in from the edge, and over
+// `fade_width` in the picture fades into the colour the halo starts with
+// (`edge_fade` of the way at the border), so it runs into the halo without
+// a step. Both ease in round sharp corners too. The picture itself is never
+// blurred.
 //
 // The halo is soft, so it's worked out in the prepass at `prepass_scale` of
 // the pass's size; the full-size pass keeps the picture sharp and lays it
@@ -63,6 +64,7 @@ group_uniforms picture_edge;
 uniform float edge_width : hint_range(0.001, 0.5, 0.001) = 0.08;
 uniform float edge_brighten : hint_range(0.0, 2.0, 0.01) = 0.3;
 uniform float edge_fade = 1.0;
+uniform float fade_width : hint_range(0.0, 0.2, 0.001) = 0.05;
 group_uniforms;
 uniform float prepass_scale : hint_range(0.1, 1.0, 0.05) = 0.35;
 uniform sampler2D prepass_tex : filter_linear, repeat_disable;
@@ -191,15 +193,18 @@ vec4 soften_step(vec2 uv, vec2 size) {
 	return pass_index == pass_count - 1 ? gaussian_unpremultiply(c) : c;
 }
 
-// How far `p` (picture coordinates) is outside the picture's outline
-// shrunk by `edge_width` (0 inside it), with `inset` the nearest point on
-// that and `n` outward there. The halo's looks and the edge feather are
-// measured from it: off a sharp corner it curves round, so neither has a
-// seam on the corner's diagonal.
-float inset_outline(vec2 p, out vec2 inset, out vec2 n) {
-	float d = outline(p - 0.5, max(vec2(0.5 - edge_width), vec2(0.0001)), picture_shape, inset, n);
-	inset += 0.5;
-	return max(d, 0.0);
+// A band `width` in from the picture's edge at `p` (picture coordinates,
+// `e` in from the edge): 1 at the border, 0 from `width` in, easing in from
+// nothing. Measured off the outline shrunk by `width`, so it curves round
+// sharp corners instead of creasing on their diagonal.
+float edge_band(vec2 p, float e, float width) {
+	if (width <= 0.0 || e >= width) {
+		return 0.0;
+	}
+	vec2 inset;
+	vec2 n;
+	float d = outline(p - 0.5, max(vec2(0.5 - width), vec2(0.0001)), picture_shape, inset, n);
+	return smootherstep(0.0, width, d);
 }
 
 void fragment() {
@@ -217,29 +222,24 @@ void fragment() {
 	if (prepass && pass_index > 0) {
 		COLOR = soften_step(UV, size);
 	} else if (prepass) {
-		// The halo's looks, from `inset`, `hx` out along `hn`.
-		vec2 inset;
-		vec2 hn;
-		float hx = inset_outline(p, inset, hn);
-		float ht = clamp(hx / max(radius, 0.0001), 0.0, 1.0);
 		// The halo outside; inside, near the border, the colour the picture
-		// fades into there (the halo carried on in from the shrunk outline), which
+		// fades into there (the halo's at the nearest border point), which
 		// also backs the picture's own soft edge (a Rounded corners feather).
 		vec4 out_c = vec4(0.0);
 		float border_spread = blur * EDGE_SPREAD * border_blur;
 		if (intensity > 0.0) {
 			if (sd > 0.0) {
 				float t = clamp(dist / max(radius, 0.0001), 0.0, 1.0);
-				vec3 halo = halo_colour(inset, hn, hx, ht, mix(border_spread, blur, ht), vmin, size, texel);
+				vec3 halo = halo_colour(ep, n, dist, t, mix(border_spread, blur, t), vmin, size, texel);
 				float falloff = 1.0 - smoothstep(0.0, 1.0, t);
 				falloff *= falloff;
 				// Coverage fades with intensity, so a screen at 0 has no dark rim.
 				out_c = vec4(halo * tint * intensity, falloff * clamp(intensity, 0.0, 1.0));
-			} else if (e < (edge_fade > 0.0 ? edge_width * 1.5 + soften * 1.5 : 0.0) + 0.02) {
+			} else if (e < (edge_fade > 0.0 ? fade_width * 1.5 + soften * 1.5 : 0.0) + 0.02) {
 				// Past the band by the soften blur's reach too: further in the
 				// picture counts as covered but has no colour, and the blur
 				// would drag that black into the band.
-				out_c = vec4(halo_colour(inset, hn, hx, ht, mix(border_spread, blur, ht), vmin, size, texel) * tint * intensity, 1.0);
+				out_c = vec4(halo_colour(ep, n, 0.0, 0.0, border_spread, vmin, size, texel) * tint * intensity, 1.0);
 			}
 		}
 		// Premultiplied, with coverage as alpha (the picture counts as
@@ -249,18 +249,11 @@ void fragment() {
 		COLOR = halo_at(UV, vmin, size);
 	} else {
 		vec4 c = texture(input_tex, UV);
-		// 1 at the border, 0 from `edge_width` in (off the shrunk outline,
-		// so it curves round sharp corners too), easing in from nothing.
-		float edge = 0.0;
-		if (e < edge_width) {
-			vec2 inset;
-			vec2 hn;
-			edge = smootherstep(0.0, max(edge_width, 0.0001), inset_outline(p, inset, hn));
-		}
-		vec3 rgb = c.rgb + c.rgb * tint * edge * edge_brighten;
+		float bright = edge_brighten > 0.0 ? edge_band(p, e, edge_width) : 0.0;
+		vec3 rgb = c.rgb + c.rgb * tint * bright * edge_brighten;
 		// Fades into the colour the halo starts with, so there's no step at
 		// the border (none at intensity 0: no halo).
-		float k = edge * edge_fade * clamp(intensity, 0.0, 1.0);
+		float k = edge_fade > 0.0 ? edge_band(p, e, fade_width) * edge_fade * clamp(intensity, 0.0, 1.0) : 0.0;
 		if (k > 0.0 || c.a < 1.0) {
 			vec4 h = halo_at(UV, vmin, size);
 			rgb = mix(rgb, h.rgb, k);

@@ -320,10 +320,17 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Effects (run in order on the output)"
 
+[node name="AddEffectTopButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/EffectsHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Add an effect at the top (runs first)"
+text = "+ Effect ↑"
+
 [node name="AddEffectButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/EffectsHeader"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "+ Effect"
+tooltip_text = "Add an effect at the bottom (runs last)"
+text = "+ Effect ↓"
 
 [node name="EffectsBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
 unique_name_in_owner = true
@@ -342,10 +349,17 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Vertex effects (move the surface, in order)"
 
+[node name="AddVertexEffectTopButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/VertexHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Add a vertex effect at the top (runs first)"
+text = "+ Vertex ↑"
+
 [node name="AddVertexEffectButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/VertexHeader"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "+ Vertex effect"
+tooltip_text = "Add a vertex effect at the bottom (runs last)"
+text = "+ Vertex ↓"
 
 [node name="VertexEffectsBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
 unique_name_in_owner = true

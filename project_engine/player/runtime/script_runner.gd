@@ -452,6 +452,7 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 			list.append({
 				"shader": _shader_path(String(e.get("shader", ""))),
 				"params": _shader_values(params) if typeof(params) == TYPE_DICTIONARY else {},
+				"enabled": bool(e.get("enabled", true)),
 			})
 		out[list_key] = list
 	var surface = cfg.get("surface")

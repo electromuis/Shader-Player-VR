@@ -4,7 +4,10 @@
 // true_arcs off (the classic bend): each arc spans the picture (the margin
 // carries on along the same circle, so effects' padding doesn't change the
 // bend) and its depth is squashed by the picture's stretch (aspect fit), so
-// the top-to-bottom bend stays gentle. The two bends' depths add up.
+// the top-to-bottom bend stays gentle. The two bends' depths add up, and each
+// point slides along the line from the viewer's eye to its flat spot, so from
+// the viewer's seat the picture looks as it would flat (straight edges, no
+// spiky corners); the bend shows in depth only.
 // true_arcs on: the arcs span the picture itself and are true circles: bent
 // left-to-right first, then that curved sheet is bent top-to-bottom. Around
 // the viewer both take the viewing distance as their radius, which wraps
@@ -42,6 +45,9 @@ vec3 surface(vec3 p, vec2 uv, vec2 half_m) {
 			q.y = ry * sin(a);
 			q.z += ry * (1.0 - cos(a)) / stretch.y;
 		}
+		// Keep it on the line from the eye (viewer_distance in front) to its
+		// flat spot.
+		q.xy = p.xy * max(viewer_distance - q.z, 0.0) / viewer_distance;
 		return q;
 	}
 	float rx = radius(arc_x, half_m.x);

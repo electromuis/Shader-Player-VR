@@ -190,13 +190,14 @@ func _apply_render_size() -> void:
 
 
 ## Effect shaders run in order over the output: [{shader: key, params:
-## {uniform: value}}] (ScreenSettings.effects). Changing only params
-## updates the running passes; a different list of shaders rebuilds them.
+## {uniform: value}, enabled}] (ScreenSettings.effects; one switched off
+## keeps its slot and runs nothing). Changing only params updates the
+## running passes; a different list of shaders rebuilds them.
 func set_effects(effects: Array) -> void:
 	var keys: Array[String] = []
 	var params: Array[Dictionary] = []
 	for e in effects:
-		keys.append(String(e.get("shader", "")))
+		keys.append(String(e.get("shader", "")) if ScreenSettings.is_enabled(e) else "")
 		var p = e.get("params", {})
 		# Copies: set_effect_param writes into them.
 		params.append(p.duplicate() if typeof(p) == TYPE_DICTIONARY else {})
@@ -271,16 +272,18 @@ func set_surface_param(param: String, value: Variant) -> void:
 	_apply_geometry_params()
 
 
-## Vertex effects run in order before the surface: [{shader: key, params}]
-## (ScreenSettings.vertex_effects). Changing only params updates uniforms;
-## a different list of shaders builds a new display shader.
+## Vertex effects run in order before the surface: [{shader: key, params,
+## enabled}] (ScreenSettings.vertex_effects; one switched off keeps its slot
+## and moves nothing). Changing only params updates uniforms; a different
+## list of shaders builds a new display shader.
 func set_vertex_effects(effects: Array) -> void:
 	var list: Array[Dictionary] = []
 	for e in effects:
 		if typeof(e) != TYPE_DICTIONARY:
 			continue
 		var p = e.get("params", {})
-		list.append({"shader": ScreenGeometry.resolve_builtin(String(e.get("shader", ""))),
+		var key := String(e.get("shader", "")) if ScreenSettings.is_enabled(e) else ""
+		list.append({"shader": ScreenGeometry.resolve_builtin(key),
 				"params": p.duplicate() if typeof(p) == TYPE_DICTIONARY else {}})
 	var same := list.size() == _vertex_effects.size()
 	for i in mini(list.size(), _vertex_effects.size()):

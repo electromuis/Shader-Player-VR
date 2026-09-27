@@ -228,26 +228,12 @@ static func build_shader(vertex_keys: Array, surface_key: String, opaque: bool) 
 
 ## Where surface `key` puts flat point `p` (metres, screen frame), with
 ## `half_m` the picture's half size: the GDScript twin of the built-in
-## surfaces' shader code. Other surfaces count as flat. `stretch` is the
-## unpadded picture's x / y scale against its depth, for the classic Pillow
-## bend.
+## surfaces' shader code. Other surfaces count as flat.
 static func surface_point(key: String, params: Dictionary, placement: int, p: Vector3,
-		half_m: Vector2, viewer_distance: float, stretch := Vector2.ONE) -> Vector3:
+		half_m: Vector2, viewer_distance: float) -> Vector3:
 	var v := full_params(key, params)
 	if key == PILLOW:
 		var q := p
-		if not bool(v.true_arcs) and placement != Placement.AROUND:
-			var cx := _pillow_radius(float(v.arc_x), half_m.x, placement, viewer_distance)
-			var cy := _pillow_radius(float(v.arc_y), half_m.y, placement, viewer_distance)
-			if cx > 0.0:
-				var a := p.x / cx
-				q.x = cx * sin(a)
-				q.z += cx * (1.0 - cos(a)) / stretch.x
-			if cy > 0.0:
-				var a := p.y / cy
-				q.y = cy * sin(a)
-				q.z += cy * (1.0 - cos(a)) / stretch.y
-			return q
 		var rx := _pillow_radius(float(v.arc_x), half_m.x, placement, viewer_distance)
 		var ry := _pillow_radius(float(v.arc_y), half_m.y, placement, viewer_distance)
 		if rx > 0.0:
@@ -256,12 +242,8 @@ static func surface_point(key: String, params: Dictionary, placement: int, p: Ve
 			q.z = rx - (rx - p.z) * cos(a)
 		if ry > 0.0:
 			var a := p.y / ry
-			if bool(v.true_arcs):
-				q.y = (ry - q.z) * sin(a)
-				q.z = ry - (ry - q.z) * cos(a)
-			else:
-				q.y = ry * sin(a)
-				q.z += ry * (1.0 - cos(a))
+			q.y = (ry - q.z) * sin(a)
+			q.z = ry - (ry - q.z) * cos(a)
 		return q
 	if key == DOME:
 		var half_lon := deg_to_rad(float(v.arc_x)) * 0.5

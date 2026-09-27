@@ -252,6 +252,8 @@ static func _validate_config(cfg, loc: String, errors: Array) -> void:
 				errors.append("%s.%s[%d] must be an object with a shader (a shaders[] key)" % [loc, list_key, i])
 			elif e.has("params") and typeof(e["params"]) != TYPE_DICTIONARY:
 				errors.append("%s.%s[%d].params must be an object" % [loc, list_key, i])
+			elif e.has("enabled") and typeof(e["enabled"]) != TYPE_BOOL:
+				errors.append("%s.%s[%d].enabled must be true or false" % [loc, list_key, i])
 
 
 static func _err(msg: String) -> Dictionary:

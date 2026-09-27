@@ -245,7 +245,7 @@ static func test_builtin_effects(t: TestCase) -> void:
 	names = VisualizerShaders.hints_for(VisualizerShaders.GLOW).params.map(func(p): return p.name)
 	t.assert_eq(names, ["intensity", "radius", "mirror", "diffuse", "repeat",
 			"smear", "bloom", "saturation", "blur", "border_blur", "soften", "samples",
-			"edge_width", "edge_brighten", "edge_fade", "prepass_scale"])
+			"edge_width", "edge_brighten", "edge_fade", "fade_width", "prepass_scale"])
 	t.assert_true(VisualizerShaders.has_prepass(VisualizerShaders.load_shader(VisualizerShaders.GLOW)), "glow has a prepass")
 	t.assert_true(not VisualizerShaders.has_prepass(VisualizerShaders.load_shader(VisualizerShaders.EDGE_BLUR)), "edge blur has none")
 	names = VisualizerShaders.hints_for(VisualizerShaders.CROP).params.map(func(p): return p.name)

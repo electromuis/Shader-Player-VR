@@ -13,8 +13,8 @@ extends VBoxContainer
 ## target has a surface (picker, placement and its controls; the params and
 ## sliders its placement ignores are hidden or greyed, see ScreenGeometry)
 ## and two effect lists below that: effects on the picture and vertex
-## effects on the surface (+ Effect, a picker, ↑ / ↓ and − per effect, and
-## each effect's own controls). The distance slider is inverted (right =
+## effects on the surface (+ ↑ / + ↓ add one at the top / bottom; per
+## effect an on / off switch, a picker, ↑ / ↓ and −, and its own controls). The distance slider is inverted (right =
 ## nearer) and holds -distance.
 ##
 ## The preset dropdown loads named presets from PresetStore and Save
@@ -60,9 +60,11 @@ const VALUE_WIDTH := 90
 @onready var params_box: VBoxContainer = %ParamsBox
 @onready var effects_box: VBoxContainer = %EffectsBox
 @onready var add_effect_button: Button = %AddEffectButton
+@onready var add_effect_top_button: Button = %AddEffectTopButton
 @onready var surface_box: VBoxContainer = %SurfaceBox
 @onready var vertex_effects_box: VBoxContainer = %VertexEffectsBox
 @onready var add_vertex_effect_button: Button = %AddVertexEffectButton
+@onready var add_vertex_effect_top_button: Button = %AddVertexEffectTopButton
 
 var _settings: ScreenSettings
 var _layers: LayerStack
@@ -91,14 +93,10 @@ func _ready() -> void:
 	resolution_slider.value_changed.connect(_on_edit.bind("resolution"))
 	lock_check.toggled.connect(_on_layer_edit.bind("lock_to_screen"))
 	layer_count_spin.value_changed.connect(_on_layer_count_changed)
-	add_effect_button.pressed.connect(func():
-		if _edited() != null:
-			_open_next = [ScreenSettings.EFFECTS, _edited().effects.size()]
-			_edited().add_effect())
-	add_vertex_effect_button.pressed.connect(func():
-		if _edited() != null:
-			_open_next = [ScreenSettings.VERTEX_EFFECTS, _edited().vertex_effects.size()]
-			_edited().add_effect("", ScreenSettings.VERTEX_EFFECTS))
+	add_effect_top_button.pressed.connect(_add_effect.bind(ScreenSettings.EFFECTS, true))
+	add_effect_button.pressed.connect(_add_effect.bind(ScreenSettings.EFFECTS, false))
+	add_vertex_effect_top_button.pressed.connect(_add_effect.bind(ScreenSettings.VERTEX_EFFECTS, true))
+	add_vertex_effect_button.pressed.connect(_add_effect.bind(ScreenSettings.VERTEX_EFFECTS, false))
 	save_button.pressed.connect(_on_save_pressed)
 	new_button.pressed.connect(_on_new_pressed)
 	preset_option.item_selected.connect(_on_preset_selected)
@@ -430,6 +428,12 @@ func _add_effect_rows(edited: ScreenSettings, i: int, list: String) -> void:
 	toggle.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	toggle.custom_minimum_size.x = LABEL_WIDTH
 	row.add_child(toggle)
+	var enabled := ScreenSettings.is_enabled(effect)
+	var on := CheckBox.new()
+	on.button_pressed = enabled
+	on.tooltip_text = "On / off (off keeps its place and settings)"
+	on.toggled.connect(func(v: bool): edited.set_effect_enabled(i, v, list))
+	row.add_child(on)
 	var keys: Array[String] = [""]
 	for opt in options:
 		keys.append(opt.key)
@@ -461,6 +465,8 @@ func _add_effect_rows(edited: ScreenSettings, i: int, list: String) -> void:
 		return
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 12)
+	if not enabled:
+		body.modulate.a = 0.5
 	_add_param_controls(body, specs, effect.params,
 			func(param: String, v): edited.set_effect_param(i, param, v, list))
 	box.add_child(body)
@@ -475,6 +481,16 @@ func _add_effect_rows(edited: ScreenSettings, i: int, list: String) -> void:
 		else:
 			_open_effects.assign(_open_effects.filter(func(e): return not is_same(e, effect)))
 		show_open.call(open))
+
+
+## A new effect in `list`, at its top or bottom, expanded.
+func _add_effect(list: String, top: bool) -> void:
+	var edited := _edited()
+	if edited == null:
+		return
+	var at := 0 if top else edited.effect_list(list).size()
+	_open_next = [list, at]
+	edited.add_effect("", list, at)
 
 
 ## Whether `effect` (this very dictionary, not an equal one) is expanded.

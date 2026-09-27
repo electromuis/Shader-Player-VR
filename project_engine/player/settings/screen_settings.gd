@@ -109,10 +109,13 @@ static func _read_effects(out: Array[Dictionary], list: Variant) -> void:
 		# Earlier versions' Padding: the margin is automatic now.
 		if typeof(e) == TYPE_DICTIONARY and String(e.get("shader", "")) != VisualizerShaders.LEGACY_PADDING:
 			var params = e.get("params", {})
-			out.append({
+			var effect := {
 				"shader": String(e.get("shader", "")),
 				"params": params.duplicate() if typeof(params) == TYPE_DICTIONARY else {},
-			})
+			}
+			if not is_enabled(e):
+				effect["enabled"] = false
+			out.append(effect)
 
 
 ## Pick a surface (a ScreenGeometry key); params and placement go back to
@@ -157,9 +160,31 @@ func effect_list(list: String = EFFECTS) -> Array[Dictionary]:
 	return vertex_effects if list == VERTEX_EFFECTS else effects
 
 
-## Append an effect running `key` ("" = none picked yet).
-func add_effect(key: String = "", list: String = EFFECTS) -> void:
-	effect_list(list).append({"shader": key, "params": {}})
+## Add an effect running `key` ("" = none picked yet) at `at` (0 = the
+## top, runs first; -1 = the end).
+func add_effect(key: String = "", list: String = EFFECTS, at: int = -1) -> void:
+	var l := effect_list(list)
+	l.insert(l.size() if at < 0 else mini(at, l.size()), {"shader": key, "params": {}})
+	structure_changed.emit()
+	changed.emit()
+
+
+## Whether `effect` (an entry of an effect list) runs: all do unless
+## switched off (`"enabled": false`; an off one keeps its place and
+## params, and runs nothing, like one with no shader picked).
+static func is_enabled(effect: Dictionary) -> bool:
+	return bool(effect.get("enabled", true))
+
+
+## Switch effect `index` on or off (see is_enabled).
+func set_effect_enabled(index: int, on: bool, list: String = EFFECTS) -> void:
+	var l := effect_list(list)
+	if index < 0 or index >= l.size() or is_enabled(l[index]) == on:
+		return
+	if on:
+		l[index].erase("enabled")
+	else:
+		l[index]["enabled"] = false
 	structure_changed.emit()
 	changed.emit()
 
@@ -187,12 +212,16 @@ func move_effect(index: int, step: int, list: String = EFFECTS) -> void:
 	changed.emit()
 
 
-## Re-pick effect `index`'s shader; its params go back to the defaults.
+## Re-pick effect `index`'s shader; its params go back to the defaults (it
+## stays on or off).
 func set_effect_shader(index: int, key: String, list: String = EFFECTS) -> void:
 	var l := effect_list(list)
 	if index < 0 or index >= l.size() or l[index].shader == key:
 		return
+	var enabled := is_enabled(l[index])
 	l[index] = {"shader": key, "params": {}}
+	if not enabled:
+		l[index]["enabled"] = false
 	structure_changed.emit()
 	changed.emit()
 

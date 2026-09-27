@@ -67,11 +67,20 @@ static func test_normalized_surface(t: TestCase) -> void:
 
 
 static func test_pillow_matches_earlier_curvature(t: TestCase) -> void:
-	# curvature 1 was a half-cylinder: the edges swing 90° toward the viewer.
+	# curvature 1 was a half-cylinder: the edges swing 90° toward the viewer,
+	# then slide in along the line from the eye so the outline stays straight.
 	var r := HALF.x / (PI * 0.5)
 	var p := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_x": 180.0}, 0,
 			Vector3(HALF.x, 0.0, 0.0), HALF, 8.0)
-	t.assert_true(_near(p, Vector3(r, 0.0, r)), "edge at %s" % p)
+	t.assert_true(_near(p, Vector3(HALF.x * (8.0 - r) / 8.0, 0.0, r)), "edge at %s" % p)
+	# Both bends: the corner is seen from the eye right where the flat corner was.
+	var eye := Vector3(0.0, 0.0, 8.0)
+	var corner := Vector3(HALF.x, HALF.y, 0.0)
+	var both := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_x": 120.0, "arc_y": 60.0}, 0,
+			corner, HALF, 8.0)
+	t.assert_true(both.z > 0.0, "the corner comes forward")
+	t.assert_true((both - eye).normalized().distance_to((corner - eye).normalized()) < 0.001,
+			"corner at %s lines up with the flat corner" % both)
 	var flat := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {}, 0, Vector3(1.0, 2.0, 0.0), HALF, 8.0)
 	t.assert_true(_near(flat, Vector3(1.0, 2.0, 0.0)), "0 / 0 is flat")
 	# The bend spans the picture (a margin past it carries on round the same
@@ -79,7 +88,8 @@ static func test_pillow_matches_earlier_curvature(t: TestCase) -> void:
 	var squashed := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_y": 180.0}, 0,
 			Vector3(0.0, HALF.y, 0.0), HALF, 8.0, Vector2(2.0, 2.0))
 	var ry := HALF.y / (PI * 0.5)
-	t.assert_true(_near(squashed, Vector3(0.0, ry, ry * 0.5)), "squashed edge at %s" % squashed)
+	var z := ry * 0.5
+	t.assert_true(_near(squashed, Vector3(0.0, HALF.y * (8.0 - z) / 8.0, z)), "squashed edge at %s" % squashed)
 
 
 static func test_pillow_true_arcs(t: TestCase) -> void:

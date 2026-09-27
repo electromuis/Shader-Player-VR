@@ -6,7 +6,8 @@ extends PanelContainer
 ## controllers don't have a button for. Press them with the right laser.
 ## Each button asks Studio to run a command (`action`, the same ids as the
 ## router's Studio commands); toggles show their state (auto-key red,
-## snapping, the inspector, the timeline and looping blue) via show_toggles().
+## snapping, the inspector, the timeline, looping and the shelf blue) via
+## show_toggles().
 
 signal action(id: StringName)
 
@@ -30,6 +31,8 @@ const BUTTONS := [
 	[&"studio_toggle_loop", "Loop", true],
 	[&"studio_loop_in", "[ In", false],
 	[&"studio_loop_out", "Out ]", false],
+	[&"studio_toggle_shelf", "Shelf", true],
+	[&"studio_delete_selection", "Delete", false],
 ]
 
 var status: StudioStatus
@@ -69,9 +72,9 @@ func _ready() -> void:
 		_buttons[b[0]] = button
 
 
-## Auto-key, snapping, the inspector, the timeline and looping as they are
-## in Studio (not what a click toggled).
-func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline: bool = false, looping: bool = false) -> void:
+## Auto-key, snapping, the inspector, the timeline, looping and the shelf as
+## they are in Studio (not what a click toggled).
+func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline: bool = false, looping: bool = false, shelf: bool = false) -> void:
 	if _buttons.is_empty():
 		return
 	_buttons[&"studio_toggle_autokey"].set_pressed_no_signal(auto_key)
@@ -79,6 +82,7 @@ func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline:
 	_buttons[&"studio_toggle_inspector"].set_pressed_no_signal(inspector)
 	_buttons[&"studio_toggle_timeline"].set_pressed_no_signal(timeline)
 	_buttons[&"studio_toggle_loop"].set_pressed_no_signal(looping)
+	_buttons[&"studio_toggle_shelf"].set_pressed_no_signal(shelf)
 
 
 func _style(state: String, id: StringName) -> StyleBoxFlat:

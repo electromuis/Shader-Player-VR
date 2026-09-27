@@ -6,6 +6,7 @@
 #
 #   tools/cloud/run.sh checks/shot_fx.gd          # rendered
 #   HEADLESS=1 tools/cloud/run.sh checks/drive.gd # no rendering needed
+#   RESOLUTION=1600x900 tools/cloud/run.sh ...    # window size (default 1280x720)
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="${WORK:-/tmp/vj_cloud}"
@@ -27,5 +28,5 @@ if [ "${HEADLESS:-}" = "1" ]; then
 	timeout 300 "$GODOT" --headless --script "res://$NAME"
 else
 	OUT_DIR="$WORK/shots" VK_ICD_FILENAMES="$WORK/vk/lvp.json" timeout 600 xvfb-run -a -s "-screen 0 1280x800x24" \
-		"$GODOT" --rendering-method forward_plus --rendering-driver vulkan --resolution 1280x720 --script "res://$NAME"
+		"$GODOT" --rendering-method forward_plus --rendering-driver vulkan --resolution "${RESOLUTION:-1280x720}" --script "res://$NAME"
 fi

@@ -6,6 +6,7 @@
 #
 #   tools/local/run.sh checks/drive_studio_m3.gd          # rendered
 #   HEADLESS=1 tools/local/run.sh checks/drive.gd         # no rendering
+#   RESOLUTION=1600x900 tools/local/run.sh checks/...     # a bigger window (default 1280x720)
 #   tools/local/run.sh tests                              # the player tests
 #
 # The copy uses its own user dir, %APPDATA%/VJ checks (reset it freely):
@@ -45,5 +46,5 @@ NAME="$(basename "$1")"
 if [ "${HEADLESS:-}" = "1" ]; then
 	timeout 300 "$GODOT" --headless --script "res://$NAME"
 else
-	OUT_DIR="$WORK/shots" timeout 300 "$GODOT" --rendering-method forward_plus --resolution 1280x720 --script "res://$NAME"
+	OUT_DIR="$WORK/shots" timeout 300 "$GODOT" --rendering-method forward_plus --resolution "${RESOLUTION:-1280x720}" --script "res://$NAME"
 fi

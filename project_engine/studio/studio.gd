@@ -30,8 +30,20 @@ extends Node3D
 ## the headset a panel beside the selection, placed when you select
 ## something (or show it again) and turned toward you.
 ##
-## Command line (after `--`): --piece <script.json, or a video with a
-## same-name .json next to it>, --start <seconds>, --vr, --desktop.
+## The asset shelf (StudioAssetShelf) has cards for what can be added:
+## screens, cubes, your prefabs, layer shaders and effects (built-in, yours,
+## the piece's own; StudioAssetLibrary, with StudioThumbnailer's pictures).
+## Press a card to pick it up and let go where it should go in the world
+## (or click the card, then click the spot); StudioAssetDrop writes it, and
+## bundles a user asset into the piece's folder (StudioBundle). Its Open tab
+## opens pieces, or a video to start a new piece. On the desktop it's a
+## panel on the left; in the headset a panel to your front left. Files
+## dropped on the window: a piece or video opens, a shader or prefab goes
+## into the piece.
+##
+## Command line (after `--`): --piece <script.json, or a video: its
+## same-name .json, made empty if there's none>, --start <seconds>, --vr,
+## --desktop, --library <folder> (more assets for the shelf; repeatable).
 
 ## Scrubbing speed at full stick, in seconds of timeline per second.
 const SCRUB_SPEED := 20.0
@@ -40,8 +52,8 @@ const SEEK_SECONDS := 10.0
 const WRIST_SCENE := preload("res://studio/ui/wrist_palette.tscn")
 ## The wrist palette's size in metres and pixels (bigger than the player's
 ## wrist HUD: it has buttons).
-const WRIST_SIZE := Vector2(0.26, 0.28)
-const WRIST_PIXELS := Vector2(780, 840)
+const WRIST_SIZE := Vector2(0.26, 0.315)
+const WRIST_PIXELS := Vector2(780, 945)
 ## Push / pull speed with the right stick while grabbing (m/s at full push).
 const PUSH_SPEED := 2.5
 ## Desktop: a mouse wheel notch pushes / pulls this far.
@@ -68,6 +80,19 @@ const RIBBON_PIXELS := Vector2(1800, 500)
 const RIBBON_DISTANCE := 0.6
 const RIBBON_DROP := 0.55
 const RIBBON_TILT := 40.0
+const SHELF_SCENE := preload("res://studio/ui/asset_shelf.tscn")
+## The headset shelf: its size in metres and pixels, and where it goes: this
+## far from you, turned this far left of where you look, a little below
+## your eyes, facing you. It follows you like the inspector.
+const SHELF_SIZE := Vector2(0.8, 0.5)
+const SHELF_PIXELS := Vector2(1280, 800)
+const SHELF_DISTANCE := 0.75
+const SHELF_ANGLE := 38.0
+const SHELF_DROP := 0.15
+## How often the shelf's folders are checked for new or changed files.
+const WATCH_SECONDS := 2.0
+## A carried card's picture in the world, this wide (metres).
+const GHOST_WIDTH := 0.36
 
 enum Mode { PLAY, EDIT }
 
@@ -76,6 +101,7 @@ enum Mode { PLAY, EDIT }
 @onready var status_view: StudioStatus = $UI/Status
 @onready var inspector: StudioInspector = $UI/Inspector
 @onready var ribbon: StudioTimelineRibbon = $UI/Timeline
+@onready var shelf: StudioAssetShelf = $UI/Shelf
 
 ## The piece being edited; null until one is open.
 var model: EditModel
@@ -103,6 +129,22 @@ var ribbon_panel: XRToolsViewport2DIn3D
 var _ribbon_vr: StudioTimelineRibbon
 var waveform: StudioWaveform
 var loop := StudioLoop.new()
+var library := StudioAssetLibrary.new()
+var thumbnailer: StudioThumbnailer
+var dropper := StudioAssetDrop.new()
+## Whether the shelf shows (in Edit).
+var shelf_on := false
+var shelf_panel: XRToolsViewport2DIn3D
+var _shelf_vr: StudioAssetShelf
+## The card being carried ({} for none) and the hand carrying it ("R", or
+## "M" for the mouse).
+var held_asset: Dictionary = {}
+var _held_hand := ""
+## In the headset: the trigger was down last frame (letting go drops).
+var _trigger_was_down := false
+var _ghost: MeshInstance3D
+var _library_signature := ""
+var _watch_clock := 0.0
 ## Where the viewer was before the last Seat / Go to it jump (for Back).
 var _back_pose: Dictionary = {}
 var _mouse_down := false
@@ -141,6 +183,7 @@ func _ready() -> void:
 	add_child(flight)
 	edits = StudioConfigEdits.new()
 	edits.runner = runner
+	edits.library = library
 	_bind_inspector(inspector)
 	tools.selection_changed.connect(_on_selection_changed)
 	_make_inspector_panel()
@@ -150,6 +193,16 @@ func _ready() -> void:
 	stage.media_path_changed.connect(waveform.load_for)
 	_bind_ribbon(ribbon)
 	_make_ribbon_panel()
+	thumbnailer = StudioThumbnailer.new()
+	thumbnailer.name = "Thumbnailer"
+	add_child(thumbnailer)
+	dropper.edits = edits
+	_bind_shelf(shelf)
+	_make_shelf_panel()
+	_make_ghost()
+	_library_signature = library.signature()
+	get_window().files_dropped.connect(_on_files_dropped)
+	status_view.resized.connect(_fit_shelf)
 	set_mode(Mode.EDIT)
 
 	if _cli_piece != "":
@@ -157,7 +210,10 @@ func _ready() -> void:
 	else:
 		runner.load_timeline(DefaultScreen.idle_timeline())
 		runner.seek(0.0)
-		_say("No piece open. Start Studio with -- --piece <script.json>.")
+		_say("No piece open: open one from the shelf (B), or start Studio with -- --piece <script.json or video>.")
+		shelf_on = true
+		shelf.show_tab(StudioAssetShelf.OPEN_TAB)
+		_show_shelf()
 
 	if _cli_vr or (not _cli_desktop and stage.xr_mode.headset_detected()):
 		stage.xr_mode.try_enter_vr()
@@ -169,22 +225,29 @@ func _process(delta: float) -> void:
 	_show_status()
 	_keep_inspector_near()
 	_keep_ribbon_near()
+	_keep_shelf_near()
+	_carry(delta)
+	_watch_library(delta)
 	_loop_playback()
 
 
-## Open a script (or a video with its sidecar script) for editing. Returns
+## Open a script (or a video with its sidecar script) for editing. A video
+## with no script gets a new, empty one next to it (<video>.json). Returns
 ## whether it opened; the current piece stays otherwise.
 func open_piece(path: String) -> bool:
-	if DefaultScreen.is_video(path):
-		var sidecar := DefaultScreen.sidecar_script(path)
-		if sidecar == "":
-			_say("No script next to %s (Studio opens pieces: a .json)." % path.get_file())
-			return false
-		path = sidecar
-	var r := EditModel.open(path)
+	var r: Dictionary
+	var fresh := false
+	if DefaultScreen.is_video(path) and DefaultScreen.sidecar_script(path) == "":
+		r = EditModel.new_piece(path)
+		fresh = true
+	else:
+		if DefaultScreen.is_video(path):
+			path = DefaultScreen.sidecar_script(path)
+		r = EditModel.open(path)
 	if not r.ok:
 		_say("Can't open %s: %s" % [path.get_file(), r.error])
 		return false
+	_drop_held()
 	if model != null:
 		model.changed.disconnect(_on_model_changed)
 	tools.cancel()
@@ -193,11 +256,22 @@ func open_piece(path: String) -> bool:
 	model.changed.connect(_on_model_changed)
 	tools.model = model
 	edits.model = model
+	dropper.model = model
+	library.piece_dir = model.path.get_base_dir()
+	_refresh_shelf()
 	runner.load_timeline(model.timeline())
 	runner.pause()
 	stage.seek_to(_cli_start)
 	_cli_start = 0.0
-	_say("Opened %s." % _piece_name())
+	_show_ribbon()
+	if fresh:
+		_say("New piece %s: add things from the shelf." % model.path.get_file())
+		shelf_on = true
+		for view in _shelves():
+			view.show_tab("object")
+		_show_shelf()
+	else:
+		_say("Opened %s." % _piece_name())
 	return true
 
 
@@ -216,10 +290,12 @@ func _apply_mode() -> void:
 	if tools != null:
 		if not editing:
 			tools.cancel()
+			_drop_held()
 		tools.visible = editing
 		flight.enabled = editing and stage.xr_mode.is_in_vr()
 		_show_inspector()
 		_show_ribbon()
+		_show_shelf()
 
 
 func save() -> bool:
@@ -273,7 +349,11 @@ func _on_command(id: StringName) -> void:
 				stage.xr_mode.exit_vr()
 			else:
 				stage.xr_mode.try_enter_vr()
-		&"studio_select": _select_pointed()
+		&"studio_select":
+			if held_asset.is_empty():
+				_select_pointed()
+			elif not stage.router.is_context_active("menus"):
+				drop_held_at(_hand_xf("R"))
 		&"studio_grab": _grab_with(_hand_of(stage.router.last_input, "R"))
 		&"studio_grab_left": _grab_with(_hand_of(stage.router.last_input, "L"))
 		&"studio_key_selection":
@@ -291,7 +371,22 @@ func _on_command(id: StringName) -> void:
 		&"studio_goto_selection": _go_to_selection()
 		&"studio_jump_back": _jump_back()
 		&"studio_deselect":
-			tools.select("")
+			if not held_asset.is_empty():
+				_drop_held()
+				_say("Put it back.")
+			else:
+				tools.select("")
+		&"studio_toggle_shelf":
+			shelf_on = not shelf_on
+			if shelf_on:
+				_place_shelf_panel()
+			_show_shelf()
+		&"studio_delete_selection":
+			if model != null and tools.selected != "":
+				var gone := tools.selected
+				tools.select("")
+				if model.remove_object(gone):
+					_say("Deleted %s (undo brings it back)." % gone)
 		&"studio_toggle_timeline":
 			timeline_on = not timeline_on
 			if timeline_on:
@@ -394,7 +489,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT:
+		if mb.button_index == MOUSE_BUTTON_LEFT and not held_asset.is_empty():
+			# Carrying a card (clicked, not dragged): this click drops it.
+			if mb.pressed:
+				drop_held_at(_mouse_hand())
+			get_viewport().set_input_as_handled()
+		elif mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
 				var xf := _mouse_hand()
 				var id := tools.pick(xf.origin, -xf.basis.z)
@@ -563,13 +663,16 @@ func _vr_ribbon() -> StudioTimelineRibbon:
 	return _ribbon_vr
 
 
-## In Edit while it's on: the desktop strip, or the headset band.
+## In Edit while it's on (and a piece is open): the desktop strip, or the
+## headset band.
 func _show_ribbon() -> void:
 	if ribbon == null or tools == null:
 		return
-	var show := mode == Mode.EDIT and timeline_on
+	var show := mode == Mode.EDIT and timeline_on and model != null
 	var in_vr := stage.xr_mode.is_in_vr()
 	ribbon.visible = show and not in_vr
+	# The desktop shelf reaches down to the strip, or the bottom without it.
+	shelf.offset_bottom = ribbon.offset_top - 12.0 if ribbon.visible else -12.0
 	if ribbon_panel != null:
 		if show and in_vr and not ribbon_panel.visible:
 			_place_ribbon_panel()
@@ -607,6 +710,266 @@ func _loop_playback() -> void:
 	var back := loop.next_time(runner.playhead)
 	if back >= 0.0:
 		stage.seek_to(back)
+
+
+# ---------- the asset shelf ----------
+
+func _bind_shelf(view: StudioAssetShelf) -> void:
+	view.library = library
+	view.thumbnailer = thumbnailer
+	view.runner = runner
+	view.said.connect(_say)
+	view.taken.connect(_on_taken.bind(view))
+	view.open_requested.connect(func(path: String): open_piece(path))
+	view.close_requested.connect(func():
+		shelf_on = false
+		_show_shelf())
+	thumbnailer.thumbnail_ready.connect(view.on_thumbnail)
+
+
+func _shelves() -> Array:
+	var out: Array = [shelf]
+	if _shelf_vr != null and is_instance_valid(_shelf_vr):
+		out.append(_shelf_vr)
+	return out
+
+
+func _refresh_shelf() -> void:
+	for view in _shelves():
+		view.refresh()
+
+
+## Desktop: the shelf starts under the status, whose height changes with
+## what it says (and ends above the timeline strip: _show_ribbon).
+func _fit_shelf() -> void:
+	shelf.offset_top = status_view.position.y + status_view.size.y + 10.0
+
+
+func _make_shelf_panel() -> void:
+	shelf_panel = VP2D3D_SCENE.instantiate()
+	shelf_panel.name = "ShelfPanel"
+	shelf_panel.scene = SHELF_SCENE
+	shelf_panel.viewport_size = SHELF_PIXELS
+	shelf_panel.screen_size = SHELF_SIZE
+	shelf_panel.material = FloatingPanel.ui_material()
+	shelf_panel.visible = false
+	add_child(shelf_panel)
+	stage.add_masked_panel(shelf_panel)
+
+
+func _vr_shelf() -> StudioAssetShelf:
+	if _shelf_vr != null and is_instance_valid(_shelf_vr):
+		return _shelf_vr
+	var sub := shelf_panel.get_node_or_null("Viewport") as SubViewport if shelf_panel != null else null
+	if sub == null or sub.get_child_count() == 0:
+		return null
+	_shelf_vr = sub.get_child(0) as StudioAssetShelf
+	if _shelf_vr != null:
+		_bind_shelf(_shelf_vr)
+		_shelf_vr.show_tab(shelf.tab)
+	return _shelf_vr
+
+
+## In Edit while it's on: the desktop panel, or the headset panel.
+func _show_shelf() -> void:
+	if shelf == null or tools == null:
+		return
+	var show := mode == Mode.EDIT and shelf_on
+	var in_vr := stage.xr_mode.is_in_vr()
+	shelf.visible = show and not in_vr
+	if shelf_panel != null:
+		if show and in_vr and not shelf_panel.visible:
+			_place_shelf_panel()
+		shelf_panel.visible = show and in_vr
+
+
+## To your front left, a little below your eyes, facing you.
+func _place_shelf_panel() -> void:
+	if shelf_panel == null:
+		return
+	var head := stage.viewer_transform()
+	var fwd := -head.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(0, 0, -1)
+	var toward := fwd.rotated(Vector3.UP, deg_to_rad(SHELF_ANGLE))
+	var at := head.origin + toward * SHELF_DISTANCE - Vector3(0, SHELF_DROP, 0)
+	# The quad's front is +Z: look away from the head.
+	shelf_panel.global_transform = Transform3D(Basis.looking_at(at - head.origin, Vector3.UP), at)
+	_vr_shelf()
+
+
+func _keep_shelf_near() -> void:
+	_vr_shelf()
+	if shelf_panel == null or not shelf_panel.visible:
+		return
+	if stage.viewer_transform().origin.distance_to(shelf_panel.global_transform.origin) > INSPECTOR_REPLACE:
+		_place_shelf_panel()
+
+
+## A card was picked up on `view`: carry it (the mouse on the desktop, the
+## right hand in the headset).
+func _on_taken(asset: Dictionary, view: StudioAssetShelf) -> void:
+	if model == null:
+		_say("Open a piece first (the Open tab).")
+		view.show_held("")
+		return
+	held_asset = asset
+	_held_hand = "R" if stage.xr_mode.is_in_vr() else "M"
+	_trigger_was_down = true
+	for other in _shelves():
+		other.show_held(asset.id)
+	var tex := thumbnailer.thumbnail(asset)
+	var mat := _ghost.material_override as StandardMaterial3D
+	mat.albedo_texture = tex
+	mat.albedo_color = Color(1, 1, 1, 0.85) if tex != null else Color(StudioAssetShelf.ACCENT, 0.6)
+	_say("Carrying %s: let go where it goes (Esc puts it back)." % asset.label)
+
+
+## Put the carried card back (nothing added).
+func _drop_held() -> void:
+	held_asset = {}
+	_held_hand = ""
+	if _ghost != null:
+		_ghost.visible = false
+	for view in _shelves():
+		view.show_held("")
+
+
+## Drop the carried card where `hand_xf` points (its -Z). Returns whether
+## something was added or changed.
+func drop_held_at(hand_xf: Transform3D) -> bool:
+	if held_asset.is_empty() or model == null:
+		return false
+	var asset := held_asset
+	_drop_held()
+	var where := StudioAssetDrop.aim(hand_xf.origin, -hand_xf.basis.z, tools.candidates())
+	var r := dropper.drop(asset, where, stage.viewer_transform().origin, runner.playhead, tools.snap)
+	if r.ok:
+		tools.select(r.id)
+	_say(r.message)
+	if r.ok:
+		if asset.source == "user":
+			_refresh_shelf()  # it's in the piece now
+	return r.ok
+
+
+## While carrying: the card's picture follows the pointer into the world;
+## in the headset, letting go of the trigger off the shelf drops it (let
+## go on the shelf, the press was a click: the next trigger press drops it).
+func _carry(_delta: float) -> void:
+	if held_asset.is_empty():
+		return
+	var over_ui := false
+	var xf: Transform3D
+	if _held_hand == "M":
+		over_ui = _mouse_over_ui()
+		xf = _mouse_hand()
+	else:
+		over_ui = stage.router.is_context_active("menus")
+		xf = _hand_xf("R")
+		var down := stage.router.is_down("R.trigger")
+		if _trigger_was_down and not down and not over_ui:
+			_trigger_was_down = false
+			drop_held_at(xf)
+			return
+		_trigger_was_down = down
+	_ghost.visible = not over_ui
+	if over_ui:
+		return
+	var where := StudioAssetDrop.aim(xf.origin, -xf.basis.z, tools.candidates())
+	var head := stage.viewer_transform().origin
+	var p: Vector3 = where.point
+	# Facing you (the quad's front is +Z).
+	var to_head := head - p
+	_ghost.global_transform = Transform3D(Basis.looking_at(-to_head, Vector3.UP) if to_head.length() > 0.01 else Basis(), p)
+	message = _drop_hint(held_asset, where)
+
+
+## What letting go here would do, for the status.
+func _drop_hint(asset: Dictionary, where: Dictionary) -> String:
+	var on := String(where.on)
+	var kind := edits.kind_for(on) if on != "" else ""
+	match String(asset.type):
+		"effect":
+			return "Let go: add %s to %s." % [asset.label, on] if kind in ["screen", "layer"] else "Point %s at a screen or a layer." % asset.label
+		"layer":
+			if kind == "layer":
+				return "Let go: %s shows %s." % [on, asset.label]
+	return "Let go: add %s here." % asset.label
+
+
+## Desktop: whether the mouse is over one of Studio's panels.
+func _mouse_over_ui() -> bool:
+	var at := get_viewport().get_mouse_position()
+	for panel in [shelf, inspector, ribbon, status_view]:
+		if panel != null and panel.visible and panel.get_global_rect().has_point(at):
+			return true
+	return false
+
+
+func _input(event: InputEvent) -> void:
+	# Desktop: a card dragged off the shelf drops where the button comes up
+	# (the release goes to the card, so it's caught here, before the GUI).
+	if held_asset.is_empty() or _held_hand != "M" or stage.xr_mode.is_in_vr():
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed \
+			and not _mouse_over_ui():
+		drop_held_at(_mouse_hand())
+
+
+func _make_ghost() -> void:
+	_ghost = MeshInstance3D.new()
+	_ghost.name = "CarriedCard"
+	var quad := QuadMesh.new()
+	quad.size = Vector2(GHOST_WIDTH, GHOST_WIDTH * 0.625)
+	_ghost.mesh = quad
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test = true
+	mat.render_priority = 10
+	_ghost.material_override = mat
+	_ghost.visible = false
+	add_child(_ghost)
+
+
+## New or changed files in the shelf's folders show up on it.
+func _watch_library(delta: float) -> void:
+	_watch_clock += delta
+	if _watch_clock < WATCH_SECONDS:
+		return
+	_watch_clock = 0.0
+	var sig := library.signature()
+	if sig != _library_signature:
+		_library_signature = sig
+		_refresh_shelf()
+
+
+## Files dropped on the window: a piece or a video opens (a video with no
+## piece starts one); a shader or prefab is copied into the piece.
+func _on_files_dropped(files: PackedStringArray) -> void:
+	for f in files:
+		if DefaultScreen.is_video(f) or f.get_extension().to_lower() == "json":
+			open_piece(f)
+			return
+	if model == null:
+		_say("Open a piece first, then drop shaders or prefabs on it.")
+		return
+	var added: Array = []
+	for f in files:
+		var ext := f.get_extension().to_lower()
+		if ext in StudioBundle.PREFAB_EXTENSIONS or ext in VisualizerShaders.GODOT_EXTENSIONS + VisualizerShaders.SHADERTOY_EXTENSIONS:
+			var b := StudioBundle.bundle(model.path.get_base_dir(), f)
+			if b.ok:
+				added.append(f.get_file())
+			else:
+				_say(b.error)
+	if not added.is_empty():
+		_say("In the piece now, on the shelf: %s." % ", ".join(added))
+		shelf_on = true
+		_show_shelf()
+		_refresh_shelf()
 
 
 # ---------- getting around ----------
@@ -703,7 +1066,7 @@ func _show_status() -> void:
 			_wrist.action.connect(_on_command)
 	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
 		_wrist.status.callv("show_state", args)
-		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on)
+		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on)
 
 
 func _piece_name() -> String:
@@ -743,6 +1106,8 @@ func _parse_cli_args() -> void:
 			_cli_vr = true
 		elif a == "--desktop":
 			_cli_desktop = true
+		elif a == "--library" and i + 1 < args.size():
+			library.library_dirs.append(args[i + 1])
 	# "Open with" / dropping a file on the .exe.
 	if _cli_piece == "":
 		for a in OS.get_cmdline_args():

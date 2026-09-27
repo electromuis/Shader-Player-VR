@@ -77,8 +77,11 @@ func _clamp() -> void:
 
 # ---------- what's on it ----------
 
-## [{id, depth, spans: [[from, to]]}] for every object, in file order;
-## depth = how many parents it has.
+## [{id, depth, parent, spans: [[from, to]], ends: [{spawn, despawn}]}]
+## for every object, in file order; depth = how many parents it has. Each
+## span's ends are the track indices of the events that make it: its spawn,
+## and the despawn of this object that ends it (-1 when it runs to the end,
+## or its parent's despawn or its own respawn ends it).
 static func lanes(model: EditModel, until: float) -> Array:
 	var ids: Array = model.object_ids()
 	var parent := {}
@@ -91,29 +94,33 @@ static func lanes(model: EditModel, until: float) -> Array:
 		if t.get("action") == "spawn" and not parent.has(t.get("id")):
 			parent[t.get("id")] = String(t.get("parent", ""))
 	events.sort_custom(func(a, b): return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1]))
-	var open := {}  # id -> since
+	var open := {}  # id -> [since, spawn index]
 	var spans := {}
+	var ends := {}
 	for id in ids:
 		spans[id] = []
-	var close := func(id: String, at: float, rec: Callable) -> void:
+		ends[id] = []
+	var close := func(id: String, at: float, by: int, rec: Callable) -> void:
 		if open.has(id):
-			spans[id].append([open[id], at])
+			spans[id].append([open[id][0], at])
+			ends[id].append({"spawn": open[id][1], "despawn": by})
 			open.erase(id)
 		for child in ids:
 			if parent.get(child, "") == id:
-				rec.call(child, at, rec)
+				rec.call(child, at, -1, rec)
 	for e in events:
 		var t: float = e[0]
 		var ev: Dictionary = e[2]
 		match ev.get("action"):
 			"spawn":
 				var id := String(ev.get("id", ""))
-				close.call(id, t, close)  # a respawn starts afresh (children too)
-				open[id] = t
+				close.call(id, t, -1, close)  # a respawn starts afresh (children too)
+				open[id] = [t, e[1]]
 			"despawn":
-				close.call(String(ev.get("target", "")), t, close)
+				close.call(String(ev.get("target", "")), t, e[1], close)
 	for id in open:
-		spans[id].append([open[id], maxf(until, open[id])])
+		spans[id].append([open[id][0], maxf(until, open[id][0])])
+		ends[id].append({"spawn": open[id][1], "despawn": -1})
 	var out: Array = []
 	for id in ids:
 		var depth := 0
@@ -121,8 +128,27 @@ static func lanes(model: EditModel, until: float) -> Array:
 		while p != "" and depth < 32:
 			depth += 1
 			p = parent.get(p, "")
-		out.append({"id": id, "depth": depth, "spans": spans[id]})
+		out.append({"id": id, "depth": depth, "parent": parent.get(id, ""), "spans": spans[id], "ends": ends[id]})
 	return out
+
+
+## How far span `si` of `lane` can stretch, as [earliest start, latest
+## end]: not into its neighbours, and inside its parent's time on stage.
+static func span_limits(all_lanes: Array, lane: Dictionary, si: int, until: float) -> Array:
+	var span: Array = lane.spans[si]
+	var lo := 0.0
+	var hi := maxf(until, span[1])
+	if si > 0:
+		lo = lane.spans[si - 1][1]
+	if si + 1 < lane.spans.size():
+		hi = lane.spans[si + 1][0]
+	for other in all_lanes:
+		if other.id == lane.parent:
+			for ps in other.spans:
+				if ps[0] <= span[0] + EditModel.SAME_TIME and span[0] < ps[1]:
+					lo = maxf(lo, ps[0])
+					hi = minf(hi, ps[1])
+	return [lo, hi]
 
 
 ## The selection's animated properties: [{ti, label, keys: [{ki, t,

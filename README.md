@@ -59,9 +59,9 @@ Open a video or a script from **F2 → Files**, by dropping it on the window, or
 
 ## Studio (the VR editor, early)
 
-Studio opens a script and lets you change it from inside the headset, on the player's own renderer, so what you see while editing is what the player will show. It's being built in steps (see [VR Studio — Plan.md](./VR%20Studio%20%E2%80%94%20Plan.md)); so far it opens a piece, plays and scrubs it, switches between Play and Edit, selects and moves things by hand (keyed or not), tunes their settings and effects in an inspector (keyed or not), retimes keys on a timeline with the song's waveform and beats, loops a passage, undoes and redoes, and saves. An asset shelf, to build a piece from nothing, comes next.
+Studio opens a script and lets you change it from inside the headset, on the player's own renderer, so what you see while editing is what the player will show. It's being built in steps (see [VR Studio — Plan.md](./VR%20Studio%20%E2%80%94%20Plan.md)); so far it opens a piece, plays and scrubs it, switches between Play and Edit, selects and moves things by hand (keyed or not), tunes their settings and effects in an inspector (keyed or not), retimes keys on a timeline with the song's waveform and beats, loops a passage, builds a piece from nothing off an asset shelf (a new piece for a plain video; screens, layers, effects and your own shaders and prefabs, bundled into the piece's folder), undoes and redoes, and saves. Recording knob moves and beat snapping come next.
 
-- **Start it** from its own build (the *Studio* download from CI, or `build_and_run.bat studio [video.json]`) with the piece: `ShaderPlayerVR-Studio.exe -- --piece path\to\video.json`. From the Godot editor, run `res://studio/studio.tscn` with the same arguments. A video with a same-name `.json` next to it works as the piece too; `--start <seconds>` opens at that time, `--vr` / `--desktop` as in the player.
+- **Start it** from its own build (the *Studio* download from CI, or `build_and_run.bat studio [video.json]`) with the piece: `ShaderPlayerVR-Studio.exe -- --piece path\to\video.json`. From the Godot editor, run `res://studio/studio.tscn` with the same arguments. A video works too: its same-name `.json`, or, if it has none, a **new, empty piece** made next to it (`clip.mp4` → `clip.json`). With no piece, Studio opens with the shelf's *Open…* tab to pick one; a piece or video dropped on the window opens as well. `--start <seconds>` opens at that time, `--vr` / `--desktop` as in the player, and `--library <folder>` adds a folder of your own assets to the shelf (repeat it for more).
 - **Play and Edit:** Play is the audience view with nothing added. Edit shows the piece's name, the time, whether there are unsaved changes and what just happened, on the left wrist in the headset and in the corner of the desktop window. Switching keeps the playhead.
 - **Controls** (defaults; Studio's own, separate from the player's):
 
@@ -90,6 +90,10 @@ Studio opens a script and lets you change it from inside the headset, on the pla
   | Deselect | ✕ on the inspector | Esc |
   | Show / hide the inspector | wrist | N |
   | Show / hide the timeline | wrist | T |
+  | Show / hide the asset shelf | wrist | B |
+  | Drop a carried shelf card | let go of the trigger (or pull it again) | let go of the mouse (or click) |
+  | Put a carried card back | | Esc |
+  | Delete the selection | wrist | Delete |
   | Loop on / off | wrist | L |
   | Loop from / to the playhead | wrist | [ / ] |
   | Fly (where you look) | left stick | WASD, E / Q |
@@ -105,6 +109,11 @@ Studio opens a script and lets you change it from inside the headset, on the pla
   - Click or drag on the ruler, the waveform or a bar to **scrub**. The wheel over the ruler or waveform (or Ctrl+wheel) zooms, Shift+wheel scrolls; in the headset the right stick is the wheel while you point at it (zooming over the ruler, scrolling the lanes below it). *−*, *+* and *Fit* are above it.
   - **Keys:** drag a diamond to retime it (one undo step when you let go); with snapping on it lands on the nearest beat. A selected key gets a row of buttons for how it moves on to the next one: *Linear*, *Ease*, *Cubic*, *Step*, or a curve (*Ease in*, *Ease out*, *In-out*, *Overshoot*), and *Delete key*.
   - **Loop:** *[ In* and *Out ]* (or [ and ]) set the region at the playhead, drag its blue handles on the ruler to adjust it, and *Loop* (L) turns it on: playing then starts inside it and comes back round at its end, for rehearsing a passage.
+- **The asset shelf** (B, or *Shelf* on the wrist) is a panel on the left of the desktop window, and in the headset a panel in front of you to the left. Its tabs are *Objects* (screen, cube, your prefabs), *Layers* (layer shaders), *Effects* and *Open…* (the player's file browser: a piece, or a video to start one). Each card has a picture, rendered with the player's own prefabs (layers dance to made-up music, effects run over a test card), and says where it comes from: nothing for the built-ins, *yours*, or *in the piece*.
+  - **Adding:** press a card and let go where it should be in the world (or click it, then click the spot): it comes on at the playhead, facing you. Screens and layers dropped on the floor stand at eye height there, other things sit on the floor; aimed into the air, they go 3 m out. Snapping rounds the spot and the turn. Drop an **effect** on a screen or a layer (it goes at the end of its effects), or a **layer card on a layer** to change its shader. Every drop is one undo step. The first screen is `main_screen`; a new piece has no screen until you add one.
+  - **Your assets:** shaders in the player's shader folders (`user://shaders`, `shaders/` next to the exe), and shaders and prefabs (`.tscn`) in the library folders (`user://library`, `library/` next to the exe, `--library` folders; also in their `shaders/` and `prefabs/`). New and changed files appear on the shelf by themselves. Shaders or prefabs dropped on the window go into the piece.
+  - **Self-contained pieces:** using one of your assets copies it into the piece's folder (`shaders/`, `prefabs/`, as the Godot exporter does) and the piece names it relatively, so the folder can be zipped and played anywhere. A prefab that uses files of its own is saved with them built in. The inspector's add-effect and shader menus list your shaders as well, and copy them the same way.
+  - **When things are on stage:** drag either end of an object's bar on the timeline to change when it comes on or goes (onto beats while snapping); objects that came on with it come on with it. Dragging the end to the end of the piece keeps it on.
 - **Saving:** Ctrl+S writes the piece back to its `.json`, after checking it with the player's own validator (an edit that would make it invalid isn't saved, and the status says why). Opening and saving without changes, or after undoing them all, leaves the file byte for byte as it was. After edits it's written with the file's own indentation and key order; a version 1 script is saved as version 2. There's no autosave yet, and closing Studio doesn't ask about unsaved changes.
 - Studio doesn't follow changes other programs make to the file while it's open (a Godot export, say); reopen the piece to see them.
 
@@ -115,6 +124,8 @@ Studio opens a script and lets you change it from inside the headset, on the pla
 ![Studio's inspector: the main screen's display and glow settings, the glow tint on the colour wheel, the add-effect menu, an effect added and moved up, and the headset panel beside the screen](docs/studio/m3_studio.png)
 
 ![Studio's timeline: the waveform with beat ticks, a loop region, object lanes and the cube's keys, a key dragged onto a beat, the headset band](docs/studio/m4_studio.png)
+
+![Studio's asset shelf: opening a plain video, the new piece's shelf, carrying a cube card, the scene built from the shelf, the headset shelf, and the piece's folder played by the player somewhere else](docs/studio/m5_studio.png)
 
 ## Builds and releases (CI)
 

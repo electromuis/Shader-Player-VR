@@ -389,7 +389,7 @@ func _add_effect_adder() -> void:
 	if _menu == "add_effect":
 		var grid := _add_choices(edits.effect_options(), func(key: String):
 			var n := edits.model.effects_of(_id).size()
-			if _effect_op(func(): return edits.model.add_effect(_id, key)):
+			if _effect_op(func(): return edits.add_effect(_id, key)):
 				_open["effect%d" % n] = true)
 		grid.name = "AddEffectChoices"
 
@@ -414,7 +414,7 @@ func _add_layer_shader(s: Dictionary) -> void:
 	if _menu == "layer_shader":
 		var at := pick.get_index() + 1
 		var grid := _add_choices(edits.layer_shader_options(), func(key: String):
-			_effect_op(func(): return edits.model.set_shader(_id, key)))
+			_effect_op(func(): return edits.set_layer_shader(_id, key)))
 		_list.remove_child(grid)
 		body.add_child(grid)
 		body.move_child(grid, at)

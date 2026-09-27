@@ -37,6 +37,9 @@ const CHANNELS := ["position", "rotation_deg", "scale"]
 
 var model: EditModel
 var runner: ScriptRunner
+## The shelf's library: the add-effect and layer shader menus also offer
+## the user's shaders (bundled into the piece when picked). Optional.
+var library: StudioAssetLibrary
 
 
 # ---------- what an object has ----------
@@ -421,34 +424,48 @@ func _as_value(field: Dictionary, value):
 
 # ---------- the effects stack ----------
 
-## Effects that can be added: [{key (a shader path), label}]: the built-ins
-## and the piece's own effect shaders.
+## Effects that can be added: [{key (a shader path), label}]: the built-ins,
+## the piece's own effect shaders, and the user's (from the library).
 func effect_options() -> Array:
-	var out: Array = []
-	for b in VisualizerShaders.BUILTIN_EFFECTS:
-		out.append({"key": b.key, "label": b.label})
-	var shaders = model.document().get("shaders", {})
-	for k in shaders:
-		var path := _resolve(k)
-		if path.begins_with("res://player/") or out.any(func(o): return o.key == path):
-			continue
-		var shader := VisualizerShaders.load_shader(path)
-		if shader != null and VisualizerShaders.is_effect_code(shader.code):
-			out.append({"key": String(shaders[k]), "label": String(k).capitalize()})
-	return out
+	return _shader_options(VisualizerShaders.BUILTIN_EFFECTS, true)
 
 
-## Layer shaders that can be picked: [{key (path), label}].
+## Layer shaders that can be picked: [{key (path), label}], the same way.
 func layer_shader_options() -> Array:
+	return _shader_options(VisualizerShaders.BUILTINS, false)
+
+
+func _shader_options(builtins: Array, effects: bool) -> Array:
 	var out: Array = []
-	for b in VisualizerShaders.BUILTINS:
+	var seen := {}
+	for b in builtins:
 		out.append({"key": b.key, "label": b.label})
+		seen[b.key] = true
 	var shaders = model.document().get("shaders", {})
 	for k in shaders:
 		var path := _resolve(k)
-		if path.begins_with("res://player/") or out.any(func(o): return o.key == path):
+		if path.begins_with("res://player/") or seen.has(path):
 			continue
 		var shader := VisualizerShaders.load_shader(path)
-		if shader != null and not VisualizerShaders.is_effect_code(shader.code):
+		if shader != null and VisualizerShaders.is_effect_code(shader.code) == effects:
 			out.append({"key": String(shaders[k]), "label": String(k).capitalize()})
+			seen[path] = true
+	if library != null:
+		for a in library.of_type("effect" if effects else "layer"):
+			if a.source != "builtin" and not seen.has(a.path):
+				out.append({"key": a.path, "label": "%s (%s)" % [a.label, "piece" if a.source == "piece" else "yours"]})
+				seen[a.path] = true
 	return out
+
+
+## Add the effect at `path` (an option's key) to `id`, bundling a user
+## shader into the piece first. One undo step.
+func add_effect(id: String, path: String) -> bool:
+	var b := StudioBundle.bundle(model.path.get_base_dir(), path)
+	return b.ok and model.add_effect(id, b.path)
+
+
+## Give layer `id` the shader at `path`, bundling a user shader first.
+func set_layer_shader(id: String, path: String) -> bool:
+	var b := StudioBundle.bundle(model.path.get_base_dir(), path)
+	return b.ok and model.set_shader(id, b.path)

@@ -117,6 +117,12 @@ func axis(id: String) -> Vector2:
 	return Vector2.ZERO
 
 
+## Whether a raw input ("R.trigger", "L.grip", ...) is held down now,
+## whatever it's bound to.
+func is_down(input: String) -> bool:
+	return _held.has(input)
+
+
 # ---------- raw input ----------
 
 func feed_button(input: String, pressed: bool, t: float) -> void:

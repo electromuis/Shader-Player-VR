@@ -51,6 +51,48 @@ static func open(file_path: String) -> Dictionary:
 	return from_text(FileAccess.get_file_as_string(file_path), file_path)
 
 
+## The built-in prefabs a new piece names, so the shelf's objects need no
+## new `prefabs` entry.
+const BUILTIN_PREFABS := {
+	"screen": "res://player/prefabs/screen.tscn",
+	"layer": "res://player/prefabs/layer.tscn",
+	"cube": "res://player/prefabs/cube.tscn",
+	"group": "res://player/prefabs/group.tscn",
+}
+
+
+## A new, empty piece for the video at `video_path`: `<video>.json` next
+## to it (format 2, the video named relatively, the built-in prefabs named,
+## no objects and no default screen: what you add is what there is). It's
+## written straight away, so the piece exists from the start. {ok, model}
+## or {ok: false, error, errors}.
+static func new_piece(video_path: String) -> Dictionary:
+	var path := video_path.get_basename() + ".json"
+	if FileAccess.file_exists(path):
+		var err := "%s is already there" % path.get_file()
+		return {"ok": false, "error": err, "errors": [err]}
+	var doc := {
+		"format_version": ScriptFormat.SUPPORTED_VERSION,
+		"meta": {
+			"title": video_path.get_file().get_basename(),
+			"created": Time.get_date_string_from_system(),
+			"default_screen": false,
+		},
+		"media": {"video": video_path.get_file()},
+		"prefabs": BUILTIN_PREFABS.duplicate(),
+		"shaders": {},
+		"tracks": [],
+	}
+	var text := JSON.stringify(doc, "  ", false) + "\n"
+	var r := from_text(text, path)
+	if not r.ok:
+		return r
+	var saved: Dictionary = r.model.save()
+	if not saved.ok:
+		return {"ok": false, "error": saved.error, "errors": [saved.error]}
+	return r
+
+
 static func from_text(text: String, file_path: String = "") -> Dictionary:
 	var parsed = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
@@ -520,13 +562,49 @@ func _shader_key_for(shader_path: String, changes: Array) -> String:
 
 ## A `shaders` key made from `base` that isn't taken.
 func _new_shader_key(base: String) -> String:
-	var shaders = _doc.get("shaders", {})
-	var key := base if base != "" else "effect"
+	return _free_key(_doc.get("shaders", {}), base if base != "" else "effect")
+
+
+## `base`, or base_2, base_3, ...: the first that isn't a key of `taken`.
+static func _free_key(taken, base: String) -> String:
+	var key := base
 	var n := 2
-	while typeof(shaders) == TYPE_DICTIONARY and shaders.has(key):
+	while typeof(taken) == TYPE_DICTIONARY and taken.has(key):
 		key = "%s_%d" % [base, n]
 		n += 1
 	return key
+
+
+## The `shaders` key for `shader_path`, naming it (one undoable step) if
+## nothing does yet.
+func name_shader(shader_path: String) -> String:
+	var changes: Array = []
+	var key := _shader_key_for(shader_path, changes)
+	if not changes.is_empty():
+		_do("Name shader %s" % key, true, changes)
+	return key
+
+
+## The `prefabs` key for `prefab_path`, naming it (one undoable step) after
+## its file if nothing does yet.
+func name_prefab(prefab_path: String) -> String:
+	var prefabs = _doc.get("prefabs", {})
+	prefabs = prefabs.duplicate() if typeof(prefabs) == TYPE_DICTIONARY else {}
+	for k in prefabs:
+		if prefabs[k] == prefab_path:
+			return k
+	var key := _free_key(prefabs, prefab_path.get_file().get_basename())
+	prefabs[key] = prefab_path
+	_do("Name prefab %s" % key, true, [_change(["prefabs"], prefabs)])
+	return key
+
+
+## An object id made from `base` that no object has yet.
+func free_id(base: String) -> String:
+	var taken := {}
+	for id in object_ids():
+		taken[id] = true
+	return _free_key(taken, base if base != "" else "object")
 
 
 ## A key at `t` on the `type` track of `target` / `name` (made if there's
@@ -691,6 +769,56 @@ func remove_object(id: String) -> bool:
 				grew = true
 	var list := tracks().filter(func(t): return not _belongs_to(t, gone))
 	return _do("Remove %s" % id, true, [_change(["tracks"], list)])
+
+
+## When an object comes on: spawn event `ti` moves to `t`. Objects spawned
+## inside it at the same moment (a group's children) move with it, so they
+## never arrive before their parent.
+func set_spawn_time(ti: int, t: float) -> bool:
+	var list := tracks()
+	if ti < 0 or ti >= list.size() or list[ti].get("type") != "event" or list[ti].get("action") != "spawn":
+		return false
+	var old := float(list[ti].get("t", 0.0))
+	var changes: Array = []
+	var moving := [ti]
+	while not moving.is_empty():
+		var i: int = moving.pop_back()
+		changes.append(_change(["tracks", i, "t"], t))
+		var id = list[i].get("id")
+		for k in list.size():
+			var e: Dictionary = list[k]
+			if e.get("action") == "spawn" and e.get("parent") == id and absf(float(e.get("t", 0.0)) - old) < SAME_TIME:
+				moving.append(k)
+	return _do("%s comes on at %s" % [list[ti].get("id", ""), _time_label(t)], true, changes)
+
+
+## When an object goes: despawn event `ti` moves to `t`.
+func set_despawn_time(ti: int, t: float) -> bool:
+	var list := tracks()
+	if ti < 0 or ti >= list.size() or list[ti].get("type") != "event" or list[ti].get("action") != "despawn":
+		return false
+	return _do("%s goes at %s" % [list[ti].get("target", ""), _time_label(t)], true, [_change(["tracks", ti, "t"], t)])
+
+
+## `id` goes at `t` (a new despawn event).
+func add_despawn(id: String, t: float) -> bool:
+	if spawn_index(id) < 0:
+		return false
+	var list := tracks().duplicate()
+	list.append({"type": "event", "t": t, "action": "despawn", "target": id})
+	return _do("%s goes at %s" % [id, _time_label(t)], true, [_change(["tracks"], list)])
+
+
+## Remove despawn event `ti`: the object stays on (to its next despawn or
+## the end).
+func remove_despawn(ti: int) -> bool:
+	var list := tracks()
+	if ti < 0 or ti >= list.size() or list[ti].get("type") != "event" or list[ti].get("action") != "despawn":
+		return false
+	var id := String(list[ti].get("target", ""))
+	list = list.duplicate()
+	list.remove_at(ti)
+	return _do("%s stays on" % id, true, [_change(["tracks"], list)])
 
 
 static func _belongs_to(t: Dictionary, ids: Dictionary) -> bool:

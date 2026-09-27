@@ -11,6 +11,8 @@ extends PanelContainer
 ##   press a key diamond → select it; drag it → retime it on release (one
 ##     undo step; onto the nearest beat while snapping is on)
 ##   the loop handles on the ruler → drag the in / out point
+##   a lane's ends → drag when the object comes on / goes (one undo step;
+##     onto beats while snapping); the end dragged to the piece's end stays on
 ##   a lane's name → select that object
 ##   wheel over the ruler or waveform (or Ctrl+wheel) → zoom about it;
 ##     Shift+wheel → scroll in time; wheel over the lanes → scroll them
@@ -25,6 +27,8 @@ signal said(text: String)
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
 const KEY := Color(1.0, 0.85, 0.3)
+## The shortest time on stage a lane end can be dragged to.
+const MIN_SPAN := 0.1
 const DIM := Color(0.72, 0.75, 0.8)
 const PANEL_BG := Color(0.06, 0.06, 0.09, 0.92)
 const INTERPS := [["linear", "Linear"], ["ease", "Ease"], ["cubic", "Cubic"], ["step", "Step"],
@@ -44,7 +48,7 @@ var _rows: Array = []
 var _cuts: Array = []
 var _layout: Array = []  # [{kind: "lane" / "prop", y, h, id or row}]
 var _needs_data := true
-var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b, ti, ki, t, from}
+var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b / lane_start / lane_end, ti, ki, id, si, t, from, lo, hi}
 var _vscroll := 0.0
 var _fitted := false
 var _canvas: Control
@@ -260,11 +264,17 @@ func _draw_canvas() -> void:
 				c.draw_rect(Rect2(0, y, w, _lane), Color(ACCENT, 0.12))
 			c.draw_string(font, Vector2(6 * _k + lane.depth * 12 * _k, y + _lane * 0.75), lane.id, HORIZONTAL_ALIGNMENT_LEFT,
 					_gutter - 10 * _k - lane.depth * 12 * _k, _fs, Color.WHITE if sel else DIM)
-			for s in lane.spans:
+			for si in lane.spans.size():
+				var s: Array = _shown_span(lane, si)
 				var x0 := maxf(_gutter + view.x_of(s[0]), _gutter)
 				var x1 := minf(_gutter + view.x_of(s[1]), w)
 				if x1 > x0:
 					c.draw_rect(Rect2(x0, y + _lane * 0.25, x1 - x0, _lane * 0.5), Color(ACCENT, 0.75 if sel else 0.35))
+					# End handles: grab them to change when it comes on / goes.
+					var hw := maxf(2.0, 2.0 * _k)
+					for ex in [_gutter + view.x_of(s[0]), _gutter + view.x_of(s[1])]:
+						if ex >= _gutter and ex <= w:
+							c.draw_rect(Rect2(ex - hw, y + _lane * 0.12, hw * 2.0, _lane * 0.76), Color(1, 1, 1, 0.9 if sel else 0.5))
 		y += _lane
 		if not sel:
 			continue
@@ -298,6 +308,14 @@ func _draw_canvas() -> void:
 	var px := _gutter + view.x_of(_playhead())
 	if px >= _gutter and px <= w:
 		c.draw_line(Vector2(px, 0), Vector2(px, h), Color.WHITE, maxf(2.0, 1.5 * _k))
+
+
+## Span `si` of `lane`, as it's being dragged if it is.
+func _shown_span(lane: Dictionary, si: int) -> Array:
+	var s: Array = lane.spans[si]
+	if _drag.get("id", "") == lane.id and _drag.get("si", -1) == si:
+		return [_drag.t, s[1]] if _drag.kind == "lane_start" else [s[0], _drag.t]
+	return s
 
 
 func _diamond(at: Vector2, r: float, color: Color, outlined: bool) -> void:
@@ -343,7 +361,8 @@ func _canvas_input(event: InputEvent) -> void:
 		_canvas.accept_event()
 
 
-## What's under `at`: {kind: "loop_a" / "loop_b" / "key" / "name" / "time", ...}.
+## What's under `at`: {kind: "loop_a" / "loop_b" / "key" / "lane_start" /
+## "lane_end" / "name" / "time", ...}.
 func hit(at: Vector2) -> Dictionary:
 	var r := 10.0 * _k
 	if at.y < _ruler and loop.is_set():
@@ -355,6 +374,10 @@ func hit(at: Vector2) -> Dictionary:
 			continue
 		if at.x < _gutter:
 			return {"kind": "name", "id": item.id} if item.kind == "lane" else {}
+		if item.kind == "lane":
+			var end := _lane_end_at(item.id, at.x, r)
+			if not end.is_empty():
+				return end
 		if item.kind == "prop":
 			var best := {}
 			var best_d := r
@@ -368,11 +391,37 @@ func hit(at: Vector2) -> Dictionary:
 	return {"kind": "time", "t": clampf(view.t_of(at.x - _gutter), 0.0, view.duration)} if at.x >= _gutter else {}
 
 
+## The lane end of `id` within `r` pixels of `x`: {kind: "lane_start" /
+## "lane_end", id, si, t}, or {}.
+func _lane_end_at(id: String, x: float, r: float) -> Dictionary:
+	var lane := _lane_of(id)
+	var best := {}
+	var best_d := r
+	for si in lane.get("spans", []).size():
+		for e in [["lane_start", 0], ["lane_end", 1]]:
+			var t: float = lane.spans[si][e[1]]
+			var d := absf(_gutter + view.x_of(t) - x)
+			if d <= best_d:
+				best_d = d
+				best = {"kind": e[0], "id": id, "si": si, "t": t}
+	return best
+
+
+func _lane_of(id: String) -> Dictionary:
+	for lane in _lanes:
+		if lane.id == id:
+			return lane
+	return {}
+
+
 func _press(at: Vector2) -> void:
 	var h := hit(at)
 	match h.get("kind", ""):
 		"loop_a", "loop_b":
 			_drag = {"kind": h.kind}
+		"lane_start", "lane_end":
+			var lim := StudioTimeline.span_limits(_lanes, _lane_of(h.id), h.si, view.duration)
+			_drag = {"kind": h.kind, "id": h.id, "si": h.si, "t": h.t, "from": h.t, "lo": lim[0], "hi": lim[1]}
 		"key":
 			selected_key = {"ti": h.ti, "ki": h.ki}
 			_drag = {"kind": "key", "ti": h.ti, "ki": h.ki, "t": h.t, "from": h.t}
@@ -394,14 +443,48 @@ func _move(at: Vector2) -> void:
 			loop.b = maxf(t, loop.a + StudioLoop.MIN_LENGTH)
 		"key":
 			_drag.t = StudioTimeline.snap(t, _grid()) if tools.snap else t
+		"lane_start", "lane_end":
+			var span: Array = _lane_of(_drag.id).spans[_drag.si]
+			t = StudioTimeline.snap(t, _grid()) if tools.snap else t
+			if _drag.kind == "lane_start":
+				_drag.t = clampf(t, _drag.lo, span[1] - MIN_SPAN)
+			else:
+				_drag.t = clampf(t, span[0] + MIN_SPAN, _drag.hi)
 
 
 func _release() -> void:
 	var d := _drag
 	_drag = {}
-	if d.get("kind", "") != "key" or absf(float(d.t) - float(d.from)) < 0.001:
+	if d.get("kind", "") not in ["key", "lane_start", "lane_end"] or absf(float(d.t) - float(d.from)) < 0.001:
 		return
-	retime(d.ti, d.ki, float(d.t))
+	if d.kind == "key":
+		retime(d.ti, d.ki, float(d.t))
+	else:
+		move_lane_end(d.id, d.si, d.kind == "lane_start", float(d.t))
+
+
+## Span `si` of object `id` now starts (or ends) at `t`: its spawn moves;
+## its despawn moves, or one is added; dragged to the piece's end, it stays
+## on (its despawn goes). One undo step.
+func move_lane_end(id: String, si: int, start: bool, t: float) -> bool:
+	var lane := _lane_of(id)
+	if lane.is_empty() or si < 0 or si >= lane.spans.size():
+		return false
+	var ends: Dictionary = lane.ends[si]
+	var model := edits.model
+	var done := false
+	t = snappedf(t, 0.001)
+	if start:
+		done = model.set_spawn_time(ends.spawn, t)
+	elif ends.despawn >= 0:
+		var last: bool = si == lane.spans.size() - 1
+		done = model.remove_despawn(ends.despawn) if last and t >= view.duration - 0.01 else model.set_despawn_time(ends.despawn, t)
+	elif t < float(lane.spans[si][1]) - 0.001:
+		done = model.add_despawn(id, t)
+	if done:
+		said.emit(model.undo_label() + ".")
+		_needs_data = true
+	return done
 
 
 ## Move key `ki` of track `ti` to `t` (one undo step) and keep it selected.

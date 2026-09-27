@@ -4,7 +4,8 @@ extends RefCounted
 ## Resolves a PlayerSettings.skybox value onto an Environment. Built-in keys
 ## are solid colours, gradients or sky shaders (no shipped assets); any other value is a path to an
 ## equirectangular panorama image. User panoramas are discovered in
-## `user://skyboxes/` and a `skyboxes/` folder next to the executable.
+## `skyboxes/` in AppPaths.save_dir() and a `skyboxes/` folder next to the
+## executable.
 ##
 ## Ambient light is left alone so script-spawned lit objects look the same
 ## whichever background is chosen.
@@ -40,8 +41,8 @@ var _image_cache: Dictionary = {}  # path -> Texture2D
 ## Folders scanned for user panoramas. Created lazily by the user; missing
 ## folders are skipped.
 static func search_dirs() -> Array[String]:
-	var out: Array[String] = [ProjectSettings.globalize_path("user://skyboxes")]
-	out.append(OS.get_executable_path().get_base_dir().path_join("skyboxes"))
+	var out: Array[String] = [ProjectSettings.globalize_path(AppPaths.save_path("skyboxes"))]
+	out.append(AppPaths.exe_dir().path_join("skyboxes"))
 	return out
 
 

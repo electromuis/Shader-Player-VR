@@ -5,9 +5,12 @@ extends "res://addons/vj_editor/modifiers/vj_object.gd"
 ## Video screen prefab for the VJ authoring project. Runs an artist shader
 ## over a video texture inside a SubViewport at reduced resolution, then
 ## its effects (VJEffect children, effect.gd) in their own passes, then
-## samples the result on a 3D quad. Mirrors the runtime Screen used by the
-## player so what the artist sees in the template project roughly matches
-## what the audience sees.
+## samples the result on a 3D quad, bent by its surface and moved by its
+## vertex effects (VJVertexEffect children, vertex_effect.gd). Mirrors the
+## runtime Screen used by the player so what the artist sees in the
+## template project roughly matches what the audience sees: the display
+## shader is built the same way, from the same snippets
+## (screen_shader_code.gd, visualizer/surfaces/, visualizer/vertex/).
 ##
 ## There's no video decoder in the authoring project, so the source is a
 ## still: the owning VJScene's `preview_image`, or a generated three-column
@@ -18,12 +21,15 @@ extends "res://addons/vj_editor/modifiers/vj_object.gd"
 ## Everything animatable lives on this root node so AnimationPlayer tracks
 ## don't need editable children:
 ##   main_screen:shader_material:shader_parameter/<name>  → shader_param (slot "surface")
-##   main_screen:curvature / :vertical_curvature / :opacity → shader_param (slot "display")
+##   main_screen:arc_x / :arc_y / :auto_height / :keep_row_width → shader_param (slot "shape")
+##   main_screen:opacity (and earlier scenes' :curvature / :vertical_curvature)
+##                                                        → shader_param (slot "display")
 ##   main_screen/<effect>:material:shader_parameter/<name> → shader_param (slot "effect<N>")
+##   main_screen/<vertex effect>:params/<name>            → shader_param (slot "vertex<N>")
 ##
 ## VJLayer (layer.gd) extends this with a layer shader in place of the
-## artist shader; the _render_size / _input_uniforms / _bind_inputs /
-## _base_scale hooks are where they differ.
+## artist shader; the _authored_material / _render_size / _input_uniforms /
+## _bind_inputs / _base_scale hooks are where they differ.
 ##
 ## The modifier and reactive fields come from VJObject; `opacity` among them
 ## is this screen's display fade (exported as `config.opacity` and
@@ -32,7 +38,15 @@ extends "res://addons/vj_editor/modifiers/vj_object.gd"
 const _SOURCE_TEX_UNIFORM := "screen_tex"
 const _BASE_RENDER_RES := Vector2i(1920, 1080)
 const _QUAD_ASPECT := 16.0 / 9.0
-const _DISPLAY_SHADER := preload("res://addons/vj_editor/builtin_prefabs/screen_preview_display.gdshader")
+const _Code := preload("res://addons/vj_editor/builtin_prefabs/screen_shader_code.gd")
+const _DISPLAY_INCLUDE := "res://addons/vj_editor/builtin_prefabs/screen_display.gdshaderinc"
+const SURFACES_DIR := "res://addons/vj_editor/visualizer/surfaces/"
+## The placements each built-in surface supports (as its `@placements`).
+const SURFACE_PLACEMENTS := {"pillow": ["fixed", "around"], "dome": ["fixed", "around", "infinity"]}
+const _MESH_HALF := Vector2(16.0, 9.0)  # the quad mesh's half size (screen.tscn)
+## Where the player puts the viewer: the fallback when the scene has no
+## VJViewer (surfaces around the viewer centre on it).
+const _HOME_EYE := Vector3(0.0, 2.0, 8.0)
 ## Stands in for a missing artist shader in the preview (never exported).
 const _PASSTHROUGH_CODE := "shader_type canvas_item;
 uniform sampler2D screen_tex : source_color, filter_linear;
@@ -40,6 +54,7 @@ void fragment() { COLOR = texture(screen_tex, UV); }
 "
 const _EffectChain := preload("res://addons/vj_editor/builtin_prefabs/effect_chain.gd")
 const _EffectScript := preload("res://addons/vj_editor/builtin_prefabs/effect.gd")
+const _VertexEffectScript := preload("res://addons/vj_editor/builtin_prefabs/vertex_effect.gd")
 ## The effect slots scenes used before effects became child nodes. Still
 ## loaded and saved (not shown) so Tools > VJ: Convert effect slots to
 ## nodes can move them; the preview and export ignore them.
@@ -61,19 +76,71 @@ const LEGACY_EFFECT_SLOTS := ["effect_1", "effect_2", "effect_3", "effect_4"]
 		render_scale = clampf(value, 0.05, 2.0)
 		_apply_render_scale()
 
-@export_group("Display")
-## Bends the quad toward the viewer: 0 = flat, 1 = half-cylinder.
-## Exported as `config.curvature`; animate it for a `<id>.display` track.
-@export_range(0.0, 1.0, 0.01) var curvature: float = 0.0:
+@export_group("Surface")
+## Where the picture sits. Pillow bends the screen left-to-right (arc x)
+## and top-to-bottom (arc y), 0 / 0 flat; the picture never distorts, its
+## size sets the coverage. Dome puts it on part of a sphere, arc x wide,
+## the height following the picture's shape (auto height) or arc y (the
+## picture stretches). Exported as `config.surface`.
+@export_enum("pillow", "dome") var surface: String = "pillow":
 	set(value):
-		curvature = clampf(value, 0.0, 1.0)
+		surface = value
 		_apply_display()
 
-## The same bend top-to-bottom. Exported as `config.vertical_curvature`.
-@export_range(0.0, 1.0, 0.01) var vertical_curvature: float = 0.0:
+## Fixed: bent at the screen. Around viewer: the viewer (the VJViewer, else
+## the player's home eye) at the centre; the Pillow's arcs then follow from
+## its size, the Dome's size is unused. At infinity (Dome only): follows
+## the camera, drawn behind everything (for 180° / 360° video). A
+## placement the surface doesn't support is fixed.
+@export_enum("fixed", "around", "infinity") var placement: String = "fixed":
 	set(value):
-		vertical_curvature = clampf(value, 0.0, 1.0)
+		placement = value
 		_apply_display()
+
+## Degrees. Animate the arcs and flags for `<id>.shape` tracks.
+@export_range(0.0, 360.0, 1.0) var arc_x: float = 0.0:
+	set(value):
+		arc_x = value
+		_sync_display()
+
+@export_range(0.0, 180.0, 1.0) var arc_y: float = 0.0:
+	set(value):
+		arc_y = value
+		_sync_display()
+
+## Pillow: true circular arcs over the picture, bent left-to-right and
+## then top-to-bottom (off: the classic bend, over the whole padded quad
+## with its depth squashed by the quad's stretch).
+@export var true_arcs: bool = false:
+	set(value):
+		true_arcs = value
+		_sync_display()
+
+## Dome: the height follows the picture's shape (off: arc y).
+@export var auto_height: bool = true:
+	set(value):
+		auto_height = value
+		_sync_display()
+
+## Dome: widen rows toward the top and bottom so they keep their width.
+@export var keep_row_width: bool = false:
+	set(value):
+		keep_row_width = value
+		_sync_display()
+
+## Earlier scenes' bends (0..1 of a half-turn), kept so they load and their
+## `:curvature` tracks play: the Pillow's arcs / 180. Not saved.
+var curvature: float:
+	get:
+		return arc_x / 180.0
+	set(value):
+		arc_x = clampf(value, 0.0, 1.0) * 180.0
+
+var vertical_curvature: float:
+	get:
+		return arc_y / 180.0
+	set(value):
+		arc_y = clampf(value, 0.0, 1.0) * 180.0
 
 var _display_material: ShaderMaterial
 var _source_texture: Texture2D
@@ -85,6 +152,7 @@ var _render_material: ShaderMaterial
 var _param_names: Array[StringName] = []
 var _chain: Node  # effect_chain.gd; internal, never saved
 var _legacy_effects: Dictionary = {}  # LEGACY_EFFECT_SLOTS name -> ShaderMaterial
+var _display_key: Array = []  # what the display shader was built from
 
 static var _test_card: ImageTexture
 static var _passthrough: Shader
@@ -97,7 +165,6 @@ func _ready() -> void:
 	viewport.disable_3d = true
 
 	_display_material = ShaderMaterial.new()
-	_display_material.shader = _DISPLAY_SHADER
 	($Mesh as MeshInstance3D).material_override = _display_material
 	_chain = _EffectChain.new()
 	_chain.name = "_EffectPasses"
@@ -111,7 +178,8 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	var authored: Shader = shader_material.shader if shader_material != null else null
+	var authored_material := _authored_material()
+	var authored: Shader = authored_material.shader if authored_material != null else null
 	var rendered: Shader = _render_material.shader if _render_material != null else null
 	if rendered == _passthrough:
 		rendered = null
@@ -119,7 +187,7 @@ func _process(_delta: float) -> void:
 		_apply_material()
 	elif authored != null:
 		for p in _param_names:
-			_render_material.set_shader_parameter(p, shader_material.get_shader_parameter(p))
+			_render_material.set_shader_parameter(p, authored_material.get_shader_parameter(p))
 	if _chain == null:
 		return
 	if not _chain.is_current(effect_materials()):
@@ -127,6 +195,11 @@ func _process(_delta: float) -> void:
 	else:
 		_chain.sync(_render_size(), _picture_aspect())
 		_apply_mesh_scale()
+	# Vertex effects added, removed, re-picked or reordered; params scrub.
+	if _display_key != _display_build_key():
+		_apply_display()
+	else:
+		_sync_display()
 
 
 ## Opacity fades the display pass (see the class notes).
@@ -158,6 +231,29 @@ func effect_nodes() -> Array[Node]:
 		if c.get_script() == _EffectScript and c.is_active():
 			out.append(c)
 	return out
+
+
+## The VJVertexEffect children that take part, in order.
+func vertex_effect_nodes() -> Array[Node]:
+	var out: Array[Node] = []
+	for c in get_children():
+		if c.get_script() == _VertexEffectScript and c.is_active():
+			out.append(c)
+	return out
+
+
+## The surface as the player takes it ({shader: "pillow" / "dome", params,
+## placement}), params limited to the ones that surface reads.
+func surface_config() -> Dictionary:
+	var params := {"arc_x": arc_x}
+	if surface == "dome":
+		params["auto_height"] = auto_height
+		params["arc_y"] = arc_y
+		params["keep_row_width"] = keep_row_width
+	else:
+		params["arc_y"] = arc_y
+		params["true_arcs"] = true_arcs
+	return {"shader": surface, "params": params, "placement": _placement()}
 
 
 ## effect_nodes()' materials.
@@ -228,10 +324,11 @@ func _apply_material() -> void:
 		return
 	_param_names.clear()
 	_render_material = null
-	if shader_material != null and shader_material.shader != null:
-		_render_material = shader_material.duplicate() as ShaderMaterial
+	var authored := _authored_material()
+	if authored != null and authored.shader != null:
+		_render_material = authored.duplicate() as ShaderMaterial
 		var inputs := _input_uniforms()
-		for u in shader_material.shader.get_shader_uniform_list():
+		for u in authored.shader.get_shader_uniform_list():
 			if not inputs.has(u.name):
 				_param_names.append(StringName(u.name))
 	elif _input_uniforms().has(_SOURCE_TEX_UNIFORM):
@@ -247,6 +344,12 @@ func _apply_material() -> void:
 
 
 # ---------- hooks (VJLayer overrides these) ----------
+
+## The material the canvas renders (a copy of), or null for the source as
+## is.
+func _authored_material() -> ShaderMaterial:
+	return shader_material
+
 
 ## Pixel size the shader renders at.
 func _render_size() -> Vector2i:
@@ -275,12 +378,77 @@ func _apply_render_scale() -> void:
 		viewport.size = _render_size()
 
 
+## The placement, or fixed where the surface doesn't support it.
+func _placement() -> String:
+	return placement if placement in SURFACE_PLACEMENTS.get(surface, ["fixed"]) else "fixed"
+
+
+func _display_build_key() -> Array:
+	var key: Array = [surface, _placement()]
+	for v in vertex_effect_nodes():
+		key.append(v.effect)
+		key.append(v.code())
+	return key
+
+
+## Rebuild the display shader (surface, placement or vertex effects
+## changed), then push the values.
 func _apply_display() -> void:
 	if _display_material == null:
 		return
-	_display_material.set_shader_parameter("curvature", curvature)
-	_display_material.set_shader_parameter("vertical_curvature", vertical_curvature)
-	_display_material.set_shader_parameter("opacity", clampf(opacity, 0.0, 1.0))
+	_display_key = _display_build_key()
+	var sources: Array = []
+	for v in vertex_effect_nodes():
+		sources.append(v.code())
+	var path := SURFACES_DIR + surface + ".gdshaderinc"
+	var surface_code := FileAccess.get_file_as_string(path) if FileAccess.file_exists(path) else ""
+	var shader := Shader.new()
+	shader.code = _Code.build(_DISPLAY_INCLUDE, sources, surface_code, _placement() == "infinity")
+	_display_material.shader = shader
+	_sync_display()
+
+
+## Push the surface's, vertex effects' and display values (every frame, so
+## scrubbing shows).
+func _sync_display() -> void:
+	if _display_material == null:
+		return
+	var mat := _display_material
+	mat.set_shader_parameter("opacity", clampf(opacity, 0.0, 1.0))
+	var sc := surface_config()
+	for k in sc.params:
+		mat.set_shader_parameter(_Code.SURFACE_PREFIX + k, sc.params[k])
+	var nodes := vertex_effect_nodes()
+	for i in nodes.size():
+		var values: Dictionary = nodes[i].param_values()
+		for k in values:
+			mat.set_shader_parameter(_Code.vertex_prefix(i) + k, values[k])
+	var place: int = _Code.PLACEMENTS.find(sc.placement)
+	mat.set_shader_parameter("placement", place)
+	var mesh := get_node_or_null("Mesh") as MeshInstance3D
+	var distance := _Code.INFINITY_RADIUS
+	if place != 2 and mesh != null and mesh.is_inside_tree():
+		distance = maxf(mesh.global_position.distance_to(_viewer_eye()), 0.1)
+	mat.set_shader_parameter("viewer_distance", distance)
+	var pad: Vector2 = _chain.pad_scale if _chain != null else Vector2.ONE
+	mat.set_shader_parameter("picture_half", _MESH_HALF / pad)
+	var stretch: Vector2 = _base_scale() * pad
+	mat.set_shader_parameter("mesh_stretch", stretch)
+	if mesh != null:
+		var curved := place != 0 or not nodes.is_empty() or arc_x > 0.0 or (surface == "pillow" and arc_y > 0.0)
+		mesh.extra_cull_margin = 16384.0 if curved else 16.0
+
+
+## The scene's VJViewer, else the player's home eye.
+func _viewer_eye() -> Vector3:
+	var node := get_parent()
+	while node != null and not node.has_method("get_preview_texture"):
+		node = node.get_parent()
+	if node != null:
+		for c in node.get_children():
+			if c is Camera3D and c.get_script() != null and c.get_script().get_global_name() == &"VJViewer":
+				return (c as Node3D).global_position
+	return _HOME_EYE
 
 
 func _rebuild_effects() -> void:

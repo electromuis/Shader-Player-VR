@@ -5,6 +5,8 @@ extends EditorContextMenuPlugin
 ##   - "Add VJ effect ▸ <shader>" in the Scene dock's right-click menu on a
 ##     screen or layer: adds a VJEffect child with a fresh ShaderMaterial of
 ##     one of visualizer/effects/. Undoable.
+##   - "Add VJ vertex effect ▸ <effect>" likewise adds a VJVertexEffect
+##     (vertex_effect.gd) running one of visualizer/vertex/. Undoable.
 ##   - convert_slots(): Tools > VJ: Convert effect slots to nodes. Moves the old
 ##     effect_1..4 slots of every screen and layer into VJEffect children
 ##     and rewrites the tracks that animated them
@@ -12,24 +14,33 @@ extends EditorContextMenuPlugin
 ##     `main_screen/oval_mask:material:shader_parameter/size`). Undoable.
 
 const EffectScript := preload("res://addons/vj_editor/builtin_prefabs/effect.gd")
+const VertexEffectScript := preload("res://addons/vj_editor/builtin_prefabs/vertex_effect.gd")
 const ScreenScript := preload("res://addons/vj_editor/builtin_prefabs/screen.gd")
 const ICON := "res://addons/vj_editor/builtin_prefabs/effect_icon.svg"
 const EFFECTS_DIR := "res://addons/vj_editor/visualizer/effects/"
 const LABEL := "Add VJ effect"
+const VERTEX_DIR := "res://addons/vj_editor/visualizer/vertex/"
+const VERTEX_LABEL := "Add VJ vertex effect"
 
 var undo_redo: EditorUndoRedoManager
 var _menu: PopupMenu
+var _vertex_menu: PopupMenu
 var _shaders: Array[String] = []
+var _vertex_files: Array[String] = []
 
 
 func _init() -> void:
 	_menu = PopupMenu.new()
 	_menu.id_pressed.connect(_on_shader_picked)
+	_vertex_menu = PopupMenu.new()
+	_vertex_menu.id_pressed.connect(_on_vertex_effect_picked)
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_PREDELETE and is_instance_valid(_menu):
-		_menu.free()
+	if what == NOTIFICATION_PREDELETE:
+		for m in [_menu, _vertex_menu]:
+			if is_instance_valid(m):
+				m.free()
 
 
 func _popup_menu(_paths: PackedStringArray) -> void:
@@ -45,6 +56,14 @@ func _popup_menu(_paths: PackedStringArray) -> void:
 	_menu.add_separator()
 	_menu.add_item("Empty (pick a shader)", _shaders.size())
 	add_context_submenu_item(LABEL, _menu, load(ICON) as Texture2D)
+	_vertex_menu.clear()
+	_vertex_files.clear()
+	for file in DirAccess.get_files_at(VERTEX_DIR):
+		if file.get_extension() == "gdshaderinc":
+			_vertex_files.append(VERTEX_DIR + file)
+	for i in _vertex_files.size():
+		_vertex_menu.add_item(_vertex_files[i].get_file().get_basename().capitalize(), i)
+	add_context_submenu_item(VERTEX_LABEL, _vertex_menu, load(ICON) as Texture2D)
 
 
 ## Selected screens and layers.
@@ -70,6 +89,24 @@ func _on_shader_picked(id: int) -> void:
 		if shader_path != "":
 			eff.material = ShaderMaterial.new()
 			eff.material.shader = load(shader_path)
+		_add_child_undoable(parent, eff, root)
+		added.append(eff)
+	undo_redo.commit_action()
+	if added.size() == 1:
+		EditorInterface.edit_node(added[0])
+
+
+func _on_vertex_effect_picked(id: int) -> void:
+	var root := EditorInterface.get_edited_scene_root()
+	var targets := _targets()
+	if root == null or targets.is_empty() or id >= _vertex_files.size():
+		return
+	var file := _vertex_files[id]
+	undo_redo.create_action(VERTEX_LABEL)
+	var added: Array[Node] = []
+	for parent in targets:
+		var eff = _new_effect(parent, file.get_file().get_basename(), [], VertexEffectScript)
+		eff.effect = file
 		_add_child_undoable(parent, eff, root)
 		added.append(eff)
 	undo_redo.commit_action()
@@ -140,14 +177,15 @@ func _rewrite_tracks(player: AnimationPlayer, screen_path: String, renames: Dict
 
 # ---------- helpers ----------
 
-## A VJEffect named `base` (numbered if `parent` or `taken` has it).
-static func _new_effect(parent: Node, base: String, taken: Array) -> Node:
+## A VJEffect (or `script`) named `base` (numbered if `parent` or `taken`
+## has it).
+static func _new_effect(parent: Node, base: String, taken: Array, script: Script = EffectScript) -> Node:
 	var eff_name := base
 	var n := 2
 	while parent.has_node(NodePath(eff_name)) or taken.has(eff_name):
 		eff_name = "%s%d" % [base, n]
 		n += 1
-	var eff: Node = EffectScript.new()
+	var eff: Node = script.new()
 	eff.name = eff_name
 	return eff
 

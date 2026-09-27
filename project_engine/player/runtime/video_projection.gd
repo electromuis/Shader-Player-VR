@@ -1,8 +1,11 @@
 class_name VideoProjection
 extends RefCounted
 
-## How a video frame maps onto the viewer: a flat screen or an immersive
-## 180°/360° sphere, each either mono or stereo (side-by-side / top-bottom).
+## A video file's source layout: how its frames are read. Its field of view
+## (flat, or 180° / 360° in latitude / longitude) and its stereo split (mono,
+## side-by-side, top-bottom), as one key like "180_sbs". It never changes
+## during playback; where the picture is shown is the screen's surface,
+## which a 180° / 360° file only suggests (suggested_surface).
 ##
 ## detect() follows the filename conventions shared by DeoVR, Skybox,
 ## HereSphere etc.: tokens like `_180`, `_360`, `_LR`/`_SBS`/`_3DH`,
@@ -28,7 +31,14 @@ const LABELS := {
 	"360_sbs": "360° 3D side-by-side",
 }
 
-const _SBS_TOKENS := ["lr", "sbs", "3dh", "sidebyside", "hsbs", "fsbs"]
+## The two halves of a key, for the Camera tab's Stereo and Field of view
+## pickers.
+const FOVS := ["flat", "180", "360"]
+const FOV_LABELS := {"flat": "Flat", "180": "180°", "360": "360°"}
+const STEREOS := ["mono", "sbs", "tb"]
+const STEREO_LABELS := {"mono": "Mono", "sbs": "Side-by-side", "tb": "Top-bottom"}
+
+const _SBS_TOKENS := ["lr", "rl","sbs", "3dh", "sidebyside", "hsbs", "fsbs"]
 const _TB_TOKENS := ["tb", "ou", "3dv", "overunder", "topbottom", "htb", "hou"]
 const _180_TOKENS := ["180", "vr180", "180x180", "180sbs", "180lr"]
 const _360_TOKENS := ["360", "vr360", "360x180", "mono360"]
@@ -54,6 +64,43 @@ static func detect(path: String) -> String:
 			return "180_" + (stereo if stereo != "" else "sbs")
 		_:
 			return "360_" + (stereo if stereo != "" else "mono")
+
+
+## Right-eye-first files (an `_RL` tag).
+static func detect_swap(path: String) -> bool:
+	return _tokens(path.get_file().get_basename()).has("rl")
+
+
+## A key's field of view: "flat", "180" or "360".
+static func fov_of(key: String) -> String:
+	return FOVS[shape_of(key)]
+
+
+## A key's stereo split: "mono", "sbs" or "tb".
+static func stereo_name(key: String) -> String:
+	return STEREOS[stereo_of(key)]
+
+
+## The key for a field of view and stereo split.
+static func compose(fov: String, stereo: String) -> String:
+	if not fov in FOVS:
+		fov = "flat"
+	if not stereo in STEREOS:
+		stereo = "mono"
+	if fov == "flat":
+		return "flat" if stereo == "mono" else "flat_" + stereo
+	return "%s_%s" % [fov, stereo]
+
+
+## The surface a 180° / 360° file is meant for (ScreenGeometry): a Dome at
+## infinity covering the file's arc. {} for flat files (keep the screen's).
+static func suggested_surface(key: String) -> Dictionary:
+	match shape_of(key):
+		Shape.DOME_180:
+			return {"shader": ScreenGeometry.DOME, "params": {"arc_x": 180.0}, "placement": "infinity"}
+		Shape.SPHERE_360:
+			return {"shader": ScreenGeometry.DOME, "params": {"arc_x": 360.0}, "placement": "infinity"}
+	return {}
 
 
 static func shape_of(key: String) -> int:

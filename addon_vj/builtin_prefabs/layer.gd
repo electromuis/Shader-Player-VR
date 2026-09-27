@@ -10,12 +10,18 @@ extends "res://addons/vj_editor/builtin_prefabs/screen.gd"
 ##
 ## `shader_material` holds the layer shader, a canvas_item .gdshader such as
 ## addons/vj_editor/visualizer/shaders/ (the player's built-ins: Light ring,
-## Spectrum bars, Video blur) or your own written the same way. Its hinted
+## Spectrum bars, ...) or your own written the same way. Its hinted
 ## uniforms export as `config.params`; animate
 ## `<layer>:shader_material:shader_parameter/<p>` for a `<id>.layer` track.
 ## `render_scale` exports as `config.resolution`, a multiplier on the
 ## shader's `// @resolution` hint (960×540 without one), like the Camera
 ## tab's layer resolution.
+##
+## With `video_source` on, the layer shows the video itself instead (the
+## player's "video" source; shader_material is ignored, not exported): like
+## a screen without an artist shader, its effects render at 1920×1080 times
+## `render_scale`. A Blur effect and a low render_scale make a soft glow of
+## the video.
 ##
 ## The editor has no audio, so sound-reactive shaders sit at silence here;
 ## a channel tagged `// @iChannelN video` gets the preview still. The
@@ -24,6 +30,13 @@ extends "res://addons/vj_editor/builtin_prefabs/screen.gd"
 const DEFAULT_RESOLUTION := Vector2i(960, 540)
 const _INPUTS := ["iChannel0", "iChannel1", "iChannel2", "iChannel3", "iChannelResolution",
 		"iResolution", "video_stereo", "audio_level", "audio_bass", "audio_mid", "audio_high"]
+
+## Show the video (the preview still here) instead of a layer shader.
+## Exported as `config.shader` "video".
+@export var video_source: bool = false:
+	set(value):
+		video_source = value
+		_apply_material()
 
 var _hints := {"resolution": Vector2i.ZERO, "channels": {}}
 
@@ -36,7 +49,13 @@ func _apply_material() -> void:
 		mesh.visible = _render_material != null and _render_material.shader != null
 
 
+func _authored_material() -> ShaderMaterial:
+	return null if video_source else shader_material
+
+
 func _render_size() -> Vector2i:
+	if video_source:
+		return super._render_size()
 	var res: Vector2i = _hints.resolution
 	if res == Vector2i.ZERO:
 		res = DEFAULT_RESOLUTION
@@ -46,10 +65,13 @@ func _render_size() -> Vector2i:
 
 
 func _input_uniforms() -> Array:
-	return _INPUTS
+	return super._input_uniforms() if video_source else _INPUTS
 
 
 func _bind_inputs(mat: ShaderMaterial) -> void:
+	if video_source:
+		super._bind_inputs(mat)
+		return
 	var size := _render_size()
 	mat.set_shader_parameter("iResolution", Vector3(size.x, size.y, 1.0))
 	var sizes := PackedVector3Array([Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO])
@@ -65,6 +87,8 @@ func _bind_inputs(mat: ShaderMaterial) -> void:
 ## The quad takes the render size's shape inside its 16:9 box, as in the
 ## player (Visualizer fits its screen to the shader's resolution).
 func _base_scale() -> Vector2:
+	if video_source:
+		return super._base_scale()
 	var size := _render_size()
 	var a := float(size.x) / size.y
 	if a >= _QUAD_ASPECT:

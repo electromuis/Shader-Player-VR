@@ -4,7 +4,11 @@ extends ScreenSettings
 ## ScreenSettings for one shader layer. The layer is parented to the main
 ## screen, so size / distance / height / tilt are relative to it (defaults
 ## put it on the screen) and it moves whenever the screen does. Plus:
-##   shader          — a VisualizerShaders key (file path); "" = layer blank
+##   shader          — the layer's source: a VisualizerShaders key (file
+##                     path), VisualizerShaders.VIDEO for the playing video
+##                     (whose resolution is then a multiplier on the main
+##                     screen's render size, as the screen's own is); "" =
+##                     layer blank
 ##   params          — {uniform: value} for the shader's hinted uniforms;
 ##                     missing ones keep the shader's defaults
 ##   lock_to_screen  — centre the layer on the main screen and follow it;
@@ -21,6 +25,7 @@ var lock_to_screen: bool = false: set = _set_lock_to_screen
 
 
 func from_dict(d: Dictionary) -> void:
+	d = migrate_video_blur(d)
 	shader = String(d.get("shader", ""))
 	var p = d.get("params", {})
 	params = p.duplicate() if typeof(p) == TYPE_DICTIONARY else {}
@@ -56,6 +61,28 @@ static func from_legacy(d: Dictionary, behind: bool, key_default: bool) -> Dicti
 	if bool(d.get("key_black", key_default)):
 		effects.append({"shader": VisualizerShaders.KEY_BLACK, "params": {}})
 	out["effects"] = effects
+	return out
+
+
+## A layer dict using the old Video blur layer shader as the same look
+## built from parts: the video source with a leading Blur effect (its
+## radius). That shader rendered 270 px high times the layer's resolution;
+## the video source renders 1080 high, so the resolution is quartered.
+## Its brightness and saturation are dropped. Other dicts come back as is.
+static func migrate_video_blur(d: Dictionary) -> Dictionary:
+	if String(d.get("shader", "")) != VisualizerShaders.LEGACY_VIDEO_BLUR:
+		return d
+	var out := d.duplicate(true)
+	out["shader"] = VisualizerShaders.VIDEO
+	var p = d.get("params", {})
+	var blur := {}
+	if typeof(p) == TYPE_DICTIONARY and p.has("radius"):
+		blur["radius"] = float(p["radius"])
+	out["params"] = {}
+	var after = d.get("effects", [])
+	out["effects"] = [{"shader": VisualizerShaders.BLUR, "params": blur}] \
+			+ (after if typeof(after) == TYPE_ARRAY else [])
+	out["resolution"] = maxf(float(d.get("resolution", 1.0)) * 0.25, ScreenSettings.RESOLUTION_MIN)
 	return out
 
 

@@ -9,10 +9,9 @@
 [ext_resource type="PackedScene" uid="uid://egs4wurlwf5k" path="res://prefabs/forest.tscn" id="5_forest"]
 [ext_resource type="PackedScene" path="res://prefabs/tunnel.tscn" id="6_tunnel"]
 [ext_resource type="PackedScene" path="res://addons/vj_editor/builtin_prefabs/layer.tscn" id="7_layer"]
-[ext_resource type="Shader" uid="uid://yaafcn7l8d2r" path="res://addons/vj_editor/visualizer/effects/padding.gdshader" id="8_padding"]
 [ext_resource type="Shader" uid="uid://d3llbto74u7wv" path="res://addons/vj_editor/visualizer/effects/oval_mask.gdshader" id="9_oval"]
 [ext_resource type="Shader" uid="uid://3b6dm852iaru" path="res://addons/vj_editor/visualizer/effects/edge_blur.gdshader" id="10_edgeblur"]
-[ext_resource type="Shader" uid="uid://dlkbdu3wwc66i" path="res://addons/vj_editor/visualizer/shaders/video_blur.gdshader" id="11_videoblur"]
+[ext_resource type="Shader" path="res://addons/vj_editor/visualizer/effects/blur.gdshader" id="11_blur"]
 [ext_resource type="Script" uid="uid://biwk046d6nrum" path="res://addons/vj_editor/builtin_prefabs/effect.gd" id="11_vivmo"]
 [ext_resource type="Shader" uid="uid://oq31qfgtv8g5" path="res://addons/vj_editor/visualizer/shaders/light_ring.gdshader" id="12_lightring"]
 [ext_resource type="Script" uid="uid://0fy4no8um8td" path="res://addons/vj_editor/modifiers/vj_object.gd" id="13_vjobject"]
@@ -128,12 +127,12 @@ tracks/5/keys = {
 tracks/6/type = "bezier"
 tracks/6/imported = false
 tracks/6/enabled = true
-tracks/6/path = NodePath("screen_master/main_screen:curvature")
+tracks/6/path = NodePath("screen_master/main_screen:arc_x")
 tracks/6/interp = 1
 tracks/6/loop_wrap = true
 tracks/6/keys = {
 "handle_modes": PackedInt32Array(1, 1, 1, 1, 1),
-"points": PackedFloat32Array(0.35, 0, 0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.35, 0, 0, 0, 0),
+"points": PackedFloat32Array(63, 0, 0, 0, 0, 63, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 63, 0, 0, 0, 0),
 "times": PackedFloat32Array(0, 49, 53, 176, 180)
 }
 tracks/7/type = "bezier"
@@ -742,26 +741,8 @@ shader_parameter/inner_width = 0.18
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_074og"]
 resource_local_to_scene = true
-shader = ExtResource("11_videoblur")
-shader_parameter/iChannelResolution = PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-shader_parameter/iResolution = Vector3(960, 540, 1)
-shader_parameter/iMouse = Vector4(0, 0, 0, 0)
-shader_parameter/iDate = Vector4(0, 0, 0, 0)
-shader_parameter/iSampleRate = 44100.0
-shader_parameter/video_stereo = 0
-shader_parameter/audio_level = 0.0
-shader_parameter/audio_bass = 0.0
-shader_parameter/audio_mid = 0.0
-shader_parameter/audio_high = 0.0
+shader = ExtResource("11_blur")
 shader_parameter/radius = 0.065
-shader_parameter/brightness = 1.0
-shader_parameter/saturation = 1.0
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_cegan"]
-resource_local_to_scene = true
-shader = ExtResource("8_padding")
-shader_parameter/display_aspect = 1.7777778
-shader_parameter/amount = 0.25
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_82xsv"]
 resource_local_to_scene = true
@@ -772,12 +753,6 @@ shader_parameter/size = 0.44
 shader_parameter/ratio = 1.7
 shader_parameter/blur = 0.23
 shader_parameter/level = 0.0
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_getpj"]
-resource_local_to_scene = true
-shader = ExtResource("8_padding")
-shader_parameter/display_aspect = 1.7777778
-shader_parameter/amount = 1.0
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_ryguw"]
 resource_local_to_scene = true
@@ -804,11 +779,6 @@ shader_parameter/top = 0.0
 shader_parameter/width = 0.33333334
 shader_parameter/height = 1.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_padding_left"]
-resource_local_to_scene = true
-shader = ExtResource("8_padding")
-shader_parameter/amount = 1.0
-
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_1u8w0"]
 resource_local_to_scene = true
 shader = ExtResource("4_glow")
@@ -827,11 +797,6 @@ shader_parameter/top = 0.0
 shader_parameter/width = 0.33333334
 shader_parameter/height = 1.0
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_padding_center"]
-resource_local_to_scene = true
-shader = ExtResource("8_padding")
-shader_parameter/amount = 1.0
-
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0odxb"]
 resource_local_to_scene = true
 shader = ExtResource("4_glow")
@@ -849,11 +814,6 @@ shader_parameter/left = 0.6666667
 shader_parameter/top = 0.0
 shader_parameter/width = 0.33333334
 shader_parameter/height = 1.0
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_padding_right"]
-resource_local_to_scene = true
-shader = ExtResource("8_padding")
-shader_parameter/amount = 1.0
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_lswn8"]
 resource_local_to_scene = true
@@ -930,25 +890,22 @@ transform = Transform3D(1.0304691, 0, 0.072977535, 0, 1.03305, 0, -0.072977535, 
 [node name="main_screen" parent="screen_master" unique_id=115515959 instance=ExtResource("2_screen")]
 transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
 render_scale = 0.5
-curvature = 0.35
+arc_x = 63.0
 metadata/vj_prefab = "screen"
 
 [node name="backdrop" parent="screen_master/main_screen" unique_id=341074747 instance=ExtResource("7_layer")]
 transform = Transform3D(6, 0, 0, 0, 6, 0, 0, 0, 6, 0, 0, -24)
-shader_material = SubResource("ShaderMaterial_074og")
+render_scale = 0.25
+video_source = true
 metadata/vj_prefab = "layer"
 
-[node name="padding" type="Node" parent="screen_master/main_screen/backdrop" unique_id=1050471816]
+[node name="blur" type="Node" parent="screen_master/main_screen/backdrop" unique_id=1873402215]
 script = ExtResource("11_vivmo")
-material = SubResource("ShaderMaterial_cegan")
+material = SubResource("ShaderMaterial_074og")
 
 [node name="oval_mask" type="Node" parent="screen_master/main_screen/backdrop" unique_id=462910102]
 script = ExtResource("11_vivmo")
 material = SubResource("ShaderMaterial_82xsv")
-
-[node name="padding" type="Node" parent="screen_master/main_screen" unique_id=437903569]
-script = ExtResource("11_vivmo")
-material = SubResource("ShaderMaterial_getpj")
 
 [node name="glow" type="Node" parent="screen_master/main_screen" unique_id=795425564]
 script = ExtResource("11_vivmo")
@@ -974,10 +931,6 @@ metadata/vj_prefab = "screen"
 script = ExtResource("11_vivmo")
 material = SubResource("ShaderMaterial_crop_left")
 
-[node name="padding" type="Node" parent="screen_master/screens/screen_left" unique_id=947876999]
-script = ExtResource("11_vivmo")
-material = SubResource("ShaderMaterial_padding_left")
-
 [node name="glow" type="Node" parent="screen_master/screens/screen_left" unique_id=1497871144]
 script = ExtResource("11_vivmo")
 material = SubResource("ShaderMaterial_1u8w0")
@@ -991,10 +944,6 @@ metadata/vj_prefab = "screen"
 [node name="crop" type="Node" parent="screen_master/screens/screen_center" unique_id=203694312]
 script = ExtResource("11_vivmo")
 material = SubResource("ShaderMaterial_crop_center")
-
-[node name="padding" type="Node" parent="screen_master/screens/screen_center" unique_id=255555737]
-script = ExtResource("11_vivmo")
-material = SubResource("ShaderMaterial_padding_center")
 
 [node name="glow" type="Node" parent="screen_master/screens/screen_center" unique_id=1863673106]
 script = ExtResource("11_vivmo")
@@ -1010,10 +959,6 @@ metadata/vj_prefab = "screen"
 script = ExtResource("11_vivmo")
 material = SubResource("ShaderMaterial_crop_right")
 
-[node name="padding" type="Node" parent="screen_master/screens/screen_right" unique_id=302142728]
-script = ExtResource("11_vivmo")
-material = SubResource("ShaderMaterial_padding_right")
-
 [node name="glow" type="Node" parent="screen_master/screens/screen_right" unique_id=885310972]
 script = ExtResource("11_vivmo")
 material = SubResource("ShaderMaterial_lswn8")
@@ -1022,8 +967,8 @@ material = SubResource("ShaderMaterial_lswn8")
 transform = Transform3D(2.6666667, 0, 0, 0, 2.6666667, 0, 0, 0, 2.6666667, 0, 0, -8.888889)
 visible = false
 shader_material = SubResource("ShaderMaterial_a6jrf")
-curvature = 0.54
-vertical_curvature = 0.58
+arc_x = 97.2
+arc_y = 104.4
 opacity = 0.0
 metadata/vj_prefab = "layer"
 

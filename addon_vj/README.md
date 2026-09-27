@@ -16,15 +16,19 @@ the player runtime consumes.
   - `vj_viewer.gd` — `VJViewer` camera marking the viewer; its keys become `vr_cut`s
   - `screen.tscn` + `screen.gd` — video screen with an optional artist shader in a
     SubViewport, then its effects (`VJEffect` children). A glowing screen is
-    Padding → Glow effects; a split-screen piece is a Crop effect first. In the
+    a Glow effect; a split-screen piece is a Crop effect first. In the
     editor it shows `preview_image` or a three-column test card (no video decoder)
   - `layer.tscn` + `layer.gd` — shader layer (`VJLayer`): a Shadertoy-style shader
     on its own quad, with effects, like the player's Camera tab layers
   - `effect.gd` — `VJEffect`, one effect pass as a child node of a screen or layer
-  - `effect_tools.gd` — **Add VJ effect** (Scene dock right-click) and
-    **Tools > VJ: Convert effect slots to nodes**
+  - `vertex_effect.gd` — `VJVertexEffect`, one vertex effect (moves the surface)
+    as a child node of a screen or layer
+  - `effect_tools.gd` — **Add VJ effect** and **Add VJ vertex effect** (Scene
+    dock right-click) and **Tools > VJ: Convert effect slots to nodes**
   - `effect_chain.gd` — the editor preview's effect passes (screens and layers)
-  - `screen_preview_display.gdshader` — editor-only display pass (curvature bends, opacity)
+  - `screen_shader_code.gd` + `screen_display.gdshaderinc` — build the display
+    shader from the surface and vertex effects, as the player does (identical
+    copies of the player's `player/prefabs/` files; a test checks)
   - `cube.tscn` — placeholder solid object
 - `modifiers/` — `vj_object.gd` (`VJObject`: the modifier and reactive fields,
   attached to any object; screens and layers extend it), `make_vj_object.gd`
@@ -32,7 +36,8 @@ the player runtime consumes.
   the player (an identical copy of `project_engine/player/runtime/modifiers.gd`;
   a test checks)
 - `visualizer/` — copies of the player's layer shaders (`shaders/`), effect
-  shaders (`effects/`) and their includes, so they preview in the editor. The
+  shaders (`effects/`), surfaces (`surfaces/`), vertex effects (`vertex/`)
+  and their includes, so they preview in the editor. The
   exporter maps them to the player's own. Keep them identical apart from the
   include paths; `project_engine/tests/test_addon_shader_copies.gd` checks
 - `exporter/scene_exporter.gd` — walks a scene + its `AnimationPlayer`, produces
@@ -55,21 +60,39 @@ the player runtime consumes.
   (`visible` key) removes its children in the player too; showing it again
   brings back the ones that are visible.
 - Screens: each instance needs its own `shader_material` (the prefab's is
-  local-to-scene). `render_scale`, `curvature`, `vertical_curvature` and
-  `opacity` export into `config`. A non-builtin shader is copied to
-  `<json dir>/shaders/`.
+  local-to-scene). `render_scale`, `opacity` and the **Surface** group export
+  into `config`. A non-builtin shader is copied to `<json dir>/shaders/`.
+- Surface (screens and layers): `surface` Pillow (bends by `arc_x` / `arc_y`
+  degrees, 0 / 0 flat) or Dome (part of a sphere `arc_x` wide; height from
+  the picture's shape with `auto_height`, else `arc_y`; `keep_row_width`),
+  and `placement` fixed / around (the `VJViewer`, else the player's home eye
+  (0, 2, 8), at the centre) / infinity (Dome only: follows the camera, for
+  180° / 360° video). Exports as `config.surface` unless flat. Scenes from
+  before surfaces keep working: their `curvature` / `vertical_curvature`
+  (0..1) load as the Pillow's arcs × 180°, and their `:curvature` tracks
+  still export (to `<node>.display`, which the player turns into arcs).
+- Vertex effects (screens and layers): `VJVertexEffect` child nodes
+  (`builtin_prefabs/vertex_effect.gd`), run in child order before the
+  surface bends the result. Right-click a screen or layer → **Add VJ vertex
+  effect ▸** Ripple, Twist or Bulge, or set `effect` to your own
+  `.gdshaderinc` (see the player's `ScreenGeometry`; copied to
+  `<json dir>/shaders/` on export). Its sliders are `params/<name>`. The
+  enabled ones export as `config.vertex_effects`. Audio-driven ones stay
+  still in the editor.
 - Effects (screens and layers): `VJEffect` child nodes (`builtin_prefabs/effect.gd`),
   run in child order, so drag them to reorder. Right-click a screen or layer →
   **Add VJ effect ▸** picks one of `visualizer/effects/` (Key black, Oval mask,
-  Edge blur, Padding, Glow, Crop, Rounded corners, Keep center); **Empty** takes your own effect shader (include
+  Edge blur, Blur, Glow, Crop, Rounded corners, Keep center); **Empty** takes your own effect shader (include
   `visualizer/effect_prelude.gdshaderinc`) in its `material`. The enabled ones
   export as `config.effects`. Scenes from before effects were nodes have
   `effect_1..4` slots, which no longer preview or export: run **Tools > VJ:
   Convert effect slots to nodes** once (undoable). It moves them into nodes
   named after their shaders and rewrites the tracks.
 - Layers (`layer.tscn`): `shader_material` holds a layer shader, one of
-  `visualizer/shaders/` (Light ring, Spectrum bars, Video blur) or your own
-  canvas_item shader written the same way. `render_scale` exports as the
+  `visualizer/shaders/` (Light ring, Spectrum bars, ...) or your own
+  canvas_item shader written the same way. Or turn on `video_source` for the
+  video itself (exported as the `"video"` source): add a Blur effect and a
+  low `render_scale` for a soft glow of the video. `render_scale` exports as the
   layer's `resolution`. The editor has no audio, so sound-reactive layers
   only come alive in the player.
 - VJ objects: right-click an object in the Scene dock → **Make VJ object** (or
@@ -117,8 +140,12 @@ the player runtime consumes.
   - `<node>:tint` / `:flash` / `:speed` / `:sort_offset`, and `:opacity` on
     other VJ objects than screens and layers → target `<node>.modifiers`
   - `<node>:spin` / `:pulse` → target `<node>.reactive`
-  - `<screen or layer>:curvature` / `:vertical_curvature` / `:opacity` →
-    `shader_param` track, target `<node>.display`
+  - `<screen or layer>:opacity` (and earlier scenes' `:curvature` /
+    `:vertical_curvature`) → `shader_param` track, target `<node>.display`
+  - `<screen or layer>:arc_x` / `:arc_y` / `:auto_height` / `:keep_row_width`
+    → target `<node>.shape` (`surface` and `placement` can't animate)
+  - `<node>/<vertex effect>:params/<p>` → target `<node>.vertex<N>`, N being
+    the vertex effect's place among the node's enabled ones (from 0)
   - Discrete tracks export with `"interp": "step"`
   - Bezier tracks work too (one per component, e.g. `<node>:position:x`); they
     export baked to linear keys. **Tools > VJ: Convert value tracks to Bezier**

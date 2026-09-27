@@ -1,3 +1,4 @@
+// @title Key black
 // Shows black as transparent: alpha is the brightest channel and colour is
 // un-premultiplied by it, so over what's behind, black adds nothing and
 // bright stays solid. For laying Shadertoy output over the video.

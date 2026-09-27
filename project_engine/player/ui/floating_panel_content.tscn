@@ -105,7 +105,7 @@ theme_override_constants/separation = 12
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(110, 0)
-text = "Projection"
+text = "Source"
 
 [node name="ProjectionOption" type="OptionButton" parent="Tabs/Camera/Scroll/CameraTab/ViewRow"]
 unique_name_in_owner = true
@@ -246,57 +246,10 @@ custom_minimum_size = Vector2(90, 0)
 text = "+0°"
 horizontal_alignment = 2
 
-[node name="CurvatureRow" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+[node name="SurfaceBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 12
-
-[node name="CurvatureLabel" type="Label" parent="Tabs/Camera/Scroll/CameraTab/CurvatureRow"]
-layout_mode = 2
-custom_minimum_size = Vector2(110, 0)
-text = "Curvature"
-
-[node name="CurvatureSlider" type="HSlider" parent="Tabs/Camera/Scroll/CameraTab/CurvatureRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-scrollable = false
-min_value = 0.0
-max_value = 1.0
-step = 0.01
-value = 0.0
-
-[node name="CurvatureValue" type="Label" parent="Tabs/Camera/Scroll/CameraTab/CurvatureRow"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(90, 0)
-text = "0.00"
-horizontal_alignment = 2
-
-[node name="VCurveRow" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="VCurveLabel" type="Label" parent="Tabs/Camera/Scroll/CameraTab/VCurveRow"]
-layout_mode = 2
-custom_minimum_size = Vector2(110, 0)
-text = "V. curvature"
-
-[node name="VCurveSlider" type="HSlider" parent="Tabs/Camera/Scroll/CameraTab/VCurveRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-scrollable = false
-min_value = 0.0
-max_value = 1.0
-step = 0.01
-value = 0.0
-
-[node name="VCurveValue" type="Label" parent="Tabs/Camera/Scroll/CameraTab/VCurveRow"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(90, 0)
-text = "0.00"
-horizontal_alignment = 2
 
 [node name="OpacityRow" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
 layout_mode = 2
@@ -373,6 +326,28 @@ layout_mode = 2
 text = "+ Effect"
 
 [node name="EffectsBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="VertexSep" type="HSeparator" parent="Tabs/Camera/Scroll/CameraTab"]
+layout_mode = 2
+
+[node name="VertexHeader" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="VertexLabel" type="Label" parent="Tabs/Camera/Scroll/CameraTab/VertexHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Vertex effects (move the surface, in order)"
+
+[node name="AddVertexEffectButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/VertexHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "+ Vertex effect"
+
+[node name="VertexEffectsBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 12

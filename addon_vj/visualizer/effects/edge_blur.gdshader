@@ -1,9 +1,12 @@
+// @title Edge blur
 // Softens the edges of whatever is already cut out by alpha (by Key black,
 // an Oval mask, or a shader's own transparency): alpha is blurred over
-// `radius`, the width of the soft edge as a fraction of the screen's height.
-// With `inward` the fade stays inside the original shape (the edge goes to
-// 0, `radius` in is fully back); without, it's centred on the edge and also
-// spreads out, taking the nearby visible colour. Solid areas are untouched.
+// `radius`, the width of the soft edge as a fraction of the picture's
+// height. With `inward` the fade stays inside the original shape (the edge
+// goes to 0, `radius` in is fully back); without, it's centred on the edge
+// and also spreads out, taking the nearby visible colour. Solid areas are
+// untouched.
+// @reach pick(inward, 0.0, radius * 0.5)
 shader_type canvas_item;
 #include "res://addons/vj_editor/visualizer/effect_prelude.gdshaderinc"
 
@@ -20,8 +23,8 @@ void fragment() {
 		COLOR = c;
 	} else {
 		// Gaussian-weighted disc of samples on a golden-angle spiral, in
-		// screen-height units so the edge is the same width both ways.
-		vec2 scale = vec2(r / display_aspect, r);
+		// picture-height units so the edge is the same width both ways.
+		vec2 scale = vec2(r / display_aspect, r) * picture_rect.w;
 		float sum_a = 0.0;
 		vec3 sum_rgb = vec3(0.0);
 		float sum_w = 0.0;

@@ -428,17 +428,22 @@ func _reactive_end() -> void:
 
 
 ## `cfg` with shader keys swapped for the files they name (what Screen /
-## Visualizer.set_effects and Visualizer.set_shader take), and JSON arrays
-## in effect params turned into vectors.
+## Visualizer.set_effects and Visualizer.set_shader take; a layer's "video"
+## source stays, unless `shaders` maps that name), and JSON arrays in
+## effect params turned into vectors.
 func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 	var out := cfg.duplicate(true)
 	if is_layer:
-		out["shader"] = _shader_path(String(cfg.get("shader", "")))
+		var source := String(cfg.get("shader", ""))
+		if source != VisualizerShaders.VIDEO or timeline.shaders.has(source):
+			out["shader"] = _shader_path(source)
 		var params = cfg.get("params", {})
 		if typeof(params) == TYPE_DICTIONARY:
 			out["params"] = _shader_values(params)
-	var effects = cfg.get("effects")
-	if typeof(effects) == TYPE_ARRAY:
+	for list_key in ["effects", "vertex_effects"]:
+		var effects = cfg.get(list_key)
+		if typeof(effects) != TYPE_ARRAY:
+			continue
 		var list: Array = []
 		for e in effects:
 			if typeof(e) != TYPE_DICTIONARY:
@@ -448,13 +453,25 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 				"shader": _shader_path(String(e.get("shader", ""))),
 				"params": _shader_values(params) if typeof(params) == TYPE_DICTIONARY else {},
 			})
-		out["effects"] = list
+		out[list_key] = list
+	var surface = cfg.get("surface")
+	if typeof(surface) == TYPE_DICTIONARY:
+		var params = surface.get("params", {})
+		out["surface"] = {
+			"shader": _shader_path(String(surface.get("shader", ""))),
+			"params": _shader_values(params) if typeof(params) == TYPE_DICTIONARY else {},
+			"placement": String(surface.get("placement", "")),
+		}
 	return out
 
 
+## The file a config's shader key names: a `shaders[]` key, or a built-in
+## surface / vertex effect's name ("dome", "ripple"; ScreenGeometry).
 func _shader_path(key: String) -> String:
 	if key == "":
 		return ""
+	if ScreenGeometry.is_builtin_name(key) and not timeline.shaders.has(key):
+		return ScreenGeometry.resolve_builtin(key)
 	var path := timeline.resolve_shader(key)
 	if path == "":
 		push_warning("shader key '%s' not found" % key)

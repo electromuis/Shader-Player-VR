@@ -25,7 +25,7 @@ This comes from `addon_vj/preview/desktop_preview.gd`, which `VJScene` adds at r
 
 | Time | What happens |
 | --- | --- |
-| 0–45 s | Night forest. A big curved (`curvature` 0.35), glowing screen floats and sways, cut to an oval with soft edges (Padding → Glow → Oval mask → Edge blur effects). Behind it, the `backdrop` layer (a blurred copy of the video in an oval) glows. The glow and backdrop fade in over the first 4 s. |
+| 0–45 s | Night forest. A big curved (`curvature` 0.35), glowing screen floats and sways, cut to an oval with soft edges (Glow → Oval mask → Edge blur effects). Behind it, the `backdrop` layer (a blurred copy of the video in an oval) glows. The glow and backdrop fade in over the first 4 s. |
 | 42–44.5 s | The forest fades out (`forest:opacity` 1 → 0; `sort_offset` −30 keeps the see-through trees behind the screen). |
 | 45 s | Environment swap: `forest` despawns and `tunnel` spawns at the peak of a 1 s `vr_cut` fade to black (the cut event starts at 44.5 s). The tunnel then fades in over 45–53.5 s (`tunnel:opacity` 0 → 1). |
 | 49–55 s | The screen flattens (display `curvature` → 0), the oval opens up (Oval mask `size` → 2), and the Glow's `intensity` and `inner_strength` and Edge blur fade to 0. Adjacent pieces can then sit edge to edge without seams. |
@@ -42,8 +42,8 @@ The effects and the two layers come from the player's "Preset 2" camera preset: 
   - `Stage` (root, `VJScene`): meta, video path, `output_path = res://../scripts/forest_tunnel/video.json`, and an optional `preview_image` (a still to use instead of the test card).
   - `Viewer` (`VJViewer` camera): the viewer. Each key after t=0 on `Viewer:position` / `:rotation` exports as a `vr_cut` (`fade_to_black`, `fade_duration`). Toggle its camera preview in the 3D editor to see what the viewer sees.
   - `forest`, `tunnel`: custom prefabs, spawned and despawned by their `visible` tracks. Both are VJ objects (`vj_object.gd` attached, see the addon README), with `opacity` keyed for the fades.
-  - `main_screen`, `screen_left|center|right`: `screen` prefab instances. None has an artist shader; everything is effects (`VJEffect` children). `main_screen` has `padding`, `glow`, `oval_mask`, `edge_blur`; each column has `crop`, `padding`, `glow`.
-  - `main_screen/backdrop`: a `layer` prefab (Video blur + Padding + Oval mask) inside the screen, so it follows the screen's sway and goes when the screen does.
+  - `main_screen`, `screen_left|center|right`: `screen` prefab instances. None has an artist shader; everything is effects (`VJEffect` children). `main_screen` has `glow`, `oval_mask`, `edge_blur`; each column has `crop`, `glow`.
+  - `main_screen/backdrop`: a `layer` prefab (Blur + Oval mask) inside the screen, so it follows the screen's sway and goes when the screen does.
   - `screens`: a group (plain `Node3D`, no transform of its own) holding the three columns and the `rings` layer (Light ring + inner Oval mask). The screens are at half size (`main_screen` scale 0.5: a 16 × 9 picture on the 32-wide quad), and the columns are exact thirds of it (scale (⅙, ½, ½) at x = ±16/3), so at 55 s and 160 s they line up with it; their own tracks are only their moves apart and back.
   - `screen_master`: a group holding `main_screen` and `screens`. It carries all the shared motion (the sway and settle, the swell, the group sway) and the size, so the main screen and the columns stay aligned. `main_screen` and `screens` sit at its origin, untransformed.
   - `AnimationPlayer` → `main` (36 tracks).

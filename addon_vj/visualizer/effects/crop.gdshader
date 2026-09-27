@@ -1,8 +1,10 @@
+// @title Crop
 // Shows one part of the picture stretched over the whole screen: the
 // rectangle `width` × `height` from (`left`, `top`), in fractions of the
 // picture. Split screens use thirds: `left` 0, ⅓, ⅔ with `width` ⅓, each on
 // a screen scaled to a third of the width. Put it first: effects before it
-// get cropped too, and after a Padding the fractions include the margin.
+// get cropped too, and after an effect that draws past the edge (Glow, Blur;
+// see @reach) the fractions include the margin added for it.
 shader_type canvas_item;
 #include "res://addons/vj_editor/visualizer/effect_prelude.gdshaderinc"
 

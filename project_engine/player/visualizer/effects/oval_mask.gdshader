@@ -1,3 +1,4 @@
+// @title Oval mask
 // Sets the alpha on one side of an oval, centred on the screen, to `level`:
 // 0 cuts that part away, 1 makes it solid (undoing an earlier Key black
 // there, black included). `size` is the oval's height as a fraction of the

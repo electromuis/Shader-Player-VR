@@ -5,11 +5,14 @@
 //   display_aspect  — width / height of the screen it ends up on, for
 //                     shapes that must stay round
 //   picture_rect    — where the picture itself sits in this pass, as UV
-//                     x, y, width, height: all of it, unless a Padding
-//                     effect before this one added a margin around it
-//   picture_corners — the picture's corner radii (x, y) in picture heights,
-//                     from a Rounded corners effect before this one (0:
-//                     square); picture_outline() gives the outline
+//                     x, y, width, height: all of it, unless the screen
+//                     added a margin around it (for this effect or an
+//                     earlier one that draws past the picture's edge: a
+//                     `@reach` hint, see VisualizerShaders)
+//   picture_shape   — the picture's outline from a Rounded corners effect
+//                     before this one, as (roundness, bulge) (see
+//                     outline(); 0, 0: rectangle); picture_outline() gives
+//                     the outline
 // An effect that declares `uniform sampler2D prepass_tex` also gets a
 // prepass: the same shader with `uniform bool prepass` on runs first, at
 // `prepass_scale` (a float uniform, default 1) of this pass's size, and its
@@ -23,57 +26,80 @@ render_mode blend_disabled;
 uniform sampler2D input_tex : filter_linear, repeat_disable;
 uniform float display_aspect = 1.7777778;
 uniform vec4 picture_rect = vec4(0.0, 0.0, 1.0, 1.0);
-uniform vec2 picture_corners = vec2(0.0);
+uniform vec2 picture_shape = vec2(0.0);
 
-// Corners are superellipses (|x/rx|^n + |y/ry|^n = 1): above 2 they ease
-// into the straight sides instead of bending sharply where they meet them,
-// even with very unequal radii.
-const float CORNER_EXPONENT = 4.0;
+// The outline is a superellipse, |x/w|^n + |y/h|^n = 1, with n = 2 /
+// roundness: a rectangle at 0 (n huge), bulging out through squircles
+// (0.5: n = 4) to the inscribed oval at 1 (n = 2).
+float outline_exponent(float roundness) {
+	return 2.0 / clamp(roundness, 0.001, 1.0);
+}
+
+// The outline's level at `a` (>= 0; 1 on the outline) and its gradient
+// there. `bulge` bows the sides out like an old CRT's: each side keeps its
+// middle on the rectangle's edge while its ends, and so the corners, are
+// pulled in (by bulge / (1 + bulge) of the half-size). The superellipse
+// divides by the larger coordinate first so big exponents don't overflow.
+float outline_level(vec2 a, vec2 half_ext, float n, float bulge, out vec2 grad) {
+	vec2 s = a / half_ext;
+	vec2 k = 1.0 + bulge * s.yx * s.yx;
+	vec2 u = s * k;
+	float m = max(max(u.x, u.y), 0.000001);
+	vec2 q = u / m;
+	float f = max(m * pow(pow(q.x, n) + pow(q.y, n), 1.0 / n), 0.000001);
+	vec2 gu = pow(u / f, vec2(n - 1.0));
+	// Chain rule through the bow: u.x = s.x * (1 + bulge * s.y^2), etc.
+	vec2 cross = 2.0 * bulge * s.x * s.y * gu.yx;
+	grad = (gu * k + cross) / half_ext;
+	return f;
+}
 
 // Point `pos` (from the centre) against a rectangle of half-size `half_ext`
-// with corner radii `r`, all in the same units: returns the signed distance
-// to the outline (negative inside; approximate in the corners), and sets
-// `edge` to the outline point it's nearest (radially, in the corners) and
-// `normal` to the outward direction there (outside: from `edge` to `pos`).
-float outline(vec2 pos, vec2 half_ext, vec2 r, out vec2 edge, out vec2 normal) {
+// shaped by `shape` = (roundness, bulge) (see outline_exponent and
+// outline_level), all in the same units: returns the signed distance to the
+// outline (negative inside), and sets `edge` to the outline point it's
+// nearest and `normal` to the outward direction there (outside: from `edge`
+// to `pos`).
+float outline(vec2 pos, vec2 half_ext, vec2 shape, out vec2 edge, out vec2 normal) {
 	vec2 sg = vec2(pos.x < 0.0 ? -1.0 : 1.0, pos.y < 0.0 ? -1.0 : 1.0);
 	vec2 a = abs(pos);
-	r = clamp(r, vec2(0.0001), half_ext);
-	vec2 inner = half_ext - r;
-	vec2 v = a - inner;
-	float sd;
-	if (v.x > 0.0 && v.y > 0.0) {
-		vec2 u = v / r;
-		float f = pow(pow(u.x, CORNER_EXPONENT) + pow(u.y, CORNER_EXPONENT), 1.0 / CORNER_EXPONENT);
-		vec2 grad = pow(u, vec2(CORNER_EXPONENT - 1.0)) / r * pow(f, 1.0 - CORNER_EXPONENT);
-		sd = (f - 1.0) / max(length(grad), 0.000001);
-		edge = inner + v / f;
-		normal = sd > 0.0 ? normalize(v) : normalize(grad);
-	} else if (a.x > half_ext.x || a.y > half_ext.y) {
-		edge = min(a, half_ext);
-		sd = length(a - edge);
-		normal = normalize(a - edge);
-	} else if (half_ext.x - a.x < half_ext.y - a.y) {
-		edge = vec2(half_ext.x, a.y);
-		sd = a.x - half_ext.x;
-		normal = vec2(1.0, 0.0);
-	} else {
-		edge = vec2(a.x, half_ext.y);
-		sd = a.y - half_ext.y;
-		normal = vec2(0.0, 1.0);
+	half_ext = max(half_ext, vec2(0.0001));
+	float n = outline_exponent(shape.x);
+	float bulge = max(shape.y, 0.0);
+	vec2 grad;
+	float f0 = outline_level(a, half_ext, n, bulge, grad);
+	// Newton steps onto the outline, along the gradient: a couple settle a
+	// point off a nearly straight side, the rest one past a sharp corner or
+	// round a bowed side.
+	vec2 e = a;
+	for (int i = 0; i < 4; i++) {
+		float f = outline_level(e, half_ext, n, bulge, grad);
+		e = max(e - grad * (f - 1.0) / max(dot(grad, grad), 0.000001), vec2(0.0));
 	}
-	edge *= sg;
+	outline_level(e, half_ext, n, bulge, grad);
+	float sd = (f0 > 1.0 ? 1.0 : -1.0) * length(a - e);
+	vec2 out_dir = a - e;
+	normal = sd > 0.0 && dot(out_dir, out_dir) > 0.0 ? normalize(out_dir)
+			: dot(grad, grad) > 0.0 ? normalize(grad) : vec2(0.0, 1.0);
+	edge = e * sg;
 	normal *= sg;
 	return sd;
 }
 
-// outline() for the picture (`picture_corners` rounded), with p in picture
+// Whether `p` (picture coordinates, see picture_outline) is inside the
+// picture's outline: a single level test, far cheaper than
+// picture_outline() where only in or out matters.
+bool inside_picture(vec2 p) {
+	vec2 grad;
+	return outline_level(abs(p - 0.5), vec2(0.5), outline_exponent(picture_shape.x),
+			max(picture_shape.y, 0.0), grad) <= 1.0;
+}
+
+// outline() for the picture (shaped by `picture_shape`), with p in picture
 // coordinates (0..1 inside picture_rect) and distances in fractions of the
 // picture, per axis.
 float picture_outline(vec2 p, out vec2 edge, out vec2 normal) {
-	vec2 size = max(picture_rect.zw, vec2(0.0001));
-	float aspect = display_aspect * size.x / size.y;
-	float sd = outline(p - 0.5, vec2(0.5), picture_corners / vec2(aspect, 1.0), edge, normal);
+	float sd = outline(p - 0.5, vec2(0.5), picture_shape, edge, normal);
 	edge += 0.5;
 	return sd;
 }

@@ -26,6 +26,9 @@ var _cli_start_in_vr: bool = false
 var _cli_force_desktop: bool = false
 ## --paused: open the --script file without starting playback.
 var _cli_paused: bool = false
+## --preset <file>: start with this preset .json instead of the startup
+## preset (tools/bench_preset.gd uses it).
+var _cli_preset_path: String = ""
 ## Where to seek once the video reports its length (seek() clamps to the
 ## timeline duration, which is unknown until then): --start, or a live-sync
 ## seek that arrived while the video was opening.
@@ -65,10 +68,16 @@ var _thumbs: OsThumbnails
 ## What next/previous step through (see Playlist); null until something
 ## is opened.
 var _playlist: Playlist
-var _projection_override: String = "auto"  # per video; reset on each load
-## Last curvature pushed from the Camera tab, so other sliders firing
-## ScreenSettings.changed don't re-flatten a script-curved screen.
-var _last_curvature: float = -1.0
+## The Camera tab's source layout choices, per video (reset on each load):
+## fov / stereo are "auto" or a VideoProjection.FOVS / STEREOS name, swap
+## null (auto: an `_RL` tag) or a bool.
+var _source_override := {"fov": "auto", "stereo": "auto", "swap": null}
+## The screen's surface from before a 180° / 360° video suggested a Dome,
+## put back for the next flat one ({} = none held).
+var _surface_before_immersive: Dictionary = {}
+## The source layout whose suggested surface was applied, so it's applied
+## once per video and layout, not over the viewer's own tweaks.
+var _suggested_for: String = ""
 ## The look (active preset, screen values, layers) from before a script
 ## switched to the locked Script preset; restored for the next plain video.
 ## Empty while not playing a script.
@@ -82,6 +91,7 @@ func _ready() -> void:
 	runner.process_priority = -1
 	_home_pos = desktop_camera.global_position
 	_home_yaw_deg = rad_to_deg(desktop_camera.global_rotation.y)
+	Screen.viewer_eye = _home_pos
 
 	xr_mode.entered_vr.connect(_on_entered_vr)
 	xr_mode.exited_vr.connect(_on_exited_vr)
@@ -285,22 +295,22 @@ func _on_right_stick_clicked() -> void:
 
 ## Right trigger (not on a panel): play/pause while aiming at the screen.
 func _on_right_trigger() -> void:
+	# Off the panel, the trigger first cancels a dropdown left open there.
+	if floating_panel.close_popups():
+		return
 	if _aiming_at_screen():
 		_toggle_play()
 
 
-## Whether the right controller points at the main screen's flat quad.
-## 180°/360° videos surround the viewer, so there is no screen to aim at and
-## the click keeps its reset-view meaning.
+## Whether the right controller points at the main screen's picture, on
+## its surface. At infinity (180°/360° video) it surrounds the viewer, so
+## there is no screen to aim at and the click keeps its reset-view meaning.
 func _aiming_at_screen() -> bool:
-	var screen: Node = runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID)
+	var screen := runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID) as Screen
 	if screen == null:
 		return false
-	var mesh := screen.get_node_or_null("Mesh") as MeshInstance3D
-	if mesh == null or not mesh.is_visible_in_tree() or not (mesh.mesh is QuadMesh):
-		return false
 	var ray := xr_rig.right_aim_ray()
-	return XRRig.ray_hits_quad(ray[0], ray[1], mesh.global_transform, (mesh.mesh as QuadMesh).size)
+	return screen.ray_hit(ray[0], ray[1])
 
 
 ## Leave VR first so the OpenXR session is torn down before the tree goes.
@@ -334,6 +344,8 @@ func _parse_cli_args() -> void:
 			_cli_force_desktop = true
 		elif a == "--paused":
 			_cli_paused = true
+		elif a == "--preset" and i + 1 < args.size():
+			_cli_preset_path = args[i + 1]
 		elif a == "--start" and i + 1 < args.size():
 			_pending_start = float(args[i + 1])
 		elif a == "--whirligig-port" and i + 1 < args.size():
@@ -426,6 +438,20 @@ func _init_media_controls() -> void:
 	mc.next_requested.connect(play_next)
 
 
+## Load the --preset file's screen and layers; false if there's none or it
+## isn't a preset.
+func _apply_cli_preset() -> bool:
+	if _cli_preset_path == "":
+		return false
+	var preset = JSON.parse_string(FileAccess.get_file_as_string(_cli_preset_path))
+	if typeof(preset) != TYPE_DICTIONARY or typeof(preset.get("screen")) != TYPE_DICTIONARY:
+		push_warning("--preset %s: not a preset file" % _cli_preset_path)
+		return false
+	_screen_settings.from_dict(preset.screen)
+	_layers.from_array(PresetStore.layers_of(preset))
+	return true
+
+
 func _init_screen_settings() -> void:
 	_layer_anchor = Node3D.new()
 	_layer_anchor.name = "LayerAnchor"
@@ -435,11 +461,12 @@ func _init_screen_settings() -> void:
 	_layers = LayerStack.new()
 	_layers.layers_changed.connect(_rebuild_layers)
 	# The startup preset (preset 1, the auto-created default, unless the
-	# Presets tab picked another) seeds the sliders and the mount transforms.
-	if not _preset_store.apply(_preset_store.startup_index(), _screen_settings, _layers):
+	# Presets tab picked another) seeds the sliders and the mount transforms;
+	# --preset names a file to use instead.
+	if not _apply_cli_preset() \
+			and not _preset_store.apply(_preset_store.startup_index(), _screen_settings, _layers):
 		_preset_store.apply(_preset_store.default_preset_index(), _screen_settings, _layers)
 	_screen_settings.changed.connect(_apply_screen_settings)
-	_screen_settings.changed.connect(_on_curvature_maybe_changed)
 	_screen_settings.changed.connect(_apply_screen_display)
 	_apply_screen_settings()
 	_apply_screen_display()
@@ -462,14 +489,14 @@ static func _screen_pivot() -> Vector3:
 	return Vector3(DefaultScreen.POSITION[0], DefaultScreen.POSITION[1], DefaultScreen.POSITION[2])
 
 
-## Opacity, vertical curvature and effects apply to every screen under
-## the mount (main and split-off). Horizontal curvature is separate
-## (_apply_curvature) since scripts set it too.
+## Opacity, surface, effects and vertex effects apply to every screen under
+## the mount (main and split-off).
 func _apply_screen_display() -> void:
 	if _screen_settings == null or screen_mount == null:
 		return
 	for screen in _screens_under(screen_mount):
 		_apply_display_to(screen)
+	_update_audio_active()
 
 
 ## Screens under `node`, groups included; not the ones inside shader
@@ -493,10 +520,12 @@ func _apply_display_to(screen: Node) -> void:
 	screen.set_resolution_scale(_screen_settings.resolution)
 	if not screen.is_scripted("opacity"):
 		screen.set_opacity(_screen_settings.opacity)
-	if not screen.is_scripted("vertical_curvature"):
-		screen.set_vertical_curvature(_screen_settings.vertical_curvature)
+	if not screen.is_scripted("surface"):
+		screen.set_surface(_screen_settings.surface)
 	if not screen.is_scripted("effects"):
 		screen.set_effects(_screen_settings.effects)
+	if not screen.is_scripted("vertex_effects"):
+		screen.set_vertex_effects(_screen_settings.vertex_effects)
 
 
 ## One Visualizer node per LayerStack entry, rebuilt whenever the list
@@ -534,8 +563,8 @@ func _apply_layer(settings: LayerSettings, node: Visualizer) -> void:
 	_place_layer(settings, node)
 	node.set_order(i)
 	node.set_locked(settings.lock_to_screen, settings.size, settings.distance)
-	node.set_curvature(settings.curvature)
-	node.set_vertical_curvature(settings.vertical_curvature)
+	node.set_surface(settings.surface)
+	node.set_vertex_effects(settings.vertex_effects)
 	node.set_opacity(settings.opacity)
 	node.set_resolution_scale(settings.resolution)
 	node.set_shader(settings.shader)
@@ -580,13 +609,17 @@ static func _default_screen_transform() -> Transform3D:
 	return Transform3D(Basis.from_scale(Vector3.ONE * DefaultScreen.SCALE), _screen_pivot())
 
 
-## The analyzer is shared: run it while any layer has a shader.
+## The analyzer is shared: run it while any layer has a shader, or a
+## screen's vertex effect follows the music.
 func _update_audio_active() -> void:
 	if _audio == null:
 		return
 	var running := runner.wants_audio()
 	for node in _layer_nodes + _script_layers():
 		running = running or node.is_running()
+	if screen_mount != null:
+		for screen in _screens_under(screen_mount):
+			running = running or screen.uses_audio()
 	_audio.set_active(running)
 
 
@@ -599,26 +632,6 @@ func _script_layers() -> Array[Visualizer]:
 		if is_instance_valid(node) and node is Visualizer:
 			out.append(node)
 	return out
-
-
-func _on_curvature_maybe_changed() -> void:
-	if _screen_settings.curvature != _last_curvature:
-		_apply_curvature()
-
-
-## Push the Camera tab's curvature to the main screen's display shader.
-## `only_if_curved` is for a fresh spawn: a flat (0) preference leaves any
-## curvature the script's own config set, so a script's curved screen isn't
-## flattened by a default preset. Moving the slider always applies.
-func _apply_curvature(only_if_curved: bool = false) -> void:
-	if _screen_settings == null:
-		return
-	if only_if_curved and _screen_settings.curvature <= 0.0:
-		return
-	_last_curvature = _screen_settings.curvature
-	var screen := runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID)
-	if screen != null and screen.has_method("set_curvature"):
-		screen.set_curvature(_screen_settings.curvature)
 
 
 func _init_player_settings() -> void:
@@ -657,43 +670,79 @@ func _apply_window_settings() -> void:
 		DisplayServer.window_set_mode(want)
 
 
-## Effective projection key for the current video.
+## The current video's source layout (a VideoProjection key): the Camera
+## tab's choices, else what the file name says.
 func _current_projection() -> String:
-	if _projection_override != "auto":
-		return _projection_override
-	return VideoProjection.detect(_video_name)
+	var detected := VideoProjection.detect(_video_name)
+	var fov := String(_source_override.fov)
+	var stereo := String(_source_override.stereo)
+	return VideoProjection.compose(
+			VideoProjection.fov_of(detected) if fov == "auto" else fov,
+			VideoProjection.stereo_name(detected) if stereo == "auto" else stereo)
 
 
-func _on_projection_selected(key: String) -> void:
-	_projection_override = key
+## Whether the current video is right eye first.
+func _current_swap() -> bool:
+	if _source_override.swap == null:
+		return VideoProjection.detect_swap(_video_name)
+	return bool(_source_override.swap)
+
+
+## A Camera tab source pick: `part` "fov" / "stereo" ("auto" or a name) or
+## "swap" (a bool).
+func _on_source_selected(part: String, value: Variant) -> void:
+	_source_override[part] = value
 	_apply_projection()
 
 
-## Push projection + aspect to the main screen (and the layers that read
-## the video) and mirror it in the panel.
+## Push the source layout + aspect to the main screen (and the layers that
+## read the video), the surface it suggests, and mirror it in the panel.
 func _apply_projection() -> void:
+	var key := _current_projection()
+	_apply_suggested_surface(key)
 	if _video != null:
-		_video.set_overlay_stereo(VideoProjection.stereo_of(_current_projection()))
-	var screen := runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID)
-	if screen != null and screen.has_method("set_projection"):
-		screen.set_projection(_current_projection())
-		if _video != null and screen.has_method("set_content_aspect"):
+		_video.set_overlay_stereo(VideoProjection.stereo_of(key))
+	var screen := runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID) as Screen
+	if screen != null:
+		screen.set_source_layout(key)
+		screen.set_swap_eyes(_current_swap())
+		if _video != null:
 			var size := _video.frame_size()
 			if size.y > 0:
 				screen.set_content_aspect(float(size.x) / float(size.y))
 	for node in _layer_nodes + _script_layers():
 		_apply_video_to_layer(node)
 	if _camera_tab != null:
-		_camera_tab.set_projection_state(_projection_override, VideoProjection.detect(_video_name))
+		_camera_tab.set_source_state(_source_override, VideoProjection.detect(_video_name),
+				VideoProjection.detect_swap(_video_name), _current_swap())
 
 
-## The video's frame and layout, for layer shaders tagged `@iChannelN video`.
+## A 180° / 360° source puts the screen on the Dome it's made for (once per
+## video and layout, so the viewer can still change it); the surface from
+## before comes back for the next flat one.
+func _apply_suggested_surface(key: String) -> void:
+	if key == _suggested_for or _screen_settings == null:
+		return
+	_suggested_for = key
+	var suggested := VideoProjection.suggested_surface(key)
+	if not suggested.is_empty():
+		if _surface_before_immersive.is_empty():
+			_surface_before_immersive = _screen_settings.surface.duplicate(true)
+		_screen_settings.set_surface(suggested)
+	elif not _surface_before_immersive.is_empty():
+		_screen_settings.set_surface(_surface_before_immersive)
+		_surface_before_immersive = {}
+
+
+## The video's frame and layout, for video layers and layer shaders
+## tagged `@iChannelN video`.
 func _apply_video_to_layer(node: Visualizer) -> void:
 	if _video == null:
 		return
 	node.bind_video(_video.get_output_texture())
 	var size := _video.frame_size()
-	node.set_video_layout(_current_projection(), float(size.x) / size.y if size.y > 0 else 0.0)
+	node.set_video_layout(_current_projection(), float(size.x) / size.y if size.y > 0 else 0.0,
+			_current_swap())
 
 
 func _init_whirligig() -> void:
@@ -769,7 +818,7 @@ func _bind_panel_content() -> void:
 	if content.has_method("bind_camera"):
 		content.bind_camera(_screen_settings, _preset_store, _layers)
 		_camera_tab = content.camera_tab
-		_camera_tab.projection_selected.connect(_on_projection_selected)
+		_camera_tab.source_selected.connect(_on_source_selected)
 		_camera_tab.reset_view_requested.connect(reset_view)
 		_apply_projection()
 	# Config first: the Files tab needs PlayerSettings (its remembered folder)
@@ -863,9 +912,9 @@ func _on_object_spawned(id: String, node: Node3D) -> void:
 		# mount) layer on top without ever fighting animation. Objects
 		# spawned inside another one stay there.
 		node.reparent(screen_mount, false)
-	if id == DefaultScreen.SCREEN_ID and screen_mount != null and screen_mount.is_ancestor_of(node):
-		_apply_curvature(true)
 	if node is Screen:
+		if _audio != null:
+			node.bind_audio(_audio)
 		_apply_display_to(node)
 	if node is Visualizer:
 		if _audio != null:
@@ -893,7 +942,8 @@ func _on_script_loaded(data: TimelineData) -> void:
 	if _script_moved_view:
 		_script_moved_view = false
 		reset_view()
-	_projection_override = "auto"
+	_source_override = {"fov": "auto", "stereo": "auto", "swap": null}
+	_suggested_for = ""
 	_apply_look_for(data)
 	# Spawn what the timeline starts with (the screen) now: the clock is
 	# held until the video opens, and waiting for its first tick left no
@@ -906,14 +956,19 @@ func _on_script_loaded(data: TimelineData) -> void:
 ## Scripts play with the locked Script preset (software defaults, no
 ## effects or layers) so they look as authored, whatever preset the viewer
 ## uses for plain videos; that look comes back when a plain video loads.
-## Runs before the new timeline's screens spawn, so a script's own curvature
-## isn't flattened (see _apply_curvature).
+## Runs before the new timeline's screens spawn. A script's own surface
+## stays anyway (Screen.is_scripted).
 func _apply_look_for(data: TimelineData) -> void:
 	var is_script := not data.synthetic
 	if is_script and _look_before_script.is_empty():
+		var screen := _screen_settings.to_dict()
+		# The viewer's own surface, not one a 180° / 360° video suggested.
+		if not _surface_before_immersive.is_empty():
+			screen["surface"] = _surface_before_immersive
+			_surface_before_immersive = {}
 		_look_before_script = {
 			"preset": _preset_store.active_index,
-			"screen": _screen_settings.to_dict(),
+			"screen": screen,
 			"layers": _layers.to_array(),
 		}
 		_preset_store.apply(PresetStore.SCRIPT_PRESET_INDEX, _screen_settings, _layers)

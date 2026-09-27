@@ -29,7 +29,7 @@ extends RefCounted
 
 signal changed
 
-const PATH := "user://player_settings.json"
+const FILE_NAME := "player_settings.json"
 const FORMAT_VERSION := 1
 const KIND := "player_settings"
 
@@ -88,12 +88,13 @@ var live_sync: bool = true: set = _set_live_sync
 var fullscreen: bool = false: set = _set_fullscreen
 var show_play_bar: bool = true: set = _set_show_play_bar
 
-var _path: String = PATH
+var _path: String
 var _loading: bool = false
 
 
 ## `path` override is for tests.
-func _init(path: String = PATH) -> void:
+## `path` defaults to FILE_NAME in AppPaths.save_dir().
+func _init(path: String = AppPaths.save_path(FILE_NAME)) -> void:
 	_path = path
 
 

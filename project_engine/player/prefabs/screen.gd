@@ -84,11 +84,15 @@ var _frame_aspect: float = 0.0
 var _effect_keys: Array[String] = []
 var _effect_shaders: Array[Shader] = []
 var _effect_params: Array[Dictionary] = []
-## Built passes: [{material, viewport, effect, prepass}] per eye chain
-## (effect _SOURCE_COPY / _MARGIN_COPY: a chain_copy pass starting the
-## chain / adding the margin; prepass: an effect's prepass, just before the
-## effect's own pass).
+## Built passes: [{material, viewport, effect, prepass, step, count}] per
+## eye chain (effect _SOURCE_COPY / _MARGIN_COPY: a chain_copy pass starting
+## the chain / adding the margin; prepass: an effect's prepass, just before
+## the effect's own pass; step of count: its place in a multi-pass effect or
+## prepass, -1 of 1 otherwise).
 var _passes: Array[Dictionary] = []
+## _pass_counts() when the passes were built: a params change that alters
+## it rebuilds them.
+var _built_counts: Array = []
 var _base_scale: Vector3 = Vector3.ONE  # the quad's scale before the margin
 var _pad_scale: Vector2 = Vector2.ONE  # the quad's growth from the margin
 var _chain_holder: Node
@@ -198,7 +202,7 @@ func set_effects(effects: Array) -> void:
 		params.append(p.duplicate() if typeof(p) == TYPE_DICTIONARY else {})
 	_effect_params = params
 	if keys == _effect_keys:
-		_apply_effect_params()
+		_params_changed()
 		return
 	_effect_keys = keys
 	_effect_shaders.clear()
@@ -222,7 +226,7 @@ func set_effect_param(index: int, param: String, value: Variant) -> void:
 	if index < 0 or index >= _effect_params.size():
 		return
 	_effect_params[index][param] = value
-	_apply_effect_params()
+	_params_changed()
 
 
 ## Source layout: a VideoProjection key (not "auto"). Only its stereo split
@@ -428,6 +432,7 @@ func _build_chains(src: Texture2D) -> void:
 		_chain_holder.remove_child(c)
 		c.queue_free()
 	_passes.clear()
+	_built_counts = _pass_counts()
 	var active: Array[int] = []
 	for i in _effect_shaders.size():
 		if _effect_shaders[i] != null:
@@ -464,25 +469,24 @@ func _build_chains(src: Texture2D) -> void:
 
 
 func _add_pass(shader: Shader, input: Texture2D, effect: int) -> Texture2D:
-	var steps: int = VisualizerShaders.hints_for(_effect_keys[effect]).passes if effect >= 0 else 1
+	var counts: Array = _built_counts[effect] if effect >= 0 else [1, 1]
+	var steps: int = counts[0]
 	if steps > 1:
-		# `@passes`: the same shader N times, each on the one before.
+		# `@passes`: the same shader N times, each on the one before; all
+		# of them also get the effect's own input as `pass_source_tex`.
 		var tex := input
 		for s in steps:
 			tex = _new_pass(shader, tex, effect, false)
-			_passes[-1].step = s
-			_passes[-1].material.set_shader_parameter("pass_index", s)
-			_passes[-1].material.set_shader_parameter("pass_count", steps)
+			_mark_step(s, steps)
+			_passes[-1].material.set_shader_parameter("pass_source_tex", input)
 		return tex
 	var pre: Texture2D = null
 	if effect >= 0 and VisualizerShaders.has_prepass(shader):
 		pre = _new_pass(shader, input, effect, true)
 		# `@prepass_passes`: more prepass steps, each on the one before.
-		var pre_steps: int = VisualizerShaders.hints_for(_effect_keys[effect]).prepass_passes
+		var pre_steps: int = counts[1]
 		for s in pre_steps:
-			_passes[-1].step = s
-			_passes[-1].material.set_shader_parameter("pass_index", s)
-			_passes[-1].material.set_shader_parameter("pass_count", pre_steps)
+			_mark_step(s, pre_steps)
 			if s < pre_steps - 1:
 				pre = _new_pass(shader, pre, effect, true)
 	var out := _new_pass(shader, input, effect, false)
@@ -508,8 +512,38 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 	rect.material = mat
 	vp.add_child(rect)
 	_chain_holder.add_child(vp)
-	_passes.append({"material": mat, "viewport": vp, "effect": effect, "prepass": prepass, "step": -1})
+	_passes.append({"material": mat, "viewport": vp, "effect": effect, "prepass": prepass,
+			"step": -1, "count": 1})
 	return vp.get_texture()
+
+
+## The last pass made is step `step` of `count` (a multi-pass effect's or
+## prepass's), and its shader is told so.
+func _mark_step(step: int, count: int) -> void:
+	_passes[-1].step = step
+	_passes[-1].count = count
+	_passes[-1].material.set_shader_parameter("pass_index", step)
+	_passes[-1].material.set_shader_parameter("pass_count", count)
+
+
+## [passes, prepass passes] per effect at the current params (see
+## VisualizerShaders.passes_of).
+func _pass_counts() -> Array:
+	var out := []
+	for i in _effect_keys.size():
+		var params: Dictionary = _effect_params[i] if i < _effect_params.size() else {}
+		out.append([VisualizerShaders.passes_of(_effect_keys[i], params),
+				VisualizerShaders.passes_of(_effect_keys[i], params, true)])
+	return out
+
+
+## After a params change: rebuild the passes if an effect's pass count
+## follows the params and changed, else just push the params.
+func _params_changed() -> void:
+	if _pass_counts() != _built_counts:
+		_wire_source_texture()
+	else:
+		_apply_effect_params()
 
 
 ## Push effect params and each pass's shape: display_aspect, and from the
@@ -553,7 +587,7 @@ func _apply_effect_params() -> void:
 		var size := px
 		if p.prepass:
 			size *= clampf(float(params.get("prepass_scale", _param_default(key, "prepass_scale", 1.0))), 0.05, 1.0)
-		elif not p.prepass and p.step >= 0 and p.step < VisualizerShaders.hints_for(key).passes - 1:
+		elif not p.prepass and p.step >= 0 and p.step < p.count - 1:
 			# A multi-pass effect's steps before its last run at `pass_scale`.
 			size *= clampf(float(params.get("pass_scale", _param_default(key, "pass_scale", 1.0))), 0.05, 1.0)
 		(p.viewport as SubViewport).size = pass_size(size)

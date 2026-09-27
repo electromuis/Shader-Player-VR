@@ -168,6 +168,38 @@ static func test_reach_follows_params(t: TestCase) -> void:
 			Vector2.ONE * VisualizerShaders.MAX_REACH, "capped")
 
 
+static func test_expression_hints(t: TestCase) -> void:
+	var fast := VisualizerShaders.BLUR
+	var soft := VisualizerShaders.GLOW
+	t.assert_eq(VisualizerShaders.passes_of(fast, {}), 6, "default radius")
+	t.assert_eq(VisualizerShaders.passes_of(fast, {"radius": 0.0}), 1, "follows the params")
+	t.assert_eq(VisualizerShaders.passes_of(soft, {"soften": 0.04}, true), 7, "prepass steps")
+	t.assert_eq(VisualizerShaders.passes_of(soft, {"soften": 0.0}, true), 1)
+	t.assert_eq(VisualizerShaders.passes_of(soft, {"soften": 0.04}), 1, "no @passes: one")
+	t.assert_eq(VisualizerShaders.passes_of(VisualizerShaders.KEY_BLACK, {}), 1)
+	t.assert_true(VisualizerShaders.eval_hint(VisualizerShaders.KEY_BLACK, "reach", {}) == null, "none declared")
+	var h := VisualizerShaders.parse_hints("// @passes max(2, n)\n// @passes 9\n// @reach 0.1\nuniform int n : hint_range(1, 8) = 3;\n")
+	t.assert_eq(h.expressions, {"passes": "max(2, n)", "reach": "0.1"}, "the first of each")
+
+
+static func test_screen_rebuilds_when_pass_count_changes(t: TestCase) -> void:
+	var screen: Screen = load("res://player/prefabs/screen.tscn").instantiate()
+	screen.notification(Node.NOTIFICATION_READY)
+	screen.set_source_texture(ImageTexture.create_from_image(Image.create(4, 4, false, Image.FORMAT_RGBA8)))
+	screen.set_effects([{"shader": VisualizerShaders.BLUR}])
+	var steps := func() -> Array: return screen._passes.filter(func(p): return p.effect == 0).map(func(p): return p.step)
+	t.assert_eq(steps.call(), [0, 1, 2, 3, 4, 5])
+	var blur_passes: Array = screen._passes.filter(func(p): return p.effect == 0)
+	var ratio := Vector2((blur_passes[-1].viewport as SubViewport).size) / Vector2((blur_passes[0].viewport as SubViewport).size)
+	t.assert_true(ratio.is_equal_approx(Vector2(2, 2)) or (ratio - Vector2(2, 2)).length() < 0.01,
+			"all but the last at pass_scale (0.5)")
+	screen.set_effect_param(0, "radius", 0.0)
+	t.assert_eq(steps.call(), [-1], "one ordinary pass at radius 0 (the shader's defaults: pass 0 of 1)")
+	screen.set_effect_param(0, "radius", 0.2)
+	t.assert_eq(steps.call().size(), 6, "back to six")
+	screen.free()
+
+
 static func test_legacy_padding_dropped(t: TestCase) -> void:
 	var s := ScreenSettings.new()
 	s.from_dict({"effects": [{"shader": VisualizerShaders.LEGACY_PADDING, "params": {"amount": 1.0}},
@@ -209,7 +241,7 @@ static func test_builtin_effects(t: TestCase) -> void:
 	var names: Array = VisualizerShaders.hints_for(VisualizerShaders.OVAL_MASK).params.map(func(p): return p.name)
 	t.assert_eq(names, ["outside", "size", "ratio", "blur", "level"])
 	names = VisualizerShaders.hints_for(VisualizerShaders.EDGE_BLUR).params.map(func(p): return p.name)
-	t.assert_eq(names, ["inward", "radius"])
+	t.assert_eq(names, ["inward", "radius", "pass_scale"])
 	names = VisualizerShaders.hints_for(VisualizerShaders.GLOW).params.map(func(p): return p.name)
 	t.assert_eq(names, ["intensity", "radius", "mirror", "diffuse", "repeat",
 			"smear", "bloom", "saturation", "blur", "border_blur", "soften", "samples",

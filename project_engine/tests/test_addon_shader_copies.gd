@@ -16,6 +16,7 @@ const COPIES := {
 	"player/visualizer/effects/key_black.gdshader": "visualizer/effects/key_black.gdshader",
 	"player/visualizer/effects/oval_mask.gdshader": "visualizer/effects/oval_mask.gdshader",
 	"player/prefabs/chain_copy.gdshader": "builtin_prefabs/chain_copy.gdshader",
+	"player/visualizer/fast_gaussian.gdshaderinc": "visualizer/fast_gaussian.gdshaderinc",
 	"player/visualizer/effects/glow.gdshader": "visualizer/effects/glow.gdshader",
 	"player/visualizer/effects/crop.gdshader": "visualizer/effects/crop.gdshader",
 	"player/visualizer/effects/rounded_corners.gdshader": "visualizer/effects/rounded_corners.gdshader",
@@ -84,4 +85,4 @@ static func test_addon_shaders_match_player(tc: TestCase) -> void:
 	for player_rel in COPIES:
 		var player_code := _read("res://" + player_rel).replace("res://player/visualizer/", ADDON_PREFIX + "visualizer/")
 		var addon_code := _read(addon_dir.path_join(COPIES[player_rel]))
-		tc.assert_eq(addon_code, player_code, "addon_vj/%s differs from %s" % [COPIES[player_rel], player_rel])
+		tc.assert_eq(addon_code, player_code, "addon_vj/%s differs from %s (fix: godot --headless --path project_engine --script res://tests/sync_addon_copies.gd)" % [COPIES[player_rel], player_rel])

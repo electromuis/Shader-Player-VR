@@ -74,12 +74,12 @@ static func test_pillow_matches_earlier_curvature(t: TestCase) -> void:
 	t.assert_true(_near(p, Vector3(r, 0.0, r)), "edge at %s" % p)
 	var flat := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {}, 0, Vector3(1.0, 2.0, 0.0), HALF, 8.0)
 	t.assert_true(_near(flat, Vector3(1.0, 2.0, 0.0)), "0 / 0 is flat")
-	# Padded to twice the picture: the bend spans the whole quad, and the
-	# depth is squashed by the quad's stretch as it was in mesh units.
-	var padded := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_y": 180.0}, 0,
-			Vector3(0.0, HALF.y * 2.0, 0.0), HALF, 8.0, HALF * 2.0, Vector2(2.0, 2.0))
-	var ry := HALF.y * 2.0 / (PI * 0.5)
-	t.assert_true(_near(padded, Vector3(0.0, ry, ry * 0.5)), "padded edge at %s" % padded)
+	# The bend spans the picture (a margin past it carries on round the same
+	# circle), and the depth is squashed by the picture's stretch.
+	var squashed := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_y": 180.0}, 0,
+			Vector3(0.0, HALF.y, 0.0), HALF, 8.0, Vector2(2.0, 2.0))
+	var ry := HALF.y / (PI * 0.5)
+	t.assert_true(_near(squashed, Vector3(0.0, ry, ry * 0.5)), "squashed edge at %s" % squashed)
 
 
 static func test_pillow_true_arcs(t: TestCase) -> void:

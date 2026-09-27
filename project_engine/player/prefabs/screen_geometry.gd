@@ -228,28 +228,25 @@ static func build_shader(vertex_keys: Array, surface_key: String, opaque: bool) 
 
 ## Where surface `key` puts flat point `p` (metres, screen frame), with
 ## `half_m` the picture's half size: the GDScript twin of the built-in
-## surfaces' shader code. Other surfaces count as flat. `quad_half` (metres;
-## default `half_m`) and `mesh_stretch` are the padded quad's half size and
-## its x / y scale against its depth, for the classic Pillow bend.
+## surfaces' shader code. Other surfaces count as flat. `stretch` is the
+## unpadded picture's x / y scale against its depth, for the classic Pillow
+## bend.
 static func surface_point(key: String, params: Dictionary, placement: int, p: Vector3,
-		half_m: Vector2, viewer_distance: float, quad_half := Vector2.ZERO,
-		mesh_stretch := Vector2.ONE) -> Vector3:
+		half_m: Vector2, viewer_distance: float, stretch := Vector2.ONE) -> Vector3:
 	var v := full_params(key, params)
 	if key == PILLOW:
 		var q := p
 		if not bool(v.true_arcs) and placement != Placement.AROUND:
-			if quad_half == Vector2.ZERO:
-				quad_half = half_m
-			var cx := _pillow_radius(float(v.arc_x), quad_half.x, placement, viewer_distance)
-			var cy := _pillow_radius(float(v.arc_y), quad_half.y, placement, viewer_distance)
+			var cx := _pillow_radius(float(v.arc_x), half_m.x, placement, viewer_distance)
+			var cy := _pillow_radius(float(v.arc_y), half_m.y, placement, viewer_distance)
 			if cx > 0.0:
 				var a := p.x / cx
 				q.x = cx * sin(a)
-				q.z += cx * (1.0 - cos(a)) / mesh_stretch.x
+				q.z += cx * (1.0 - cos(a)) / stretch.x
 			if cy > 0.0:
 				var a := p.y / cy
 				q.y = cy * sin(a)
-				q.z += cy * (1.0 - cos(a)) / mesh_stretch.y
+				q.z += cy * (1.0 - cos(a)) / stretch.y
 			return q
 		var rx := _pillow_radius(float(v.arc_x), half_m.x, placement, viewer_distance)
 		var ry := _pillow_radius(float(v.arc_y), half_m.y, placement, viewer_distance)
@@ -313,7 +310,7 @@ static func ray_hits(from: Vector3, dir: Vector3, xform: Transform3D, mesh_half:
 					lerpf(-mesh_half.y, mesh_half.y, float(j) / NY))
 			var p := surface_point(key, params, placement,
 					Vector3(local.x * s.x, local.y * s.y, 0.0), half_m, viewer_distance,
-					mesh_half * Vector2(s.x, s.y), Vector2(s.x, s.y) / s.z)
+					Vector2(s.x, s.y) / s.z * picture_half / mesh_half)
 			pts.append(xform * (p / s))
 	for j in NY:
 		for i in NX:

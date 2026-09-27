@@ -2,6 +2,7 @@
 // A halo around the picture, made from the picture itself and brightened,
 // and a brightening just inside its edge. The halo draws in a transparent
 // margin the screen adds around the picture.
+// @prepass_passes pick(soften > 0.0, 7, 1)
 // @reach pick(intensity > 0.0, Vector2(aspect, 1.0) * (radius + soften), 0.0)
 //
 // Sizes are fractions of the picture, per axis. At `intensity` 0 there's no
@@ -24,18 +25,22 @@
 //
 // Softness: `blur` is how blurred the looks are at the halo's reach (less
 // at the border; `border_blur` scales that), over `samples` taps.
-// `soften` blurs the finished halo to merge its layers.
+// `soften` blurs the finished halo to merge its layers: a separable
+// Gaussian in six more prepass steps (none at 0), so the full-size pass
+// reads it once.
 //
-// Picture edge: a band `edge_width` in from the edge, where `edge_brighten`
+// Picture edge: the halo's looks start `edge_width` in from the edge (off
+// the picture's outline shrunk by that much), and over that band `edge_brighten`
 // brightens the picture's own colours (keeping its detail) and `edge_fade`
-// blends it into the halo's colour (1: fully at the border), so it runs
-// into the halo without a step. The picture itself is never blurred.
+// feathers it into the halo (1: fully at the border), so it runs into the
+// halo without a step. The picture itself is never blurred.
 //
 // The halo is soft, so it's worked out in the prepass at `prepass_scale` of
 // the pass's size; the full-size pass keeps the picture sharp and lays it
 // over the (upscaled, softened) halo.
 shader_type canvas_item;
 #include "res://player/visualizer/effect_prelude.gdshaderinc"
+#include "res://player/visualizer/fast_gaussian.gdshaderinc"
 
 group_uniforms halo;
 uniform float intensity : hint_range(0.0, 4.0, 0.01) = 1.6;
@@ -62,13 +67,22 @@ group_uniforms;
 uniform float prepass_scale : hint_range(0.1, 1.0, 0.05) = 0.35;
 uniform sampler2D prepass_tex : filter_linear, repeat_disable;
 uniform bool prepass = false;
+uniform int pass_index = 0;
+uniform int pass_count = 1;
 
 const float GOLDEN_ANGLE = 2.39996323;
-const int SOFTEN_SAMPLES = 24;
 // The blur at the border, as a fraction of `blur` (it reaches all of it at `radius`).
 const float EDGE_SPREAD = 0.1;
 // Saturation reaches its full amount this far into the halo (a fraction of `radius`).
 const float SATURATION_RAMP = 0.3;
+
+// 0 to 1 over `a`..`b` with no step in its slope or its curvature at either
+// end (smoothstep's curvature jumps, which shows as a line against a bright
+// halo).
+float smootherstep(float a, float b, float x) {
+	float t = clamp((x - a) / (b - a), 0.0, 1.0);
+	return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
 
 float luma(vec3 c) {
 	return dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -162,25 +176,30 @@ vec3 halo_colour(vec2 ep, vec2 n, float x, float t, float spread, vec2 vmin, vec
 // Colour is averaged by coverage, so empty texels don't darken it; where a
 // tap lands on the picture it counts as covered (the picture's opaque there).
 vec4 halo_at(vec2 uv, vec2 vmin, vec2 size) {
-	if (soften <= 0.0) {
-		return texture(prepass_tex, uv);
-	}
-	vec3 rgb = vec3(0.0);
-	float rgb_w = 0.0;
-	float a = 0.0;
-	float sum_w = 0.0;
-	for (int i = 0; i < SOFTEN_SAMPLES; i++) {
-		float d = sqrt((float(i) + 0.5) / float(SOFTEN_SAMPLES));
-		float ang = float(i) * GOLDEN_ANGLE;
-		vec2 tap = uv + vec2(cos(ang), sin(ang)) * d * soften * size;
-		vec4 c = texture(prepass_tex, tap);
-		float w = exp(-3.0 * d * d);
-		rgb += c.rgb * c.a * w;
-		rgb_w += c.a * w;
-		a += (inside_picture((tap - vmin) / size) ? 1.0 : c.a) * w;
-		sum_w += w;
-	}
-	return vec4(rgb / max(rgb_w, 0.00001), a / sum_w);
+	// Softened in the prepass steps already.
+	return texture(prepass_tex, uv);
+}
+
+// Soften step `pass_index` (1..) of the prepass: a separable Gaussian
+// (fast_gaussian.gdshaderinc) as wide as Glow's soften disc was (weights
+// exp(-3 d^2) out to `soften`: sigma = soften / sqrt(6), per axis of the
+// picture). The halo step leaves colour premultiplied and alpha as
+// coverage; the last step divides it back out.
+vec4 soften_step(vec2 uv, vec2 size) {
+	vec2 sigma = max(soften, 0.0) / sqrt(6.0) * size;
+	vec4 c = gaussian_taps(input_tex, uv, gaussian_step_dir(pass_index - 1, pass_count - 1, sigma), false, false);
+	return pass_index == pass_count - 1 ? gaussian_unpremultiply(c) : c;
+}
+
+// How far `p` (picture coordinates) is outside the picture's outline
+// shrunk by `edge_width` (0 inside it), with `inset` the nearest point on
+// that and `n` outward there. The halo's looks and the edge feather are
+// measured from it: off a sharp corner it curves round, so neither has a
+// seam on the corner's diagonal.
+float inset_outline(vec2 p, out vec2 inset, out vec2 n) {
+	float d = outline(p - 0.5, max(vec2(0.5 - edge_width), vec2(0.0001)), picture_shape, inset, n);
+	inset += 0.5;
+	return max(d, 0.0);
 }
 
 void fragment() {
@@ -195,30 +214,49 @@ void fragment() {
 	float dist = sd > 0.0 ? length(p - ep) : 0.0;  // how far outside
 	float e = max(-sd, 0.0);  // how far inside
 
-	if (prepass) {
+	if (prepass && pass_index > 0) {
+		COLOR = soften_step(UV, size);
+	} else if (prepass) {
+		// The halo's looks, from `inset`, `hx` out along `hn`.
+		vec2 inset;
+		vec2 hn;
+		float hx = inset_outline(p, inset, hn);
+		float ht = clamp(hx / max(radius, 0.0001), 0.0, 1.0);
 		// The halo outside; inside, near the border, the colour the picture
-		// fades into there (the halo's at the nearest border point), which
+		// fades into there (the halo carried on in from the shrunk outline), which
 		// also backs the picture's own soft edge (a Rounded corners feather).
 		vec4 out_c = vec4(0.0);
 		float border_spread = blur * EDGE_SPREAD * border_blur;
 		if (intensity > 0.0) {
 			if (sd > 0.0) {
 				float t = clamp(dist / max(radius, 0.0001), 0.0, 1.0);
-				vec3 halo = halo_colour(ep, n, dist, t, mix(border_spread, blur, t), vmin, size, texel);
+				vec3 halo = halo_colour(inset, hn, hx, ht, mix(border_spread, blur, ht), vmin, size, texel);
 				float falloff = 1.0 - smoothstep(0.0, 1.0, t);
 				falloff *= falloff;
 				// Coverage fades with intensity, so a screen at 0 has no dark rim.
 				out_c = vec4(halo * tint * intensity, falloff * clamp(intensity, 0.0, 1.0));
-			} else if (e < (edge_fade > 0.0 ? edge_width * 1.5 : 0.0) + 0.02) {
-				out_c = vec4(halo_colour(ep, n, 0.0, 0.0, border_spread, vmin, size, texel) * tint * intensity, 1.0);
+			} else if (e < (edge_fade > 0.0 ? edge_width * 1.5 + soften * 1.5 : 0.0) + 0.02) {
+				// Past the band by the soften blur's reach too: further in the
+				// picture counts as covered but has no colour, and the blur
+				// would drag that black into the band.
+				out_c = vec4(halo_colour(inset, hn, hx, ht, mix(border_spread, blur, ht), vmin, size, texel) * tint * intensity, 1.0);
 			}
 		}
-		COLOR = out_c;
+		// Premultiplied, with coverage as alpha (the picture counts as
+		// covered), for the soften steps.
+		COLOR = pass_count > 1 ? vec4(out_c.rgb * out_c.a, inside_picture(p) ? 1.0 : out_c.a) : out_c;
 	} else if (sd > 0.0) {
 		COLOR = halo_at(UV, vmin, size);
 	} else {
 		vec4 c = texture(input_tex, UV);
-		float edge = 1.0 - smoothstep(0.0, max(edge_width, 0.0001), e);
+		// 1 at the border, 0 from `edge_width` in (off the shrunk outline,
+		// so it curves round sharp corners too), easing in from nothing.
+		float edge = 0.0;
+		if (e < edge_width) {
+			vec2 inset;
+			vec2 hn;
+			edge = smootherstep(0.0, max(edge_width, 0.0001), inset_outline(p, inset, hn));
+		}
 		vec3 rgb = c.rgb + c.rgb * tint * edge * edge_brighten;
 		// Fades into the colour the halo starts with, so there's no step at
 		// the border (none at intensity 0: no halo).

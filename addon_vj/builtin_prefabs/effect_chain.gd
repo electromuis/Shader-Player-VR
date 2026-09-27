@@ -13,25 +13,33 @@ extends Node
 ## (see the player's Screen and VisualizerShaders.reach_of). Each pass gets
 ## `picture_rect` (and past a Rounded corners effect `picture_shape`), and
 ## an effect declaring `prepass_tex` gets a prepass at `prepass_scale` of
-## its size, as in the player's Screen.
+## its size, as in the player's Screen. `// @passes` runs an effect that
+## many times (all but the last at its `pass_scale`, each told `pass_index`
+## / `pass_count`, all given the effect's input as `pass_source_tex`) and
+## `// @prepass_passes` its prepass; both are expressions over the params
+## (see the player's VisualizerShaders.eval_hint), and a count changing
+## makes is_current() false so the screen rebuilds.
 
 const COPY_SHADER := preload("res://addons/vj_editor/builtin_prefabs/chain_copy.gdshader")
 const ROUNDED_CORNERS_FILE := "rounded_corners.gdshader"
 ## Uniforms the chain sets itself; never copied from the authored material.
-const CHAIN_INPUTS := ["input_tex", "display_aspect", "picture_rect", "picture_shape", "prepass_tex", "prepass"]
+const CHAIN_INPUTS := ["input_tex", "display_aspect", "picture_rect", "picture_shape", "prepass_tex", "prepass",
+		"pass_index", "pass_count", "pass_source_tex"]
 const MAX_REACH := 4.0  # per side, in picture heights (as the player's)
+const MAX_PASSES := 16  # as the player's
+const EXPRESSION_HINTS := ["reach", "passes", "prepass_passes"]
 
 ## The quad's growth from the margin, as (width, height) factors.
 var pad_scale: Vector2 = Vector2.ONE
 
-static var _reach_re := RegEx.create_from_string("(?m)^\\s*//\\s*@reach\\s+(.+?)\\s*$")
-static var _reach_cache := {}  # shader code -> [Expression or null, input names]
-static var _reach_helpers := _ReachHelpers.new()
+static var _hint_re := RegEx.create_from_string("(?m)^\\s*//\\s*@(%s)\\s+(.+?)\\s*$" % "|".join(EXPRESSION_HINTS))
+static var _hint_cache := {}  # shader code -> {hint name: Expression or null, "": input names}
+static var _hint_helpers := _HintHelpers.new()
 
 var _sources: Array[ShaderMaterial] = []
-## {material, viewport, source (null: the margin copy), prepass}
+## {material, viewport, source (null: the margin copy), prepass, step, count}
 var _passes: Array[Dictionary] = []
-var _built: Array = []  # [material, shader] per source when built, to notice changes
+var _built: Array = []  # [material, shader, pass counts] per material when built, to notice changes
 var _margin_from: int = -1  # the first source with a @reach (-1 = none)
 
 
@@ -45,12 +53,12 @@ func build(src: Texture2D, materials: Array[ShaderMaterial], px: Vector2i, aspec
 	_sources.clear()
 	_built.clear()
 	for m in materials:
-		_built.append([m, m.shader if m != null else null])
+		_built.append([m, m.shader if m != null else null, pass_counts(m)])
 		if m != null and m.shader != null:
 			_sources.append(m)
 	_margin_from = -1
 	for i in _sources.size():
-		if _reach_expression(_sources[i].shader)[0] != null:
+		if _expression(_sources[i].shader, "reach") != null:
 			_margin_from = i
 			break
 	var tex := src
@@ -58,9 +66,18 @@ func build(src: Texture2D, materials: Array[ShaderMaterial], px: Vector2i, aspec
 		var m := _sources[i]
 		if i == _margin_from:
 			tex = _add_pass(null, tex, false)
+		var counts := pass_counts(m)
+		if counts[0] > 1:
+			var input := tex
+			for s in counts[0]:
+				tex = _add_pass(m, tex, false, s, counts[0])
+				_passes[-1].material.set_shader_parameter("pass_source_tex", input)
+			continue
 		var pre: Texture2D = null
 		if m.shader.code.contains("prepass_tex"):
-			pre = _add_pass(m, tex, true)
+			pre = _add_pass(m, tex, true, 0, counts[1])
+			for s in range(1, counts[1]):
+				pre = _add_pass(m, pre, true, s, counts[1])
 		var out := _add_pass(m, tex, false)
 		if pre != null:
 			_passes[-1].material.set_shader_parameter("prepass_tex", pre)
@@ -69,7 +86,7 @@ func build(src: Texture2D, materials: Array[ShaderMaterial], px: Vector2i, aspec
 	return tex
 
 
-func _add_pass(source: ShaderMaterial, input: Texture2D, prepass: bool) -> Texture2D:
+func _add_pass(source: ShaderMaterial, input: Texture2D, prepass: bool, step: int = -1, count: int = 1) -> Texture2D:
 	var vp := SubViewport.new()
 	vp.transparent_bg = true
 	vp.disable_3d = true
@@ -84,22 +101,26 @@ func _add_pass(source: ShaderMaterial, input: Texture2D, prepass: bool) -> Textu
 	else:
 		mat = source.duplicate() as ShaderMaterial
 		mat.set_shader_parameter("prepass", prepass)
+		mat.set_shader_parameter("pass_index", maxi(step, 0))
+		mat.set_shader_parameter("pass_count", count)
 	mat.set_shader_parameter("input_tex", input)
 	rect.material = mat
 	vp.add_child(rect)
 	add_child(vp)
-	_passes.append({"material": mat, "viewport": vp, "source": source, "prepass": prepass})
+	_passes.append({"material": mat, "viewport": vp, "source": source, "prepass": prepass,
+			"step": step, "count": count})
 	return vp.get_texture()
 
 
 ## Whether `materials` still matches what was built (same materials in the
-## same order, same shaders).
+## same order, same shaders, same pass counts at their current params).
 func is_current(materials: Array[ShaderMaterial]) -> bool:
 	if materials.size() != _built.size():
 		return false
 	for i in materials.size():
 		var m := materials[i]
-		if m != _built[i][0] or (m.shader if m != null else null) != _built[i][1]:
+		if m != _built[i][0] or (m.shader if m != null else null) != _built[i][1] \
+				or pass_counts(m) != _built[i][2]:
 			return false
 	return true
 
@@ -137,6 +158,8 @@ func sync(px: Vector2i, aspect: float) -> void:
 		var fit := size
 		if p.prepass:
 			fit *= clampf(float(_uniform(src, "prepass_scale", 1.0)), 0.05, 1.0)
+		elif p.step >= 0 and p.step < p.count - 1:
+			fit *= clampf(float(_uniform(src, "pass_scale", 1.0)), 0.05, 1.0)
 		vp.size = _fit(fit)
 	pad_scale = Vector2(w / aspect, h)
 
@@ -153,16 +176,7 @@ static func _fit(px: Vector2) -> Vector2i:
 ## VisualizerShaders.reach_of): (x, y) per side in picture heights, for a
 ## picture `aspect` wide.
 static func reach_of(mat: ShaderMaterial, aspect: float) -> Vector2:
-	var parsed: Array = _reach_expression(mat.shader)
-	var e: Expression = parsed[0]
-	if e == null:
-		return Vector2.ZERO
-	var values: Array = [aspect]
-	for n in parsed[1]:
-		values.append(_uniform(mat, n, 0.0))
-	var v = e.execute(values, _reach_helpers, false)
-	if e.has_execute_failed():
-		return Vector2.ZERO
+	var v = _eval(mat, "reach", aspect)
 	match typeof(v):
 		TYPE_FLOAT, TYPE_INT:
 			v = Vector2(v, v)
@@ -173,31 +187,57 @@ static func reach_of(mat: ShaderMaterial, aspect: float) -> Vector2:
 	return (v as Vector2).clamp(Vector2.ZERO, Vector2.ONE * MAX_REACH)
 
 
-## [the parsed `@reach` of `shader` (null: none), its uniform names in input
-## order], cached by code.
-static func _reach_expression(shader: Shader) -> Array:
+## [passes, prepass passes] of `mat` at its current params (`@passes`,
+## `@prepass_passes`; 1 without).
+static func pass_counts(mat: ShaderMaterial) -> Array:
+	var out := []
+	for hint in ["passes", "prepass_passes"]:
+		var v = _eval(mat, hint, 16.0 / 9.0) if mat != null and mat.shader != null else null
+		out.append(clampi(roundi(float(v)), 1, MAX_PASSES) if typeof(v) in [TYPE_FLOAT, TYPE_INT] else 1)
+	return out
+
+
+## The value of `mat`'s shader's expression hint `hint` at the material's
+## params (see the player's VisualizerShaders.eval_hint); null without one
+## or if it fails.
+static func _eval(mat: ShaderMaterial, hint: String, aspect: float) -> Variant:
+	var e: Expression = _expression(mat.shader, hint)
+	if e == null:
+		return null
+	var values: Array = [aspect]
+	for n in _hint_cache[mat.shader.code][""]:
+		values.append(_uniform(mat, n, 0.0))
+	var v = e.execute(values, _hint_helpers, false)
+	return null if e.has_execute_failed() else v
+
+
+## The parsed expression hint `hint` of `shader` (null: none), cached by
+## code with the uniform names it takes (after `aspect`).
+static func _expression(shader: Shader, hint: String) -> Expression:
 	if shader == null:
-		return [null, []]
+		return null
 	var code := shader.code
-	if not _reach_cache.has(code):
-		var entry: Array = [null, []]
-		var m := _reach_re.search(code)
-		if m != null:
-			var names := PackedStringArray(["aspect"])
-			for u in shader.get_shader_uniform_list():
+	if not _hint_cache.has(code):
+		var names := PackedStringArray(["aspect"])
+		for u in shader.get_shader_uniform_list():
+			if u.usage & (PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP) == 0:
 				names.append(u.name)
+		var entry := {"": names.slice(1)}
+		for m in _hint_re.search_all(code):
+			if entry.has(m.get_string(1)):
+				continue
 			var e := Expression.new()
-			if e.parse(m.get_string(1), names) == OK:
-				entry = [e, names.slice(1)]
+			if e.parse(m.get_string(2), names) == OK:
+				entry[m.get_string(1)] = e
 			else:
-				push_warning("%s: can't read @reach: %s" % [shader.resource_path.get_file(), e.get_error_text()])
-		_reach_cache[code] = entry
-	return _reach_cache[code]
+				push_warning("%s: can't read @%s: %s" % [shader.resource_path.get_file(), m.get_string(1), e.get_error_text()])
+		_hint_cache[code] = entry
+	return _hint_cache[code].get(hint)
 
 
-## Functions a `@reach` expression can call besides Godot's built-ins
+## Functions a hint expression can call besides Godot's built-ins
 ## (Expression's own `a if c else b` always gives `a`).
-class _ReachHelpers:
+class _HintHelpers:
 	func pick(condition: bool, if_true: Variant, if_false: Variant) -> Variant:
 		return if_true if condition else if_false
 

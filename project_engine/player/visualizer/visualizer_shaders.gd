@@ -23,13 +23,16 @@ extends RefCounted
 ##   // @iChannel1 video       — what a layer's iChannelN samples (one of
 ##                               CHANNEL_SOURCES); iChannel0 is "audio" unless
 ##                               tagged otherwise
+##   Expression hints (EXPRESSION_HINTS): the value is a Godot Expression
+##   over the effect's params (its hinted uniforms, current values) and
+##   `aspect` (the picture's width / height), with the built-ins (max(),
+##   min(), ...) and pick(condition, if_true, if_false) for choices; see
+##   eval_hint. So `// @passes pick(radius > 0.0, 6, 1)` follows a slider.
 ##   // @reach radius * 0.5    — how far an effect draws past the picture's
 ##                               edge, in picture heights (a Vector2 for x
-##                               and y apart): an expression over its params
-##                               and `aspect` (the picture's width / height),
-##                               with pick(condition, if_true, if_false) for
-##                               choices (reach_of). Screen adds that margin
-##                               around the picture so it isn't cut off
+##                               and y apart; reach_of). Screen adds that
+##                               margin around the picture so it isn't cut
+##                               off
 ##   // @passes 6              — an effect run that many times, each pass on
 ##                               the one before (`input_tex`), told which by
 ##                               `uniform int pass_index` (from 0) and
@@ -41,6 +44,7 @@ extends RefCounted
 ##                               rest run on it at the prepass's size, and
 ##                               the effect reads the last as `prepass_tex`
 ##                               (Glow (fast soften) blurs its halo there)
+##   A pass count changing with the params rebuilds the Screen's passes.
 ##   uniform float x : hint_range(0.0, 1.0, 0.01) = 0.5;
 ##                             — a slider in the Camera tab (int too); a
 ##                               plain `uniform bool` gets a checkbox
@@ -88,6 +92,11 @@ const LEGACY_PADDING := "res://player/visualizer/effects/padding.gdshader"
 const MAX_REACH := 4.0
 ## Most passes a `@passes` effect gets.
 const MAX_PASSES := 16
+## The hints whose value is an expression over the effect's params (see
+## eval_hint).
+const EXPRESSION_HINTS := ["reach", "passes", "prepass_passes"]
+## eval_hint results kept per shader before starting over.
+const MAX_CACHED_RESULTS := 256
 const GLOW := "res://player/visualizer/effects/glow.gdshader"
 const CROP := "res://player/visualizer/effects/crop.gdshader"
 const ROUNDED_CORNERS := "res://player/visualizer/effects/rounded_corners.gdshader"
@@ -102,10 +111,9 @@ static var _hints_cache := {}
 static var _include_re := RegEx.create_from_string("#include\\s+\"([^\"]+)\"")
 static var _prepass_re := RegEx.create_from_string("(?m)^\\s*uniform\\s+sampler2D\\s+prepass_tex\\b")
 static var _title_re := RegEx.create_from_string("(?m)^\\s*//\\s*@title\\s+(.+?)\\s*$")
-static var _reach_re := RegEx.create_from_string("(?m)^\\s*//\\s*@reach\\s+(.+?)\\s*$")
-static var _reach_helpers := _ReachHelpers.new()
-static var _passes_re := RegEx.create_from_string("(?m)^\\s*//\\s*@passes\\s+(\\d+)\\s*$")
-static var _prepass_passes_re := RegEx.create_from_string("(?m)^\\s*//\\s*@prepass_passes\\s+(\\d+)\\s*$")
+static var _expression_hint_re := RegEx.create_from_string(
+		"(?m)^\\s*//\\s*@(%s)\\s+(.+?)\\s*$" % "|".join(EXPRESSION_HINTS))
+static var _hint_helpers := _HintHelpers.new()
 ## Set by reload_all(): from then on built-ins and their res:// includes are
 ## read from their files, not Godot's resource cache, so edits show up.
 static var _builtins_fresh := false
@@ -296,23 +304,17 @@ static func hints_for(key: String) -> Dictionary:
 
 ## {resolution: Vector2i (ZERO = none given, x 0 = height only), channels: {index: source}
 ## (always has 0), params: [{name, type ("float" / "int" / "bool"), group,
-## min, max, step, default}], reach: the `@reach` expression ("" = none),
-## passes: `@passes` (1 without)}
-## from shader source. Only uniforms with a
+## min, max, step, default}], expressions: {hint name: source} for the
+## EXPRESSION_HINTS given (the first of each), and eval_hint's caches
+## (parsed, results)} from shader source. Only uniforms with a
 ## hint_range, and bools, become params; `group` is the `group_uniforms` they
 ## sit under ("" for none); unknown channel sources are skipped.
 static func parse_hints(code: String) -> Dictionary:
-	var out := {"resolution": Vector2i.ZERO, "channels": {0: "audio"}, "params": [], "reach": "",
-			"passes": 1, "prepass_passes": 1}
-	var passes := _passes_re.search(code)
-	if passes != null:
-		out.passes = clampi(int(passes.get_string(1)), 1, MAX_PASSES)
-	var pre_passes := _prepass_passes_re.search(code)
-	if pre_passes != null:
-		out.prepass_passes = clampi(int(pre_passes.get_string(1)), 1, MAX_PASSES)
-	var reach := _reach_re.search(code)
-	if reach != null:
-		out.reach = reach.get_string(1)
+	var out := {"resolution": Vector2i.ZERO, "channels": {0: "audio"}, "params": [],
+			"expressions": {}, "parsed": {}, "results": {}}
+	for m in _expression_hint_re.search_all(code):
+		if not out.expressions.has(m.get_string(1)):
+			out.expressions[m.get_string(1)] = m.get_string(2)
 	var res_re := RegEx.create_from_string("@resolution\\s+(\\d+)(?:\\s*[xX×]\\s*(\\d+))?")
 	var m := res_re.search(code)
 	if m != null:
@@ -360,7 +362,7 @@ static func parse_hints(code: String) -> Dictionary:
 ## Whether the effect at `key` declares a `@reach` (so it may draw past the
 ## picture's edge; how far depends on its params, see reach_of).
 static func has_reach(key: String) -> bool:
-	return key != "" and hints_for(key).reach != ""
+	return key != "" and hints_for(key).expressions.has("reach")
 
 
 ## How far the effect at `key` draws past the picture's edge with `params`
@@ -368,30 +370,7 @@ static func has_reach(key: String) -> bool:
 ## side in picture heights, for a picture `aspect` wide. ZERO without one, or
 ## if it doesn't evaluate to a number or Vector2.
 static func reach_of(key: String, params: Dictionary, aspect: float) -> Vector2:
-	if key == "":
-		return Vector2.ZERO
-	var hints := hints_for(key)
-	if hints.reach == "":
-		return Vector2.ZERO
-	var values: Array = [aspect]
-	for spec in hints.params:
-		values.append(params.get(spec.name, spec.default))
-	# Parsed once per hints (scripts may animate params every frame).
-	if not hints.has("reach_expression"):
-		var names := PackedStringArray(["aspect"])
-		for spec in hints.params:
-			names.append(spec.name)
-		var parsed := Expression.new()
-		if parsed.parse(hints.reach, names) != OK:
-			push_warning("%s: can't read @reach: %s" % [key.get_file(), parsed.get_error_text()])
-			parsed = null
-		hints.reach_expression = parsed
-	var e: Expression = hints.reach_expression
-	if e == null:
-		return Vector2.ZERO
-	var v = e.execute(values, _reach_helpers, false)
-	if e.has_execute_failed():
-		return Vector2.ZERO
+	var v = eval_hint(key, "reach", params, aspect)
 	match typeof(v):
 		TYPE_FLOAT, TYPE_INT:
 			v = Vector2(v, v)
@@ -402,9 +381,58 @@ static func reach_of(key: String, params: Dictionary, aspect: float) -> Vector2:
 	return (v as Vector2).clamp(Vector2.ZERO, Vector2.ONE * MAX_REACH)
 
 
-## Functions a `@reach` expression can call besides Godot's built-ins
+## How many passes the effect at `key` runs with `params` (its `@passes`;
+## 1 without), or its prepass with `prepass` (`@prepass_passes`).
+static func passes_of(key: String, params: Dictionary, prepass: bool = false) -> int:
+	var v = eval_hint(key, "prepass_passes" if prepass else "passes", params)
+	if not (typeof(v) in [TYPE_FLOAT, TYPE_INT]):
+		return 1
+	return clampi(roundi(float(v)), 1, MAX_PASSES)
+
+
+## The value of the effect at `key`'s expression hint `name` (see
+## EXPRESSION_HINTS) with `params` (missing ones at their defaults) and
+## `aspect` (the picture's width / height); null without one, or if it
+## doesn't parse or run. Parsed once, and the results kept per params (they
+## change on every slider step, or every frame when a script animates them).
+static func eval_hint(key: String, name: String, params: Dictionary, aspect: float = 16.0 / 9.0) -> Variant:
+	if key == "":
+		return null
+	var hints := hints_for(key)
+	if not hints.expressions.has(name):
+		return null
+	var values: Array = [aspect]
+	for spec in hints.params:
+		values.append(params.get(spec.name, spec.default))
+	var results: Dictionary = hints.results
+	var cache_key := hash([name, values])
+	if results.has(cache_key):
+		return results[cache_key]
+	var parsed: Dictionary = hints.parsed
+	if not parsed.has(name):
+		var names := PackedStringArray(["aspect"])
+		for spec in hints.params:
+			names.append(spec.name)
+		var e := Expression.new()
+		if e.parse(hints.expressions[name], names) != OK:
+			push_warning("%s: can't read @%s: %s" % [key.get_file(), name, e.get_error_text()])
+			e = null
+		parsed[name] = e
+	var expression: Expression = parsed[name]
+	var v = null
+	if expression != null:
+		v = expression.execute(values, _hint_helpers, false)
+		if expression.has_execute_failed():
+			v = null
+	if results.size() >= MAX_CACHED_RESULTS:
+		results.clear()
+	results[cache_key] = v
+	return v
+
+
+## Functions a hint expression can call besides Godot's built-ins
 ## (Expression's own `a if c else b` always gives `a`).
-class _ReachHelpers:
+class _HintHelpers:
 	func pick(condition: bool, if_true: Variant, if_false: Variant) -> Variant:
 		return if_true if condition else if_false
 

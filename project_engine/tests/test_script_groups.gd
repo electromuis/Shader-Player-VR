@@ -212,12 +212,13 @@ static func test_screen_routes_effect_and_display_slots(tc: TestCase) -> void:
 	# wide as it reaches.
 	screen.set_effects([{"shader": VisualizerShaders.OVAL_MASK},
 			{"shader": VisualizerShaders.BLUR, "params": {"radius": 0.25}}])
+	# (Blur is six passes, the last at full size.)
 	tc.assert_eq(screen._passes.map(func(p): return p.effect),
-			[Screen._SOURCE_COPY, 0, Screen._MARGIN_COPY, 1])
+			[Screen._SOURCE_COPY, 0, Screen._MARGIN_COPY, 1, 1, 1, 1, 1, 1])
 	var render: Vector2i = screen.render_viewport.size
-	tc.assert_eq((screen._passes[3].viewport as SubViewport).size.y, roundi(render.y * 1.5), "a quarter height each side")
+	tc.assert_eq((screen._passes[-1].viewport as SubViewport).size.y, roundi(render.y * 1.5), "a quarter height each side")
 	screen.set_effect_param(1, "radius", 0.0)
-	tc.assert_eq((screen._passes[3].viewport as SubViewport).size, render, "follows the param")
+	tc.assert_eq((screen._passes[-1].viewport as SubViewport).size, render, "follows the param")
 	screen.set_material_param("display", "opacity", 0.25)
 	tc.assert_eq(screen._display_material.get_shader_parameter("opacity"), 0.25)
 	screen.free()

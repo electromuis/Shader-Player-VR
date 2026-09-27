@@ -1,10 +1,10 @@
 // @title Pillow
 // Pillow: bends the screen left-to-right (arc_x) and top-to-bottom (arc_y);
 // 0 / 0 is flat, arc_x alone a cylinder.
-// true_arcs off (the classic bend): each arc spans the whole quad, the
-// margin included, and its depth is squashed by the quad's stretch (aspect
-// fit and the margin), so the top-to-bottom bend stays gentle. The two bends'
-// depths add up.
+// true_arcs off (the classic bend): each arc spans the picture (the margin
+// carries on along the same circle, so effects' padding doesn't change the
+// bend) and its depth is squashed by the picture's stretch (aspect fit), so
+// the top-to-bottom bend stays gentle. The two bends' depths add up.
 // true_arcs on: the arcs span the picture itself and are true circles: bent
 // left-to-right first, then that curved sheet is bent top-to-bottom. Around
 // the viewer both take the viewing distance as their radius, which wraps
@@ -28,18 +28,19 @@ float radius(float arc, float half_len) {
 vec3 surface(vec3 p, vec2 uv, vec2 half_m) {
 	vec3 q = p;
 	if (!true_arcs && placement != 1) {
-		vec2 quad_half = half_m * MESH_HALF / picture_half;
-		float rx = radius(arc_x, quad_half.x);
-		float ry = radius(arc_y, quad_half.y);
+		// The quad's stretch without the margin's growth.
+		vec2 stretch = mesh_stretch * picture_half / MESH_HALF;
+		float rx = radius(arc_x, half_m.x);
+		float ry = radius(arc_y, half_m.y);
 		if (rx > 0.0) {
 			float a = p.x / rx;
 			q.x = rx * sin(a);
-			q.z += rx * (1.0 - cos(a)) / mesh_stretch.x;
+			q.z += rx * (1.0 - cos(a)) / stretch.x;
 		}
 		if (ry > 0.0) {
 			float a = p.y / ry;
 			q.y = ry * sin(a);
-			q.z += ry * (1.0 - cos(a)) / mesh_stretch.y;
+			q.z += ry * (1.0 - cos(a)) / stretch.y;
 		}
 		return q;
 	}

@@ -656,6 +656,8 @@ func _apply_player_settings() -> void:
 		_video.set_volume(_player_settings.volume)
 		if _audio != null:
 			_audio.set_input_gain(_video.audio_gain())
+		if _video.set_decoder(_player_settings.video_decoder):
+			_reopen_video()
 	if _live_sync != null:
 		_live_sync.set_enabled(_player_settings.live_sync)
 
@@ -880,8 +882,8 @@ func _bind_wrist_hud() -> void:
 
 
 func _init_video() -> void:
-	if not ClassDB.class_exists("GoZenVideo"):
-		_set_status("GoZenVideo class not found — is addons/gde_gozen loaded?")
+	if not VideoBridge.is_available():
+		_set_status("No video decoder loaded — is addons/gde_gozen or addons/native_video installed?")
 		return
 	_video = VIDEO_BRIDGE_SCRIPT.new()
 	_video.name = "VideoBridge"
@@ -897,14 +899,29 @@ func _init_video() -> void:
 	_audio = AudioAnalyzer.new()
 	_audio.name = "AudioAnalyzer"
 	add_child(_audio)
-	if not _audio.attach(_video.audio_bus_name()):
-		push_warning("AudioAnalyzer: video audio bus not found; the visualizer won't react to sound.")
-	_audio.set_input_gain(_video.audio_gain())
+	_attach_audio()
+	_video.audio_bus_changed.connect(_attach_audio)
 	_audio.set_active(false)
 	# Push the video texture into any spawned object that accepts one
 	# (e.g. the Screen prefab). Fires both for runner spawns and any
 	# externally-registered nodes.
 	runner.registry().object_spawned.connect(_on_object_spawned)
+
+
+## The analyzer follows the video's sound onto its current bus.
+func _attach_audio() -> void:
+	if not _audio.attach(_video.audio_bus_name()):
+		push_warning("AudioAnalyzer: video audio bus not found; the visualizer won't react to sound.")
+	_audio.set_input_gain(_video.audio_gain())
+
+
+## Open the current video again where it is (another decoder was chosen).
+func _reopen_video() -> void:
+	if _video_path == "":
+		return
+	var t: float = runner.playhead
+	_video.load_video(_video_path)
+	_seek_to(t)
 
 
 func _on_object_spawned(id: String, node: Node3D) -> void:
@@ -1022,7 +1039,8 @@ func _show_loading_thumbnail(os_path: String, thumbnail_url: String) -> void:
 
 
 func _on_video_loaded(duration: float, framerate: float) -> void:
-	_set_status("Video loaded: %.2fs @ %.2f fps" % [duration, framerate])
+	_set_status("Video loaded: %.2fs%s (%s)" % [duration,
+			" @ %.2f fps" % framerate if framerate > 0.0 else "", _video.active_decoder()])
 	runner.set_video_duration(duration)
 	_apply_projection()  # aspect is known now
 	if _pending_start > 0.0:

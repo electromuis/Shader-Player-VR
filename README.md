@@ -56,6 +56,7 @@ Open a video or a script from **F2 → Files**, by dropping it on the window, or
    - Quest 3: `.apk` (sideload with `adb install` or SideQuest; Meta OpenXR vendors plugin)
    - `-portable-all-platforms.zip` with all of the above unpacked
    Windows and Linux builds carry no loose gde_gozen library: it is packed into the `.pck` inside the executable, and `player/runtime/gozen_loader.gd` (the first autoload) writes it to `user://gozen/` and loads it on startup. On macOS and Quest it is inside the `.app` / `.apk`, as usual.
+   The Windows and macOS builds also carry [native_video](https://github.com/claytercek/godot-native-video) (fetched by `ci/fetch_addons.sh`), the OS hardware decoder behind Config → Video decoder → Hardware; its library sits next to the executable as usual. Linux and Quest builds leave it out.
 4. **Release:** pushing a tag `v*` (`git tag v0.2.0 && git push origin v0.2.0`) creates a GitHub release with those files, and the commit messages since the previous tag as its notes. Tags with a `-` (`v0.2.0-beta`) are marked pre-release.
 
 The Quest APK is signed with the `ANDROID_KEYSTORE_BASE64` (base64 of the `.keystore`), `ANDROID_KEYSTORE_USER` (key alias) and `ANDROID_KEYSTORE_PASSWORD` repository secrets. Without them CI signs it with a throwaway key, and each build then has to be uninstalled before the next one installs.
@@ -75,3 +76,14 @@ The helper scripts in `ci/` work locally too: `ci/setup_godot.sh --templates`, `
 1. Download the latest release from https://github.com/GodotVR/godot-xr-tools/releases
 2. Extract the `addons/godot-xr-tools/` folder into `project_engine/addons/godot-xr-tools/`
 3. Open the project in Godot — the addon should be picked up automatically
+
+## Video decoders
+
+The player decodes video with one of two backends (`player/video/`), picked in Config → Video decoder:
+
+- **FFmpeg** (`gde_gozen`, default): every container and codec, local files and network streams.
+- **Hardware (OS)** ([native_video](https://github.com/claytercek/godot-native-video), Windows / macOS): Media Foundation / AVFoundation hardware decoding of local H.264 / HEVC in MP4 / MOV. On Windows, decoded frames stay on the GPU (zero-copy) only under the Direct3D 12 renderer, which is the project default. Under Vulkan every frame is read back through the CPU. Install it with `ci/fetch_addons.sh`, or extract `addons/native_video/` from its release zip into `project_engine/addons/`.
+
+Config → Renderer (Windows) switches between Direct3D 12 and Vulkan, for example if a headset runtime misbehaves on D3D12. The driver is fixed at startup, so the choice goes to `user://override.cfg` (see `application/config/project_settings_override` and `RendererSetting`) and applies on the next start. `--rendering-driver vulkan` also works for a single run. native_video's Windows debug DLL aborts on every video under D3D12, so `ci/fetch_addons.sh` points debug builds at the release DLL.
+
+A video the chosen decoder can't play uses the other one. That includes network streams, other containers, and MP4s with tracks besides video and sound: native_video aborts the whole process on a timecode (`tmcd`) track.

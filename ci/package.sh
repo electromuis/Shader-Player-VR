@@ -24,6 +24,8 @@ mkdir -p "$DIST" "$ALL"
 extras() {  # README and third-party licences next to the binaries
   cp "$ROOT/README.md" "$1/"
   cp "$ROOT/project_engine/addons/gde_gozen/LICENSE" "$1/LICENSE-gde_gozen-FFmpeg-LGPL.txt"
+  NV_LICENSE="$ROOT/project_engine/addons/native_video/LICENSE"
+  if [ -f "$NV_LICENSE" ]; then cp "$NV_LICENSE" "$1/LICENSE-native_video-MIT.txt"; fi
 }
 
 if [ -d "$BUILD/windows" ]; then

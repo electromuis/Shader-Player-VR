@@ -26,6 +26,8 @@ extends RefCounted
 ##                           player (`--live-sync`); no effect otherwise.
 ##   fullscreen            — desktop window fills the screen (F11).
 ##   show_play_bar         — the desktop bottom media bar (H).
+##   video_decoder         — preferred decoder, one of VIDEO_DECODERS (see
+##                           VideoBridge); videos it can't play use the other.
 
 signal changed
 
@@ -51,6 +53,13 @@ const END_ACTION_LABELS := {
 	"nothing": "Nothing — stay on the last frame",
 	"loop": "Loop the video",
 	"next": "Play the next video",
+}
+
+## Video decoders (VideoBridge.BACKENDS keys), in dropdown order.
+const VIDEO_DECODERS := ["gozen", "native"]
+const VIDEO_DECODER_LABELS := {
+	"gozen": "FFmpeg — every format, network streams",
+	"native": "Hardware (OS) — local MP4 / MOV",
 }
 
 ## Built-in skybox keys, in dropdown order. Anything else is a file path.
@@ -87,6 +96,7 @@ var browser_last_dir: String = "": set = _set_browser_last_dir
 var live_sync: bool = true: set = _set_live_sync
 var fullscreen: bool = false: set = _set_fullscreen
 var show_play_bar: bool = true: set = _set_show_play_bar
+var video_decoder: String = "gozen": set = _set_video_decoder
 
 var _path: String
 var _loading: bool = false
@@ -123,6 +133,7 @@ func from_dict(d: Dictionary) -> void:
 	live_sync = bool(d.get("live_sync", true))
 	fullscreen = bool(d.get("fullscreen", false))
 	show_play_bar = bool(d.get("show_play_bar", true))
+	video_decoder = String(d.get("video_decoder", "gozen"))
 	_loading = false
 	changed.emit()
 
@@ -144,6 +155,7 @@ func to_dict() -> Dictionary:
 		"live_sync": live_sync,
 		"fullscreen": fullscreen,
 		"show_play_bar": show_play_bar,
+		"video_decoder": video_decoder,
 	}
 
 
@@ -248,6 +260,15 @@ func _set_show_play_bar(v: bool) -> void:
 	if v == show_play_bar:
 		return
 	show_play_bar = v
+	_touch()
+
+
+func _set_video_decoder(v: String) -> void:
+	if not v in VIDEO_DECODERS:
+		v = "gozen"
+	if v == video_decoder:
+		return
+	video_decoder = v
 	_touch()
 
 

@@ -22,7 +22,7 @@ void fragment() {
 	float inside = 1.0 - smoothstep(r - f, r + f, d);
 	float m = outside ? 1.0 - inside : inside;
 	// Premultiplied colour and alpha, each pulled toward the level.
-	float a = mix(c.a, level, m);
+	float a = mix(c.a, 1.0-level, m);
 	vec3 premul = c.rgb * c.a * mix(1.0, level, m);
 	COLOR = vec4(a > 0.0 ? premul / a : vec3(0.0), a);
 }

@@ -40,11 +40,8 @@ static func prefixed(code: String, prefix: String) -> String:
 ## Display shader source: `include` (the display pass's include), the
 ## vertex effects' sources in order (ones without a `deform(` skipped), the
 ## surface's (none without a `surface(`), and a vertex() running them.
-## `opaque` for at infinity.
-static func build(include: String, vertex_sources: Array, surface_source: String, opaque: bool) -> String:
+static func build(include: String, vertex_sources: Array, surface_source: String) -> String:
 	var code := "shader_type spatial;\nrender_mode unshaded, cull_disabled, shadows_disabled, fog_disabled;\n"
-	if opaque:
-		code += "#define SCREEN_OPAQUE\n"
 	code += "#include \"%s\"\n\n" % include
 	var calls := ""
 	for i in vertex_sources.size():

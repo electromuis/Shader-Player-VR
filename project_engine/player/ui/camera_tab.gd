@@ -42,6 +42,7 @@ const VALUE_WIDTH := 90
 @onready var shader_option: OptionButton = %ShaderOption
 @onready var reset_view_button: Button = %ResetViewButton
 @onready var layer_options_row: HBoxContainer = %LayerOptionsRow
+@onready var enabled_check: CheckBox = %EnabledCheck
 @onready var lock_check: CheckBox = %LockCheck
 @onready var save_button: Button = %SaveButton
 @onready var new_button: Button = %NewButton
@@ -92,6 +93,9 @@ func _ready() -> void:
 	opacity_slider.value_changed.connect(_on_edit.bind("opacity"))
 	resolution_slider.value_changed.connect(_on_edit.bind("resolution"))
 	lock_check.toggled.connect(_on_layer_edit.bind("lock_to_screen"))
+	enabled_check.toggled.connect(func(v: bool):
+		_on_layer_edit(v, "enabled")
+		_refresh_target_list())
 	layer_count_spin.value_changed.connect(_on_layer_count_changed)
 	add_effect_top_button.pressed.connect(_add_effect.bind(ScreenSettings.EFFECTS, true))
 	add_effect_button.pressed.connect(_add_effect.bind(ScreenSettings.EFFECTS, false))
@@ -241,7 +245,11 @@ func _refresh_target_list() -> void:
 	target_option.add_item("Layer 0 · Screen")
 	var n := _layers.count() if _layers != null else 0
 	for i in n:
-		target_option.add_item("Layer %d" % (i + 1))
+		var l := _layers.layers[i]
+		target_option.add_item("Layer %d · %s%s" % [i + 1, VisualizerShaders.source_label(l.shader),
+				"" if l.enabled else " (off)"])
+	if target_option.item_count > _target:
+		target_option.select(_target)
 
 
 func _on_layer_count_changed(v: float) -> void:
@@ -315,6 +323,8 @@ func _on_reload_shaders() -> void:
 
 
 func _on_structure_changed(source: ScreenSettings) -> void:
+	# A layer's source may have changed: the list names it.
+	_refresh_target_list()
 	if source == _edited():
 		_select_current_shader()
 		_rebuild_dynamic()
@@ -528,7 +538,8 @@ func _group_separator(group: String) -> Control:
 	return row
 
 
-## A row for one hinted uniform: a slider with its value, or a checkbox.
+## A row for one hinted uniform: a slider with its value, a checkbox, or a
+## dropdown (a hint_enum), then a ↺ button back to its default (disabled while at it).
 func _param_control(spec: Dictionary, value: Variant, on_change: Callable) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -536,11 +547,37 @@ func _param_control(spec: Dictionary, value: Variant, on_change: Callable) -> Co
 	label.custom_minimum_size.x = LABEL_WIDTH
 	label.text = String(spec.name).capitalize()
 	row.add_child(label)
+	var reset := Button.new()
+	reset.text = "↺"
+	reset.flat = true
+	reset.tooltip_text = "Reset to default"
 	if spec.type == "bool":
 		var check := CheckBox.new()
+		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		check.button_pressed = bool(value)
-		check.toggled.connect(on_change)
+		reset.disabled = check.button_pressed == bool(spec.default)
+		check.toggled.connect(func(v: bool):
+			reset.disabled = v == bool(spec.default)
+			on_change.call(v))
+		reset.pressed.connect(func(): check.button_pressed = bool(spec.default))
 		row.add_child(check)
+		row.add_child(reset)
+		return row
+	if spec.has("options"):
+		var pick := OptionButton.new()
+		pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		for o in spec.options:
+			pick.add_item(o)
+		pick.select(clampi(int(value), 0, spec.options.size() - 1))
+		reset.disabled = pick.selected == int(spec.default)
+		pick.item_selected.connect(func(i: int):
+			reset.disabled = i == int(spec.default)
+			on_change.call(i))
+		reset.pressed.connect(func():
+			pick.select(int(spec.default))
+			pick.item_selected.emit(pick.selected))
+		row.add_child(pick)
+		row.add_child(reset)
 		return row
 	var slider := HSlider.new()
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -556,11 +593,16 @@ func _param_control(spec: Dictionary, value: Variant, on_change: Callable) -> Co
 	var is_int: bool = spec.type == "int"
 	var show_value := func(v: float): shown.text = str(int(v)) if is_int else "%.2f" % v
 	show_value.call(slider.value)
+	var at_default := func(v: float) -> bool: return is_equal_approx(v, float(spec.default))
+	reset.disabled = at_default.call(slider.value)
 	slider.value_changed.connect(func(v: float):
 		show_value.call(v)
+		reset.disabled = at_default.call(v)
 		on_change.call(int(v) if is_int else v))
+	reset.pressed.connect(func(): slider.value = float(spec.default))
 	row.add_child(slider)
 	row.add_child(shown)
+	row.add_child(reset)
 	return row
 
 
@@ -580,6 +622,7 @@ func _refresh_sliders_from_settings() -> void:
 	var layer := _layer()
 	var locked := layer != null and layer.lock_to_screen
 	lock_check.set_pressed_no_signal(locked)
+	enabled_check.set_pressed_no_signal(layer == null or layer.enabled)
 	# The surface's placement may ignore size / distance / height too
 	# (around the viewer, at infinity).
 	var unused: Array = ScreenGeometry.hints_for(edited.surface.shader).unused.get(edited.surface.placement, [])

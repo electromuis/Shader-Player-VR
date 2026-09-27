@@ -39,6 +39,10 @@ static func test_layer_round_trip(t: TestCase) -> void:
 	t.assert_eq(copy.params.get("speed"), 2.0)
 	t.assert_false(copy.lock_to_screen)
 	t.assert_eq(copy.effects.size(), 1)
+	t.assert_true(copy.enabled, "layers start on")
+	s.enabled = false
+	copy.from_dict(s.to_dict())
+	t.assert_false(copy.enabled, "off round-trips")
 	copy.shader = "res://y.gdshader"
 	t.assert_true(copy.params.is_empty(), "a new shader starts from its defaults")
 	copy.from_dict({})
@@ -206,6 +210,21 @@ static func test_legacy_padding_dropped(t: TestCase) -> void:
 			{"shader": VisualizerShaders.GLOW}]})
 	t.assert_eq(s.effects.map(func(e): return e.shader), [VisualizerShaders.GLOW])
 	t.assert_true(VisualizerShaders.load_shader(VisualizerShaders.LEGACY_PADDING) == null, "scripts' old key: skipped")
+
+
+static func test_parse_hints_enum(t: TestCase) -> void:
+	var h := VisualizerShaders.parse_hints("""
+uniform int mode : hint_enum("Luma", "Value (HSV)", "Average") = 1;
+uniform int bare : hint_enum() = 0;
+""")
+	t.assert_eq(h.params.size(), 1, "an enum without names is skipped")
+	var p: Dictionary = h.params[0]
+	t.assert_eq(p.options, ["Luma", "Value (HSV)", "Average"])
+	t.assert_eq(p.default, 1.0)
+	t.assert_eq(p.max, 2.0)
+	var names: Array = VisualizerShaders.hints_for(
+			"res://player/visualizer/effects/match_video_brightness.gdshader").params.map(func(q): return q.name)
+	t.assert_true("match_by" in names, "match brightness has its dropdown")
 
 
 static func test_parse_hints_groups(t: TestCase) -> void:

@@ -6,6 +6,10 @@
 //                  off, arc_y sets it and the picture stretches to fit
 //   keep_row_width — widen rows toward the top and bottom so they keep
 //                  their width (the outline becomes a pincushion)
+//   straight_rows — lowers the rows toward the equator away from the middle
+//                  so, seen from the centre, they run straight instead of
+//                  curving up into spiky corners (1 = fully straight; at
+//                  180° wide and more the sides pinch toward points)
 // Fixed, arc_x bends the screen at its own size; around the viewer and at
 // infinity the viewer sits at the centre and arc_x is how much of the view
 // it covers (the size is unused).
@@ -17,6 +21,7 @@ uniform float arc_x : hint_range(0.0, 360.0, 1.0) = 180.0;
 uniform bool auto_height = true;
 uniform float arc_y : hint_range(0.0, 180.0, 1.0) = 90.0;
 uniform bool keep_row_width = false;
+uniform float straight_rows : hint_range(0.0, 1.0, 0.01) = 0.0;
 
 vec3 surface(vec3 p, vec2 uv, vec2 half_m) {
 	float half_lon = radians(arc_x) * 0.5;
@@ -35,6 +40,9 @@ vec3 surface(vec3 p, vec2 uv, vec2 half_m) {
 	// quad folds onto the seam and draws nothing, instead of wrapping round
 	// the viewer again.
 	lon = clamp(lon, -PI, PI);
+	// Onto the great circle through the sides' axis: straight from the centre.
+	float squeeze = mix(1.0, max(cos(lon), 0.0), straight_rows);
+	lat = atan(sin(lat) * squeeze, cos(lat));
 	vec3 dir = vec3(cos(lat) * sin(lon), sin(lat), -cos(lat) * cos(lon));
 	// Centre R toward the viewer; p.z pushes along the normal.
 	return vec3(0.0, 0.0, r) + dir * (r - p.z);

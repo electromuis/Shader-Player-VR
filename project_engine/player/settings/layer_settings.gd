@@ -14,6 +14,8 @@ extends ScreenSettings
 ##   lock_to_screen  — centre the layer on the main screen and follow it;
 ##                     height / tilt are then unused and distance moves it
 ##                     along the screen's facing (positive = behind it)
+##   enabled         — off hides the layer (and stops its rendering) but
+##                     keeps its settings
 ## Layers, the video and everything else see-through draw back to front by
 ## depth, so distance decides what's in front.
 
@@ -22,6 +24,7 @@ var params: Dictionary = {}
 
 const LEGACY_BEHIND := 0.1  # metres
 var lock_to_screen: bool = false: set = _set_lock_to_screen
+var enabled: bool = true: set = _set_enabled
 
 
 func from_dict(d: Dictionary) -> void:
@@ -30,6 +33,7 @@ func from_dict(d: Dictionary) -> void:
 	var p = d.get("params", {})
 	params = p.duplicate() if typeof(p) == TYPE_DICTIONARY else {}
 	lock_to_screen = bool(d.get("lock_to_screen", false))
+	enabled = bool(d.get("enabled", true))
 	super.from_dict(d)  # last: emits structure_changed + changed
 
 
@@ -38,6 +42,7 @@ func to_dict() -> Dictionary:
 	d["shader"] = shader
 	d["params"] = params.duplicate()
 	d["lock_to_screen"] = lock_to_screen
+	d["enabled"] = enabled
 	return d
 
 
@@ -99,4 +104,11 @@ func _set_lock_to_screen(v: bool) -> void:
 	if v == lock_to_screen:
 		return
 	lock_to_screen = v
+	changed.emit()
+
+
+func _set_enabled(v: bool) -> void:
+	if v == enabled:
+		return
+	enabled = v
 	changed.emit()

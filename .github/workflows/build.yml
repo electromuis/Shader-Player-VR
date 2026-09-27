@@ -83,7 +83,7 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           pacman -Syu --noconfirm git sudo bash yasm python scons gcc diffutils make wget tar unzip cmake pkgconf zstd
-          if [ "${{ matrix.platform }}" = windows ]; then pacman -S --noconfirm mingw-w64 ninja; fi
+          if [ "${{ matrix.platform }}" = windows ]; then pacman -S --noconfirm mingw-w64 ninja nasm; fi
           if [ "${{ matrix.platform }}" = android ]; then pacman -S --noconfirm jdk17-openjdk libtool; fi
 
       - uses: actions/checkout@v4

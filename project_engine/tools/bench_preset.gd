@@ -6,7 +6,8 @@ extends SceneTree
 ## loads first), plays `--video`, waits `--warmup` and measures for
 ## `--seconds`. Prints frames per second, frame times (average and
 ## percentiles), the GPU time per frame summed over every viewport (the
-## screen, the layers and each effect pass) and the passes that cost most.
+## screen, the layers and each effect pass), the passes that cost most and
+## the render thread's CPU time for all of them.
 ## Vsync is off so frames run as fast as they can. Needs a real renderer
 ## (not --headless). The window is the desktop view, not a headset's two
 ## eyes, so the display part is lighter than in VR; the effect passes are
@@ -60,6 +61,8 @@ func _run() -> void:
 
 	var frame_ms: Array[float] = []
 	var gpu_ms: Array[float] = []
+	var cpu_ms: Array[float] = []  # render-thread CPU, all viewports
+	var viewport_count := 0
 	var per_pass := {}  # viewport path -> total GPU ms
 	var measured := {}  # viewport rid -> true once measuring is on
 	var start := Time.get_ticks_usec()
@@ -77,20 +80,33 @@ func _run() -> void:
 		frame_ms.append((now - last) / 1000.0)
 		last = now
 		var total := 0.0
+		var cpu := 0.0
+		viewport_count = viewports.size()
 		for vp in viewports:
 			if not is_instance_valid(vp):
 				continue
 			var t := RenderingServer.viewport_get_measured_render_time_gpu(vp.get_viewport_rid())
 			total += t
+			cpu += RenderingServer.viewport_get_measured_render_time_cpu(vp.get_viewport_rid())
 			var key := _label(vp)
 			per_pass[key] = per_pass.get(key, 0.0) + t
 		gpu_ms.append(total)
+		cpu_ms.append(cpu)
 	# The first frames only turn measuring on.
 	var skip := mini(3, frame_ms.size() - 1)
 	frame_ms = frame_ms.slice(skip)
 	gpu_ms = gpu_ms.slice(skip)
+	cpu_ms = cpu_ms.slice(skip)
 	_report(preset_path, frame_ms, gpu_ms, per_pass, top)
+	print("render CPU  avg %.3f ms per frame over %d viewports" % [_avg(cpu_ms), viewport_count])
 	quit()
+
+
+static func _avg(values: Array[float]) -> float:
+	var sum := 0.0
+	for v in values:
+		sum += v
+	return sum / maxi(1, values.size())
 
 
 func _wait(seconds: float) -> void:

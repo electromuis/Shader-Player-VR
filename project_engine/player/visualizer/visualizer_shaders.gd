@@ -48,6 +48,8 @@ extends RefCounted
 ##   uniform float x : hint_range(0.0, 1.0, 0.01) = 0.5;
 ##                             — a slider in the Camera tab (int too); a
 ##                               plain `uniform bool` gets a checkbox
+##   uniform int x : hint_enum("A", "B") = 0;
+##                             — a dropdown of those names (value = index)
 ##
 ## Built-ins ship with the player: every shader in BUILTIN_ROOT's shaders/
 ## (layers) and effects/ folders (builtins()). User shaders are discovered in
@@ -146,6 +148,21 @@ static func title_of(code: String, path: String) -> String:
 		return m.get_string(1)
 	var name := path.get_file().get_basename().replace("_", " ")
 	return name.left(1).to_upper() + name.substr(1)
+
+
+## What a layer's source `key` is called: "None", "Video", or the shader's
+## title (title_of; "<name> (missing)" when its file is gone).
+static func source_label(key: String) -> String:
+	if key == "":
+		return "None"
+	if key == VIDEO:
+		return "Video"
+	var file := override_path(key)
+	if file == "":
+		file = key
+	if not FileAccess.file_exists(file):
+		return "%s (missing)" % key.get_file().get_basename()
+	return title_of(FileAccess.get_file_as_string(file), key)
 
 
 ## The `shaders` folder next to the executable.
@@ -304,10 +321,11 @@ static func hints_for(key: String) -> Dictionary:
 
 ## {resolution: Vector2i (ZERO = none given, x 0 = height only), channels: {index: source}
 ## (always has 0), params: [{name, type ("float" / "int" / "bool"), group,
-## min, max, step, default}], expressions: {hint name: source} for the
-## EXPRESSION_HINTS given (the first of each), and eval_hint's caches
-## (parsed, results)} from shader source. Only uniforms with a
-## hint_range, and bools, become params; `group` is the `group_uniforms` they
+## min, max, step, default, and options: [names] for a hint_enum int}],
+## expressions: {hint name: source} for the EXPRESSION_HINTS given (the
+## first of each), and eval_hint's caches (parsed, results)} from shader
+## source. Only uniforms with a hint_range (or an int's hint_enum), and
+## bools, become params; `group` is the `group_uniforms` they
 ## sit under ("" for none); unknown channel sources are skipped.
 static func parse_hints(code: String) -> Dictionary:
 	var out := {"resolution": Vector2i.ZERO, "channels": {0: "audio"}, "params": [],
@@ -330,6 +348,9 @@ static func parse_hints(code: String) -> Dictionary:
 	var uni_re := RegEx.create_from_string(
 			"(?m)^\\s*uniform\\s+(float|int|bool)\\s+(\\w+)\\s*(?::\\s*([^=;]*))?(?:=\\s*([^;]+))?;")
 	var range_re := RegEx.create_from_string("hint_range\\s*\\(([^)]*)\\)")
+	# Names may hold brackets: "Value (HSV)".
+	var enum_re := RegEx.create_from_string("hint_enum\\s*\\(((?:[^)\"]|\"[^\"]*\")*)\\)")
+	var name_re := RegEx.create_from_string("\"([^\"]*)\"")
 	var group_re := RegEx.create_from_string("(?m)^\\s*group_uniforms\\s*([\\w.]*)\\s*;")
 	var groups := group_re.search_all(code)
 	for u in uni_re.search_all(code):
@@ -344,8 +365,17 @@ static func parse_hints(code: String) -> Dictionary:
 			group = g.get_string(1)
 		var p := {"name": u.get_string(2), "type": type, "group": group}
 		var default_src := u.get_string(4).strip_edges()
+		var e := enum_re.search(u.get_string(3)) if type == "int" else null
 		if type == "bool":
 			p.default = default_src == "true"
+		elif e != null:
+			p.options = name_re.search_all(e.get_string(1)).map(func(n: RegExMatch): return n.get_string(1))
+			if p.options.is_empty():
+				continue
+			p.min = 0.0
+			p.max = float(p.options.size() - 1)
+			p.step = 1.0
+			p.default = clampf(_eval(default_src, 0.0), p.min, p.max) if default_src != "" else 0.0
 		else:
 			var r := range_re.search(u.get_string(3))
 			if r == null:

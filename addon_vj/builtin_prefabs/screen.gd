@@ -21,7 +21,8 @@ extends "res://addons/vj_editor/modifiers/vj_object.gd"
 ## Everything animatable lives on this root node so AnimationPlayer tracks
 ## don't need editable children:
 ##   main_screen:shader_material:shader_parameter/<name>  → shader_param (slot "surface")
-##   main_screen:arc_x / :arc_y / :auto_height / :keep_row_width → shader_param (slot "shape")
+##   main_screen:arc_x / :arc_y / :auto_height / :keep_row_width / :straight_rows
+##                                                        → shader_param (slot "shape")
 ##   main_screen:opacity (and earlier scenes' :curvature / :vertical_curvature)
 ##                                                        → shader_param (slot "display")
 ##   main_screen/<effect>:material:shader_parameter/<name> → shader_param (slot "effect<N>")
@@ -108,14 +109,6 @@ const LEGACY_EFFECT_SLOTS := ["effect_1", "effect_2", "effect_3", "effect_4"]
 		arc_y = value
 		_sync_display()
 
-## Pillow: true circular arcs over the picture, bent left-to-right and
-## then top-to-bottom (off: the classic bend, over the whole padded quad
-## with its depth squashed by the quad's stretch).
-@export var true_arcs: bool = false:
-	set(value):
-		true_arcs = value
-		_sync_display()
-
 ## Dome: the height follows the picture's shape (off: arc y).
 @export var auto_height: bool = true:
 	set(value):
@@ -126,6 +119,13 @@ const LEGACY_EFFECT_SLOTS := ["effect_1", "effect_2", "effect_3", "effect_4"]
 @export var keep_row_width: bool = false:
 	set(value):
 		keep_row_width = value
+		_sync_display()
+
+## Dome: 0..1, lower the rows toward the equator away from the middle so
+## they look straight from the centre instead of curving into spiky corners.
+@export_range(0.0, 1.0, 0.01) var straight_rows: float = 0.0:
+	set(value):
+		straight_rows = value
 		_sync_display()
 
 ## Earlier scenes' bends (0..1 of a half-turn), kept so they load and their
@@ -250,9 +250,9 @@ func surface_config() -> Dictionary:
 		params["auto_height"] = auto_height
 		params["arc_y"] = arc_y
 		params["keep_row_width"] = keep_row_width
+		params["straight_rows"] = straight_rows
 	else:
 		params["arc_y"] = arc_y
-		params["true_arcs"] = true_arcs
 	return {"shader": surface, "params": params, "placement": _placement()}
 
 
@@ -403,8 +403,9 @@ func _apply_display() -> void:
 	var path := SURFACES_DIR + surface + ".gdshaderinc"
 	var surface_code := FileAccess.get_file_as_string(path) if FileAccess.file_exists(path) else ""
 	var shader := Shader.new()
-	shader.code = _Code.build(_DISPLAY_INCLUDE, sources, surface_code, _placement() == "infinity")
+	shader.code = _Code.build(_DISPLAY_INCLUDE, sources, surface_code)
 	_display_material.shader = shader
+	_display_material.render_priority = Material.RENDER_PRIORITY_MIN if _placement() == "infinity" else 0
 	_sync_display()
 
 
@@ -432,8 +433,6 @@ func _sync_display() -> void:
 	mat.set_shader_parameter("viewer_distance", distance)
 	var pad: Vector2 = _chain.pad_scale if _chain != null else Vector2.ONE
 	mat.set_shader_parameter("picture_half", _MESH_HALF / pad)
-	var stretch: Vector2 = _base_scale() * pad
-	mat.set_shader_parameter("mesh_stretch", stretch)
 	if mesh != null:
 		var curved := place != 0 or not nodes.is_empty() or arc_x > 0.0 or (surface == "pillow" and arc_y > 0.0)
 		mesh.extra_cull_margin = 16384.0 if curved else 16.0

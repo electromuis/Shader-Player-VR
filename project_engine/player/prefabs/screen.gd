@@ -69,6 +69,7 @@ static var viewer_eye := Vector3(0.0, 2.0, 8.0)
 
 var _display_material: ShaderMaterial
 var _source_texture: Texture2D  # last-received source; re-applied whenever the material or texture changes
+var _video_texture: Texture2D  # the playing video, for effects' `video_tex` (see set_video_texture)
 var _projection: String = "flat"  # the source layout
 var _swap_eyes: bool = false
 ## {shader, params, placement} (ScreenGeometry.normalized_surface).
@@ -156,6 +157,19 @@ func get_shader_material() -> ShaderMaterial:
 func set_source_texture(tex: Texture2D) -> void:
 	_source_texture = tex
 	_wire_source_texture()
+
+
+## The playing video's frame, which effects read as `video_tex` (see
+## effect_prelude.gdshaderinc). Without one they get the source texture:
+## a screen's source is the video.
+func set_video_texture(tex: Texture2D) -> void:
+	_video_texture = tex
+	for p in _passes:
+		p.material.set_shader_parameter("video_tex", _effect_video())
+
+
+func _effect_video() -> Texture2D:
+	return _video_texture if _video_texture != null else _source_texture
 
 
 func set_render_scale(scale: float) -> void:
@@ -336,7 +350,7 @@ func _set_pillow_arc(param: String, degrees: float) -> void:
 	set_surface_param(param, degrees)
 
 
-## 0..1 fade of the screen (at infinity it stays opaque).
+## 0..1 fade of the screen.
 func set_opacity(amount: float) -> void:
 	_set_display_param("opacity", clampf(amount, 0.0, 1.0))
 
@@ -510,6 +524,7 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	mat.set_shader_parameter("input_tex", input)
+	mat.set_shader_parameter("video_tex", _effect_video())
 	if prepass:
 		mat.set_shader_parameter("prepass", true)
 	rect.material = mat
@@ -601,7 +616,6 @@ func _apply_effect_params() -> void:
 	if mesh != null:
 		mesh.scale = _base_scale * Vector3(_pad_scale.x, _pad_scale.y, 1.0)
 	_set_display_param("picture_half", _picture_half())
-	_set_display_param("mesh_stretch", _mesh_stretch())
 
 
 ## The picture (`base` wide, 1 high) rendered at `px` pixels, with
@@ -685,11 +699,6 @@ func _picture_half() -> Vector2:
 	return _MESH_HALF / _pad_scale
 
 
-## The quad's own x / y scale against its depth (aspect fit and the margin).
-func _mesh_stretch() -> Vector2:
-	return Vector2(_base_scale.x * _pad_scale.x, _base_scale.y * _pad_scale.y)
-
-
 ## Metres from the screen's centre to the viewer's home eye (at infinity:
 ## the camera-centred surface's radius).
 func _viewer_distance() -> float:
@@ -700,8 +709,9 @@ func _viewer_distance() -> float:
 	return maxf(mesh.global_position.distance_to(viewer_eye), 0.1)
 
 
-## A display shader for the current vertex effects, surface and placement
-## (opaque at infinity), then its params.
+## A display shader for the current vertex effects and surface, then its
+## params. At infinity the screen draws first among transparent things, so
+## it stays behind UI panels and other screens like a skybox.
 func _rebuild_display_shader() -> void:
 	if _display_material == null:
 		return
@@ -711,7 +721,8 @@ func _rebuild_display_shader() -> void:
 		keys.append(e.shader)
 		_uses_audio = _uses_audio or bool(ScreenGeometry.hints_for(e.shader).audio)
 	var infinity := _placement() == ScreenGeometry.Placement.INFINITY
-	_display_material.shader = ScreenGeometry.build_shader(keys, _surface.shader, infinity)
+	_display_material.shader = ScreenGeometry.build_shader(keys, _surface.shader)
+	_display_material.render_priority = Material.RENDER_PRIORITY_MIN if infinity else 0
 	_apply_geometry_params()
 	_apply_effect_params()  # padding is off at infinity
 
@@ -734,7 +745,6 @@ func _apply_geometry_params() -> void:
 	_display_material.set_shader_parameter("placement", _placement())
 	_display_material.set_shader_parameter("viewer_distance", _viewer_distance())
 	_display_material.set_shader_parameter("picture_half", _picture_half())
-	_display_material.set_shader_parameter("mesh_stretch", _mesh_stretch())
 	if mesh != null:
 		# The quad's bounds don't cover a bent or moving surface.
 		mesh.extra_cull_margin = _CURVED_CULL_MARGIN if curved else _FLAT_CULL_MARGIN

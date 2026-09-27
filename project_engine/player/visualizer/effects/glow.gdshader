@@ -198,7 +198,10 @@ vec4 soften_step(vec2 uv, vec2 size) {
 // nothing. Measured off the outline shrunk by `width`, so it curves round
 // sharp corners instead of creasing on their diagonal.
 float edge_band(vec2 p, float e, float width) {
-	if (width <= 0.0 || e >= width) {
+	// Round a corner (or along a bulge) the shrunk outline sits up to about
+	// 1.4 × `width` in from the real one, so cutting off at `width` would
+	// leave a step there.
+	if (width <= 0.0 || e >= width * 1.5) {
 		return 0.0;
 	}
 	vec2 inset;

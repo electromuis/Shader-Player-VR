@@ -64,7 +64,7 @@ the player runtime consumes.
   into `config`. A non-builtin shader is copied to `<json dir>/shaders/`.
 - Surface (screens and layers): `surface` Pillow (bends by `arc_x` / `arc_y`
   degrees, 0 / 0 flat) or Dome (part of a sphere `arc_x` wide; height from
-  the picture's shape with `auto_height`, else `arc_y`; `keep_row_width`),
+  the picture's shape with `auto_height`, else `arc_y`; `keep_row_width`; `straight_rows`),
   and `placement` fixed / around (the `VJViewer`, else the player's home eye
   (0, 2, 8), at the centre) / infinity (Dome only: follows the camera, for
   180° / 360° video). Exports as `config.surface` unless flat. Scenes from
@@ -142,7 +142,8 @@ the player runtime consumes.
   - `<node>:spin` / `:pulse` → target `<node>.reactive`
   - `<screen or layer>:opacity` (and earlier scenes' `:curvature` /
     `:vertical_curvature`) → `shader_param` track, target `<node>.display`
-  - `<screen or layer>:arc_x` / `:arc_y` / `:auto_height` / `:keep_row_width`
+  - `<screen or layer>:arc_x` / `:arc_y` / `:auto_height` / `:keep_row_width` /
+    `:straight_rows`
     → target `<node>.shape` (`surface` and `placement` can't animate)
   - `<node>/<vertex effect>:params/<p>` → target `<node>.vertex<N>`, N being
     the vertex effect's place among the node's enabled ones (from 0)

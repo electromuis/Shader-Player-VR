@@ -567,7 +567,8 @@ func _apply_layer(settings: LayerSettings, node: Visualizer) -> void:
 	node.set_vertex_effects(settings.vertex_effects)
 	node.set_opacity(settings.opacity)
 	node.set_resolution_scale(settings.resolution)
-	node.set_shader(settings.shader)
+	# Off: no source, so the layer hides and its render viewport stops.
+	node.set_shader(settings.shader if settings.enabled else "")
 	node.set_params(settings.params)
 	node.set_effects(settings.effects)
 	_update_audio_active()

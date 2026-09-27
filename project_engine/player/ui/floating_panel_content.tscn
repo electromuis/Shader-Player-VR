@@ -134,6 +134,12 @@ theme_override_constants/separation = 12
 layout_mode = 2
 custom_minimum_size = Vector2(110, 0)
 
+[node name="EnabledCheck" type="CheckBox" parent="Tabs/Camera/Scroll/CameraTab/LayerOptionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Off hides the layer and stops its rendering; its settings are kept"
+text = "On"
+
 [node name="LockCheck" type="CheckBox" parent="Tabs/Camera/Scroll/CameraTab/LayerOptionsRow"]
 unique_name_in_owner = true
 layout_mode = 2

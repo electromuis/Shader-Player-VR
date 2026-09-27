@@ -93,6 +93,8 @@ func bind_audio(audio: AudioAnalyzer) -> void:
 
 func bind_video(tex: Texture2D) -> void:
 	_video = tex
+	if _screen != null:
+		_screen.set_video_texture(tex)
 	if _video_source:
 		_screen.set_source_texture(tex)
 	_bind_channels()

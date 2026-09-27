@@ -16,9 +16,10 @@
 // frame_tex is the left eye and frame_tex_right the right, each whole —
 // no stereo UV split here.
 //
-// opacity (0..1) fades the screen as a whole. The opaque variant
-// (SCREEN_OPAQUE, used at infinity: it has to write depth so it never
-// paints over UI panels) ignores it.
+// opacity (0..1) fades the screen as a whole. At infinity too: there the
+// screen draws before every other transparent thing (Screen sets its
+// render_priority), so it never paints over UI panels and the environment's
+// skybox shows through where it's see-through.
 
 uniform sampler2D frame_tex : source_color, filter_linear, repeat_disable;
 uniform sampler2D frame_tex_right : source_color, filter_linear, repeat_disable;
@@ -33,8 +34,6 @@ uniform float opacity : hint_range(0.0, 1.0) = 1.0;
 uniform vec2 picture_half = vec2(16.0, 9.0);
 // The quad mesh's half size in mesh units (screen.tscn).
 const vec2 MESH_HALF = vec2(16.0, 9.0);
-// The quad's own x / y scale against its depth (aspect fit and the margin).
-uniform vec2 mesh_stretch = vec2(1.0);
 // 0 = fixed, 1 = around the viewer, 2 = at infinity (see ScreenGeometry).
 uniform int placement = 0;
 // Metres from the screen's centre to the viewer's eye (at infinity: the
@@ -72,7 +71,5 @@ void fragment() {
 		c = texture(frame_tex, uv);
 	}
 	ALBEDO = c.rgb;
-#ifndef SCREEN_OPAQUE
 	ALPHA = c.a * opacity;
-#endif
 }

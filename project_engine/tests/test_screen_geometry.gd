@@ -30,17 +30,15 @@ vec3 deform(vec3 p, vec2 uv, vec2 half_m) {
 
 
 static func test_build_shader_runs_stages_in_order(t: TestCase) -> void:
-	var shader := ScreenGeometry.build_shader([ScreenGeometry.RIPPLE, ScreenGeometry.TWIST], ScreenGeometry.DOME, false)
+	var shader := ScreenGeometry.build_shader([ScreenGeometry.RIPPLE, ScreenGeometry.TWIST], ScreenGeometry.DOME)
 	var code := shader.code
 	var a := code.find("p = vfx0_deform(")
 	var b := code.find("p = vfx1_deform(")
 	var c := code.find("p = srf_surface(")
 	t.assert_true(a > 0 and a < b and b < c, "vertex effects in order, then the surface")
-	t.assert_false(code.contains("#define SCREEN_OPAQUE"))
-	t.assert_true(ScreenGeometry.build_shader([ScreenGeometry.RIPPLE, ScreenGeometry.TWIST], ScreenGeometry.DOME, false) == shader,
+	t.assert_true(ScreenGeometry.build_shader([ScreenGeometry.RIPPLE, ScreenGeometry.TWIST], ScreenGeometry.DOME) == shader,
 			"same stages share the shader")
-	t.assert_has(ScreenGeometry.build_shader([], ScreenGeometry.DOME, true).code, "#define SCREEN_OPAQUE")
-	t.assert_false(ScreenGeometry.build_shader(["C:/nope.gdshaderinc"], ScreenGeometry.PILLOW, false).code.contains("vfx0_"),
+	t.assert_false(ScreenGeometry.build_shader(["C:/nope.gdshaderinc"], ScreenGeometry.PILLOW).code.contains("vfx0_"),
 			"unreadable stages are skipped")
 
 
@@ -67,41 +65,25 @@ static func test_normalized_surface(t: TestCase) -> void:
 
 
 static func test_pillow_matches_earlier_curvature(t: TestCase) -> void:
-	# curvature 1 was a half-cylinder: the edges swing 90° toward the viewer,
-	# then slide in along the line from the eye so the outline stays straight.
+	# curvature 1 was a half-cylinder: the edges swing 90° toward the viewer.
 	var r := HALF.x / (PI * 0.5)
 	var p := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_x": 180.0}, 0,
 			Vector3(HALF.x, 0.0, 0.0), HALF, 8.0)
-	t.assert_true(_near(p, Vector3(HALF.x * (8.0 - r) / 8.0, 0.0, r)), "edge at %s" % p)
-	# Both bends: the corner is seen from the eye right where the flat corner was.
-	var eye := Vector3(0.0, 0.0, 8.0)
-	var corner := Vector3(HALF.x, HALF.y, 0.0)
-	var both := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_x": 120.0, "arc_y": 60.0}, 0,
-			corner, HALF, 8.0)
-	t.assert_true(both.z > 0.0, "the corner comes forward")
-	t.assert_true((both - eye).normalized().distance_to((corner - eye).normalized()) < 0.001,
-			"corner at %s lines up with the flat corner" % both)
+	t.assert_true(_near(p, Vector3(r, 0.0, r)), "edge at %s" % p)
 	var flat := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {}, 0, Vector3(1.0, 2.0, 0.0), HALF, 8.0)
 	t.assert_true(_near(flat, Vector3(1.0, 2.0, 0.0)), "0 / 0 is flat")
-	# The bend spans the picture (a margin past it carries on round the same
-	# circle), and the depth is squashed by the picture's stretch.
-	var squashed := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_y": 180.0}, 0,
-			Vector3(0.0, HALF.y, 0.0), HALF, 8.0, Vector2(2.0, 2.0))
-	var ry := HALF.y / (PI * 0.5)
-	var z := ry * 0.5
-	t.assert_true(_near(squashed, Vector3(0.0, HALF.y * (8.0 - z) / 8.0, z)), "squashed edge at %s" % squashed)
 
 
-static func test_pillow_true_arcs(t: TestCase) -> void:
+static func test_pillow_arcs(t: TestCase) -> void:
 	# Around the viewer, x then y wraps the screen onto a sphere round the eye.
-	var params := {"arc_x": 90.0, "arc_y": 45.0, "true_arcs": true}
+	var params := {"arc_x": 90.0, "arc_y": 45.0}
 	for pt in [Vector3(3.0, 2.0, 0.0), Vector3(-5.0, -4.0, 0.0), Vector3(0.0, 3.0, 0.0)]:
 		var p := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, params, ScreenGeometry.Placement.AROUND,
 				pt, HALF, 8.0)
 		t.assert_true(absf(p.distance_to(Vector3(0.0, 0.0, 8.0)) - 8.0) < 0.001, "%s is 8 m from the eye" % p)
 	# Fixed: the top edge's column bends by arc_y, the corner lies on the
 	# already bent sheet.
-	var fixed := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_y": 180.0, "true_arcs": true}, 0,
+	var fixed := ScreenGeometry.surface_point(ScreenGeometry.PILLOW, {"arc_y": 180.0}, 0,
 			Vector3(0.0, HALF.y, 0.0), HALF, 8.0)
 	var r := HALF.y / (PI * 0.5)
 	t.assert_true(_near(fixed, Vector3(0.0, r, r)), "top edge at %s" % fixed)
@@ -129,6 +111,27 @@ static func test_dome_fixed_radius_follows_arc(t: TestCase) -> void:
 	var p := ScreenGeometry.surface_point(ScreenGeometry.DOME, {"arc_x": 90.0}, ScreenGeometry.Placement.FIXED,
 			Vector3(HALF.x, 0.0, 0.0), HALF, 8.0)
 	t.assert_true(is_equal_approx(p.distance_to(Vector3(0.0, 0.0, r)), r))
+
+
+static func test_dome_straight_rows(t: TestCase) -> void:
+	# Fully straight, the top row stays in one plane through the eye's
+	# left-right axis: seen from the centre it's a straight line.
+	var eye := Vector3(0.0, 0.0, 8.0)
+	var params := {"arc_x": 120.0, "straight_rows": 1.0}
+	var slopes: Array[float] = []
+	for x in [0.0, HALF.x * 0.5, HALF.x]:
+		var p := ScreenGeometry.surface_point(ScreenGeometry.DOME, params, ScreenGeometry.Placement.AROUND,
+				Vector3(x, HALF.y, 0.0), HALF, 8.0)
+		t.assert_true(is_equal_approx(p.distance_to(eye), 8.0), "%s is still on the sphere" % p)
+		slopes.append(p.y / (eye.z - p.z))
+	t.assert_true(absf(slopes[1] - slopes[0]) < 0.001 and absf(slopes[2] - slopes[0]) < 0.001,
+			"top row slopes %s" % [slopes])
+	# The middle column doesn't move.
+	var top := ScreenGeometry.surface_point(ScreenGeometry.DOME, {"arc_x": 120.0}, ScreenGeometry.Placement.AROUND,
+			Vector3(0.0, HALF.y, 0.0), HALF, 8.0)
+	var straight := ScreenGeometry.surface_point(ScreenGeometry.DOME, params, ScreenGeometry.Placement.AROUND,
+			Vector3(0.0, HALF.y, 0.0), HALF, 8.0)
+	t.assert_true(_near(top, straight), "middle top at %s" % straight)
 
 
 static func test_ray_hits(t: TestCase) -> void:
@@ -175,7 +178,7 @@ static func test_screen_surface_and_vertex_effects(t: TestCase) -> void:
 	screen.notification(Node.NOTIFICATION_READY)
 	var mat: ShaderMaterial = screen._display_material
 	screen.set_surface({"shader": "dome", "placement": "infinity"})
-	t.assert_has(mat.shader.code, "#define SCREEN_OPAQUE", "opaque at infinity")
+	t.assert_eq(mat.render_priority, Material.RENDER_PRIORITY_MIN, "drawn first at infinity")
 	t.assert_eq(mat.get_shader_parameter("placement"), ScreenGeometry.Placement.INFINITY)
 	t.assert_eq(mat.get_shader_parameter("srf_arc_x"), 180.0, "defaults are pushed")
 	screen.set_material_param("shape", "arc_x", 90.0)

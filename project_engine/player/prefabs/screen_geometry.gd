@@ -26,7 +26,8 @@ extends RefCounted
 ##   around   — the viewer's eye at the surface's centre (viewer_distance
 ##              from the screen, which Screen keeps up to date)
 ##   infinity — centred on the camera wherever it goes, taking only the
-##              screen's rotation, and opaque: 180° / 360° video
+##              screen's rotation, and drawn behind every other transparent
+##              thing: 180° / 360° video, shader skyboxes
 ## `// @unused <placement> <names>` names the params (and the Camera tab's
 ## size / distance / height) that placement ignores; `// @hint <text>` is
 ## shown under the picker; `// @title <name>` names it in the picker.
@@ -212,11 +213,11 @@ static func clear_caches() -> void:
 
 ## The display shader for these vertex effects (keys, in order; unreadable
 ## ones skipped) and surface. Shared between screens with the same code.
-static func build_shader(vertex_keys: Array, surface_key: String, opaque: bool) -> Shader:
+static func build_shader(vertex_keys: Array, surface_key: String) -> Shader:
 	var sources: Array = []
 	for k in vertex_keys:
 		sources.append(read_code(String(k)))
-	var code := Code.build(DISPLAY_INCLUDE, sources, read_code(surface_key), opaque)
+	var code := Code.build(DISPLAY_INCLUDE, sources, read_code(surface_key))
 	if VisualizerShaders.builtins_fresh():
 		code = VisualizerShaders.expand_includes(code, DISPLAY_INCLUDE.get_base_dir())
 	if not _shader_cache.has(code):
@@ -257,6 +258,9 @@ static func surface_point(key: String, params: Dictionary, placement: int, p: Ve
 		lat = clampf(lat, -PI * 0.5, PI * 0.5)
 		if bool(v.keep_row_width):
 			lon /= maxf(cos(lat), 0.05)
+		lon = clampf(lon, -PI, PI)
+		var squeeze := lerpf(1.0, maxf(cos(lon), 0.0), float(v.straight_rows))
+		lat = atan2(sin(lat) * squeeze, cos(lat))
 		var dir := Vector3(cos(lat) * sin(lon), sin(lat), -cos(lat) * cos(lon))
 		return Vector3(0.0, 0.0, r) + dir * (r - p.z)
 	return p
@@ -291,8 +295,7 @@ static func ray_hits(from: Vector3, dir: Vector3, xform: Transform3D, mesh_half:
 			var local := Vector2(lerpf(-mesh_half.x, mesh_half.x, float(i) / NX),
 					lerpf(-mesh_half.y, mesh_half.y, float(j) / NY))
 			var p := surface_point(key, params, placement,
-					Vector3(local.x * s.x, local.y * s.y, 0.0), half_m, viewer_distance,
-					Vector2(s.x, s.y) / s.z * picture_half / mesh_half)
+					Vector3(local.x * s.x, local.y * s.y, 0.0), half_m, viewer_distance)
 			pts.append(xform * (p / s))
 	for j in NY:
 		for i in NX:

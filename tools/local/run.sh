@@ -11,7 +11,8 @@
 #
 # The copy uses its own user dir, %APPDATA%/VJ checks (reset it freely):
 # the player's real one holds the user's settings and presets, and their
-# own player may be running on it. XR Tools must be installed once
+# own player may be running on it. USER_DIR names another one (for a run
+# alongside another, or a clean start). XR Tools must be installed once
 # (ci/fetch_addons.sh, then the 4.7 patch in tools/cloud/setup.sh).
 # GODOT defaults to Chocolatey's console build, called directly: a
 # `timeout` on the godot.exe shim would leave the real process running.
@@ -31,7 +32,7 @@ find "$COPY" -mindepth 1 -maxdepth 1 ! -name .godot -exec rm -rf {} +
 (cd "$REPO/project_engine" && tar --exclude=.godot -cf - .) | (cd "$COPY" && tar -xf -)
 sed -i 's/var video := GoZenVideo.new()/var video = ClassDB.instantiate("GoZenVideo")/; s/var stream := AudioStreamFFmpeg.new()/var stream = ClassDB.instantiate("AudioStreamFFmpeg")/' "$COPY/player/video_bridge.gd"
 sed -i 's/^var video: GoZenVideo = null/var video = null/; s/	video = GoZenVideo.new()/	video = ClassDB.instantiate("GoZenVideo")/; s/func update_video(video_instance: GoZenVideo,/func update_video(video_instance,/; s/func _update_video(new_video: GoZenVideo)/func _update_video(new_video)/; s/var stream: AudioStreamFFmpeg = AudioStreamFFmpeg.new()/var stream = ClassDB.instantiate("AudioStreamFFmpeg")/' "$COPY/addons/gde_gozen/video_playback.gd"
-sed -i 's/^\[application\]\r\?$/[application]\nconfig\/use_custom_user_dir=true\nconfig\/custom_user_dir_name="VJ checks"/' "$COPY/project.godot"
+sed -i 's/^\[application\]\r\?$/[application]\nconfig\/use_custom_user_dir=true\nconfig\/custom_user_dir_name="'"${USER_DIR:-VJ checks}"'"/' "$COPY/project.godot"
 cd "$COPY"
 timeout 300 "$GODOT" --headless --import >/dev/null 2>&1 || true
 if [ "$1" = "tests" ]; then

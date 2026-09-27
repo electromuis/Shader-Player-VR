@@ -34,6 +34,9 @@ const SCALE_EPS := 0.0005
 var model: EditModel
 var runner: ScriptRunner
 var stage: Stage
+## While a take runs, what's grabbed is recorded, not written on release.
+## Optional.
+var recorder: StudioRecorder
 
 var auto_key := false
 var snap := false
@@ -123,6 +126,8 @@ func grab(id: String, hand: String, hand_xf: Transform3D) -> bool:
 		"offset": GrabMath.grip_offset(hand_xf, node.global_transform),
 		"start": GrabMath.to_dict(node.transform), "two": {},
 	}
+	if recorder != null:
+		recorder.touch_transform(id, node)
 	return true
 
 
@@ -174,6 +179,9 @@ func release() -> String:
 	var id: String = _grab.id
 	var node: Node3D = _grab.node
 	var label := ""
+	if recorder != null and recorder.owns_transform(id):
+		_grab = {}  # the take holds it where it was let go, and writes it
+		return ""
 	if is_instance_valid(node):
 		label = _commit(id, _grab.start, GrabMath.to_dict(node.transform))
 	runner.held.erase(id)
@@ -191,10 +199,10 @@ func cancel() -> void:
 
 
 func _apply() -> void:
-	var node: Node3D = _grab.node
-	if not is_instance_valid(node):
-		_grab = {}
+	if not is_instance_valid(_grab.get("node")):
+		_grab = {}  # it left the stage (despawned) while held
 		return
+	var node: Node3D = _grab.node
 	var global: Transform3D
 	if not _grab.two.is_empty():
 		var two: Dictionary = _grab.two

@@ -40,6 +40,9 @@ var runner: ScriptRunner
 ## The shelf's library: the add-effect and layer shader menus also offer
 ## the user's shaders (bundled into the piece when picked). Optional.
 var library: StudioAssetLibrary
+## While a take runs, armed fields go to it instead of being written.
+## Optional.
+var recorder: StudioRecorder
 
 
 # ---------- what an object has ----------
@@ -291,13 +294,15 @@ func preview(id: String, field: Dictionary, value) -> void:
 		return
 	runner.held_params["%s.%s:%s" % [id, field.slot, field.param]] = true
 	runner.preview_param(id, field.slot, field.param, _as_value(field, value))
+	if recorder != null:
+		recorder.touch_param(id, field, _typed(field, _as_json(value)))
 
 
 ## Stop holding the field (after a commit, or to cancel a preview: then
 ## the runner shows the piece's value again).
 func end_preview(id: String, field: Dictionary, restore: bool = false) -> void:
-	if runner == null:
-		return
+	if runner == null or (recorder != null and recorder.owns_param(id, field)):
+		return  # the take holds it until it ends
 	runner.held_params.erase("%s.%s:%s" % [id, field.slot, field.param])
 	if restore:
 		runner.apply_edit(model.timeline(), false)
@@ -306,6 +311,8 @@ func end_preview(id: String, field: Dictionary, restore: bool = false) -> void:
 ## Write `value` for the field (see the top). Returns the undo label, ""
 ## if nothing changed.
 func commit(id: String, field: Dictionary, value, t: float, auto_key: bool) -> String:
+	if recorder != null and recorder.owns_param(id, field):
+		return ""  # recorded: the take writes it when it ends
 	value = _typed(field, _as_json(value))
 	var ti := track_of(id, field)
 	var slot := String(field.slot)

@@ -67,6 +67,12 @@ func load_for(os_path: String, script_grid: BeatGrid = null) -> void:
 	_start_task(os_path)
 
 
+## Use `script_grid` (a script's media.beats, as Studio edits it) for the
+## file already loaded; null goes back to the cached or detected grid.
+func set_script_grid(script_grid: BeatGrid) -> void:
+	load_for(_path, script_grid)
+
+
 ## Detect again, ignoring the cache (and any corrections in it).
 func rescan() -> void:
 	if _path == "" or _from_script or DefaultScreen.is_url(_path):

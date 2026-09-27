@@ -41,6 +41,13 @@ extends Node3D
 ## dropped on the window: a piece or video opens, a shader or prefab goes
 ## into the piece.
 ##
+## Performance recording (StudioRecorder): arm properties with the
+## inspector's record dots, press Record (wrist, Shift+R): playback starts
+## a pre-roll early and, from the loop's in point (or where you were), what
+## you touch is recorded: armed sliders and anything you grab. Stopping
+## (Record again, pause, or the loop's out point) writes the take as keys,
+## one undo step; Esc drops it.
+##
 ## Command line (after `--`): --piece <script.json, or a video: its
 ## same-name .json, made empty if there's none>, --start <seconds>, --vr,
 ## --desktop, --library <folder> (more assets for the shelf; repeatable).
@@ -130,6 +137,9 @@ var _ribbon_vr: StudioTimelineRibbon
 var waveform: StudioWaveform
 var loop := StudioLoop.new()
 var library := StudioAssetLibrary.new()
+var recorder := StudioRecorder.new()
+## The piece's media.beats last given to the beat clock (JSON).
+var _beats_applied := ""
 var thumbnailer: StudioThumbnailer
 var dropper := StudioAssetDrop.new()
 ## Whether the shelf shows (in Edit).
@@ -175,6 +185,7 @@ func _ready() -> void:
 	tools.runner = runner
 	tools.stage = stage
 	tools.said.connect(_say)
+	tools.recorder = recorder
 	add_child(tools)
 	flight = StudioFlight.new()
 	flight.name = "Flight"
@@ -184,6 +195,8 @@ func _ready() -> void:
 	edits = StudioConfigEdits.new()
 	edits.runner = runner
 	edits.library = library
+	edits.recorder = recorder
+	recorder.runner = runner
 	_bind_inspector(inspector)
 	tools.selection_changed.connect(_on_selection_changed)
 	_make_inspector_panel()
@@ -228,6 +241,7 @@ func _process(delta: float) -> void:
 	_keep_shelf_near()
 	_carry(delta)
 	_watch_library(delta)
+	_record_tick()
 	_loop_playback()
 
 
@@ -248,6 +262,8 @@ func open_piece(path: String) -> bool:
 		_say("Can't open %s: %s" % [path.get_file(), r.error])
 		return false
 	_drop_held()
+	recorder.cancel()
+	recorder.armed.clear()
 	if model != null:
 		model.changed.disconnect(_on_model_changed)
 	tools.cancel()
@@ -257,6 +273,8 @@ func open_piece(path: String) -> bool:
 	tools.model = model
 	edits.model = model
 	dropper.model = model
+	recorder.model = model
+	_beats_applied = JSON.stringify(model.document().get("media", {}).get("beats"))
 	library.piece_dir = model.path.get_base_dir()
 	_refresh_shelf()
 	runner.load_timeline(model.timeline())
@@ -289,6 +307,8 @@ func _apply_mode() -> void:
 	stage.desktop_camera.movement_enabled = editing
 	if tools != null:
 		if not editing:
+			if recorder.is_active():
+				_stop_take()
 			tools.cancel()
 			_drop_held()
 		tools.visible = editing
@@ -329,12 +349,34 @@ func _on_model_changed(structural: bool) -> void:
 		view.request_rebuild()
 	for view in _ribbons():
 		view.request_refresh()
+	recorder.prune(model.object_ids())
+	_apply_piece_beats()
+
+
+## After an edit of the piece's beat grid (or its undo): the beat clock
+## uses it (or goes back to the detected one).
+func _apply_piece_beats() -> void:
+	var beats = model.document().get("media", {}).get("beats")
+	var json := JSON.stringify(beats)
+	if json == _beats_applied:
+		return
+	_beats_applied = json
+	stage.beats.set_script_grid(BeatGrid.from_dict(beats))
 
 
 func _on_command(id: StringName) -> void:
 	match id:
 		&"studio_toggle_mode": set_mode(Mode.PLAY if mode == Mode.EDIT else Mode.EDIT)
-		&"studio_play_pause": _toggle_play()
+		&"studio_play_pause":
+			if recorder.is_active():
+				_stop_take()
+			else:
+				_toggle_play()
+		&"studio_record":
+			if recorder.is_active():
+				_stop_take()
+			else:
+				start_take()
 		&"studio_step_back": _seek_by(-STEP_SECONDS)
 		&"studio_step_forward": _seek_by(STEP_SECONDS)
 		&"studio_seek_back": _seek_by(-SEEK_SECONDS)
@@ -371,7 +413,12 @@ func _on_command(id: StringName) -> void:
 		&"studio_goto_selection": _go_to_selection()
 		&"studio_jump_back": _jump_back()
 		&"studio_deselect":
-			if not held_asset.is_empty():
+			if recorder.is_active():
+				recorder.cancel()
+				_after_take()
+				runner.pause()
+				_say("Take dropped: nothing recorded.")
+			elif not held_asset.is_empty():
 				_drop_held()
 				_say("Put it back.")
 			else:
@@ -629,6 +676,7 @@ func _bind_ribbon(view: StudioTimelineRibbon) -> void:
 	view.tools = tools
 	view.waveform = waveform
 	view.loop = loop
+	view.recorder = recorder
 	view.said.connect(_say)
 
 
@@ -701,6 +749,50 @@ func _keep_ribbon_near() -> void:
 		return
 	if stage.viewer_transform().origin.distance_to(ribbon_panel.global_transform.origin) > INSPECTOR_REPLACE:
 		_place_ribbon_panel()
+
+
+# ---------- recording ----------
+
+## Record: from the loop's in point to its out point while looping (a
+## punch-in), else from here until stopped; playback starts a pre-roll
+## early.
+func start_take() -> void:
+	if model == null or recorder.is_active():
+		return
+	var looping := loop.on and loop.is_set()
+	var from := loop.a if looping else runner.playhead
+	var start := recorder.begin(from, loop.b if looping else -1.0)
+	stage.seek_to(start)
+	runner.play()
+	var armed := recorder.armed.size()
+	_say("Recording from %s%s: %s." % [StudioStatus.timecode(from), " to %s" % StudioStatus.timecode(loop.b) if looping else "",
+			"move the armed sliders (%d), or grab something" % armed if armed > 0 else "grab something (or arm sliders with their ●)"])
+
+
+## End the take and write it. A slider still being dragged, or an object
+## still held, is let go of: the take has what they did.
+func _stop_take() -> void:
+	var label := recorder.finish()
+	_after_take()
+	runner.pause()
+	_say(label + "." if label != "" else "Nothing recorded (touch an armed slider, or grab something, while it records).")
+
+
+func _after_take() -> void:
+	for view in _inspectors():
+		view.drop_pending()
+	if tools.is_grabbing():
+		tools.cancel()
+
+
+func _record_tick() -> void:
+	if not recorder.is_active():
+		return
+	if not runner.playing:
+		_stop_take()
+		return
+	if recorder.tick(runner.playhead) != "":
+		_stop_take()
 
 
 ## While looping: back to the in point at the out point.
@@ -1057,6 +1149,7 @@ func _show_status() -> void:
 		message,
 		tools.auto_key,
 		tools.snap,
+		_rec_chip(),
 	]
 	if status_view.visible:
 		status_view.callv("show_state", args)
@@ -1066,7 +1159,17 @@ func _show_status() -> void:
 			_wrist.action.connect(_on_command)
 	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
 		_wrist.status.callv("show_state", args)
-		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on)
+		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active())
+
+
+## The status's record chip: "" when not recording.
+func _rec_chip() -> String:
+	match recorder.state:
+		StudioRecorder.State.PRE_ROLL:
+			return "● PRE-ROLL %s" % StudioStatus.timecode(recorder.from - runner.playhead)
+		StudioRecorder.State.RECORDING:
+			return "● REC"
+	return ""
 
 
 func _piece_name() -> String:

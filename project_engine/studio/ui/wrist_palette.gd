@@ -33,6 +33,7 @@ const BUTTONS := [
 	[&"studio_loop_out", "Out ]", false],
 	[&"studio_toggle_shelf", "Shelf", true],
 	[&"studio_delete_selection", "Delete", false],
+	[&"studio_record", "● Rec", true],
 ]
 
 var status: StudioStatus
@@ -74,7 +75,7 @@ func _ready() -> void:
 
 ## Auto-key, snapping, the inspector, the timeline, looping and the shelf as
 ## they are in Studio (not what a click toggled).
-func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline: bool = false, looping: bool = false, shelf: bool = false) -> void:
+func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline: bool = false, looping: bool = false, shelf: bool = false, recording: bool = false) -> void:
 	if _buttons.is_empty():
 		return
 	_buttons[&"studio_toggle_autokey"].set_pressed_no_signal(auto_key)
@@ -83,6 +84,7 @@ func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline:
 	_buttons[&"studio_toggle_timeline"].set_pressed_no_signal(timeline)
 	_buttons[&"studio_toggle_loop"].set_pressed_no_signal(looping)
 	_buttons[&"studio_toggle_shelf"].set_pressed_no_signal(shelf)
+	_buttons[&"studio_record"].set_pressed_no_signal(recording)
 
 
 func _style(state: String, id: StringName) -> StyleBoxFlat:
@@ -90,7 +92,7 @@ func _style(state: String, id: StringName) -> StyleBoxFlat:
 	sb.set_corner_radius_all(10)
 	sb.set_content_margin_all(8)
 	var on := state in ["pressed", "hover_pressed"]
-	var tint := RECORD if id == &"studio_toggle_autokey" else ACCENT
+	var tint := RECORD if id in [&"studio_toggle_autokey", &"studio_record"] else ACCENT
 	sb.bg_color = Color(0.17, 0.2, 0.27) if not on else Color(tint, 0.28)
 	if state == "hover" or state == "hover_pressed":
 		sb.bg_color = sb.bg_color.lightened(0.12)

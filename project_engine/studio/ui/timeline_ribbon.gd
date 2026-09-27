@@ -18,7 +18,11 @@ extends PanelContainer
 ##     Shift+wheel → scroll in time; wheel over the lanes → scroll them
 ## The bar above: time, zoom − / + / fit, loop on / off, set in / out at the
 ## playhead, and for a selected key its interpolation (and bezier presets)
-## and delete. The same scene is the desktop's bottom strip and the
+## and delete. *Grid…* opens the beat grid's controls instead: nudge it
+## earlier / later, tempo − / +, ×2 / ½, tap tempo (tap along while it
+## plays), and back to the detected grid; they write the piece's
+## `media.beats`, so the player uses the same grid. While recording, the
+## take's span shows red, and armed properties' rows are red. The same scene is the desktop's bottom strip and the
 ## headset's band at waist height (bigger there: `vr`, worked out when it's
 ## inside a SubViewport).
 
@@ -39,6 +43,7 @@ var edits: StudioConfigEdits
 var tools: StudioEditTools
 var waveform: StudioWaveform
 var loop: StudioLoop
+var recorder: StudioRecorder
 var view := StudioTimeline.new()
 ## The selected key: {ti, ki}, or {} for none.
 var selected_key: Dictionary = {}
@@ -56,6 +61,11 @@ var _time: Label
 var _loop_button: Button
 var _key_bar: HBoxContainer
 var _interp_buttons: Dictionary = {}
+var _grid_button: Button
+var _grid_bar: HBoxContainer
+var _grid_label: Label
+var _tap_button: Button
+var _taps: Array = []  # playhead times of the taps so far
 
 # Sizes (scaled up in the headset).
 var _k := 1.0
@@ -116,6 +126,27 @@ func _ready() -> void:
 		loop.set_out(_playhead())
 		said.emit("Loop to %s." % StudioStatus.timecode(loop.b))))
 	bar.add_child(_sep())
+	_grid_button = _button("Grid…", func(): _needs_data = true)
+	_grid_button.toggle_mode = true
+	bar.add_child(_grid_button)
+	_grid_bar = HBoxContainer.new()
+	_grid_bar.add_theme_constant_override("separation", int(4 * _k))
+	_grid_bar.visible = false
+	bar.add_child(_grid_bar)
+	_grid_label = Label.new()
+	_grid_label.custom_minimum_size.x = 190 * _k
+	_grid_bar.add_child(_grid_label)
+	_grid_bar.add_child(_button("◀ 10 ms", func(): _nudge_grid(-0.01, 0.0)))
+	_grid_bar.add_child(_button("10 ms ▶", func(): _nudge_grid(0.01, 0.0)))
+	_grid_bar.add_child(_button("− BPM", func(): _nudge_grid(0.0, -0.1)))
+	_grid_bar.add_child(_button("+ BPM", func(): _nudge_grid(0.0, 0.1)))
+	_grid_bar.add_child(_button("×2", func(): _nudge_grid(0.0, 0.0, 2.0)))
+	_grid_bar.add_child(_button("½", func(): _nudge_grid(0.0, 0.0, 0.5)))
+	_tap_button = _button("Tap", func(): tap())
+	_grid_bar.add_child(_tap_button)
+	_grid_bar.add_child(_button("Detected", func():
+		if edits.model.set_beats(null, "Use the detected beat grid"):
+			said.emit("Back to the detected beat grid.")))
 	_key_bar = HBoxContainer.new()
 	_key_bar.add_theme_constant_override("separation", int(4 * _k))
 	bar.add_child(_key_bar)
@@ -162,7 +193,11 @@ func _process(_delta: float) -> void:
 		view.follow(runner.playhead)
 	_time.text = StudioStatus.timecode(runner.playhead)
 	_loop_button.set_pressed_no_signal(loop.on)
-	_key_bar.visible = not selected_key.is_empty()
+	_grid_bar.visible = _grid_button.button_pressed
+	var g := _grid()
+	_grid_label.text = "%.1f BPM · 1 at %.3f s" % [g.bpm, g.offset] if g != null and g.is_valid() else "No beat grid yet"
+	_tap_button.text = "Tap (%d)" % _taps.size() if not _taps.is_empty() else "Tap"
+	_key_bar.visible = not selected_key.is_empty() and not _grid_bar.visible
 	if _key_bar.visible:
 		var mode := _mode_of(selected_key.ti, selected_key.ki)
 		for m in _interp_buttons:
@@ -281,8 +316,9 @@ func _draw_canvas() -> void:
 		for row in _rows:
 			_layout.append({"kind": "prop", "y": y, "h": _row, "row": row})
 			if y + _row > top and y < h:
-				c.draw_string(font, Vector2(18 * _k + lane.depth * 12 * _k, y + _row * 0.75), row.label, HORIZONTAL_ALIGNMENT_LEFT,
-						_gutter - 22 * _k, int(_fs * 0.85), DIM)
+				var armed := _row_armed(row)
+				c.draw_string(font, Vector2(18 * _k + lane.depth * 12 * _k, y + _row * 0.75), ("● " if armed else "") + row.label, HORIZONTAL_ALIGNMENT_LEFT,
+						_gutter - 22 * _k, int(_fs * 0.85), RECORD if armed else DIM)
 				c.draw_line(Vector2(_gutter, y + _row * 0.5), Vector2(w, y + _row * 0.5), Color(1, 1, 1, 0.07), 1.0)
 				for k in row.keys:
 					var kt: float = k.t
@@ -291,6 +327,18 @@ func _draw_canvas() -> void:
 						kt = _drag.t
 					_diamond(Vector2(_gutter + view.x_of(kt), y + _row * 0.5), _row * 0.36, KEY if chosen else Color.WHITE, chosen)
 			y += _row
+	# The take being recorded: red from where it records to the playhead;
+	# before that (the pre-roll), a red line where it will start.
+	if recorder != null and recorder.is_active():
+		var span := recorder.recorded_span()
+		var rx := _gutter + view.x_of(recorder.from)
+		if not span.is_empty():
+			var rx1 := _gutter + view.x_of(span[1])
+			c.draw_rect(Rect2(rx, _ruler, maxf(rx1 - rx, 1.0), h - _ruler), Color(RECORD, 0.16))
+		c.draw_line(Vector2(rx, 0), Vector2(rx, h), RECORD, maxf(2.0, 1.5 * _k))
+		if recorder.until >= 0.0:
+			var ux := _gutter + view.x_of(recorder.until)
+			c.draw_line(Vector2(ux, 0), Vector2(ux, h), Color(RECORD, 0.6), maxf(1.0, _k))
 	# Cuts over the lanes.
 	for ct in _cuts:
 		var x := _gutter + view.x_of(ct)
@@ -514,6 +562,46 @@ func _delete_key() -> void:
 	selected_key = {}
 	if edits.model.delete_key(k.ti, k.ki):
 		said.emit(edits.model.undo_label() + ".")
+
+
+## Whether a property row's track is armed for recording.
+func _row_armed(row: Dictionary) -> bool:
+	if recorder == null or recorder.armed.is_empty():
+		return false
+	var track: Dictionary = edits.model.tracks()[row.ti]
+	for a in recorder.armed.values():
+		if "%s.%s" % [a.id, a.field.slot] == track.get("target") and a.field.param == track.get("param"):
+			return true
+	return false
+
+
+## Move the beat grid by `seconds`, change its tempo by `bpm_step`, or
+## multiply it (×2, ½): written to the piece (one undo step).
+func _nudge_grid(seconds: float, bpm_step: float, factor: float = 1.0) -> void:
+	var g := _grid()
+	if g == null or not g.is_valid():
+		said.emit("No beat grid yet: tap one (Tap, while it plays).")
+		return
+	var ng := BeatGrid.make(g.bpm * factor + bpm_step, g.offset + seconds, g.beats_per_bar)
+	var what := "Beat grid %s" % ("%+d ms" % roundi(seconds * 1000.0) if seconds != 0.0 else "%.1f BPM" % ng.bpm)
+	if edits.model.set_beats(ng.to_dict(), what):
+		said.emit(what + ".")
+
+
+## A tap along with the music (while it plays): from the fourth tap in a
+## row the taps set the grid, the last tap a downbeat.
+func tap() -> void:
+	var t := _playhead()
+	if not _taps.is_empty() and (t <= _taps.back() or t - _taps.back() > StudioTimeline.TAP_GAP):
+		_taps.clear()
+	_taps.append(t)
+	var g := StudioTimeline.tap_tempo(_taps)
+	if g == null:
+		said.emit("Tap %d: keep tapping on the beat." % _taps.size())
+		return
+	var what := "Beat grid tapped: %.1f BPM" % g.bpm
+	if edits.model.set_beats(g.to_dict(), what):
+		said.emit(what + ".")
 
 
 func _zoom_bar(factor: float) -> void:

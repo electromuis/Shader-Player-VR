@@ -9,7 +9,7 @@ extends PanelContainer
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
 const DIM := Color(0.72, 0.75, 0.8)
-const HINTS := "Tab  Play / Edit     Space  play / pause     ← →  1 s     Shift+← →  10 s     Home  start\nCtrl+Z  undo     Ctrl+Shift+Z  redo     Ctrl+S  save     R  reset view     F1  VR\nClick  select     Drag  move (wheel: nearer / further)     Esc  deselect     N  inspector     T  timeline\nI  key it     Shift+I  auto-key     Shift+G  snap     F  go to it     0  seat     Shift+F  back\nL  loop     [ ]  loop from / to here"
+const HINTS := "Tab  Play / Edit     Space  play / pause     ← →  1 s     Shift+← →  10 s     Home  start\nCtrl+Z  undo     Ctrl+Shift+Z  redo     Ctrl+S  save     R  reset view     F1  VR\nClick  select     Drag  move (wheel: nearer / further)     Esc  deselect     N  inspector     T  timeline\nI  key it     Shift+I  auto-key     Shift+G  snap     F  go to it     0  seat     Shift+F  back\nL  loop     [ ]  loop from / to here     B  shelf     Delete  delete     Shift+R  record"
 
 ## Wrist layout: bigger text, no keyboard hints.
 @export var compact: bool = false
@@ -22,6 +22,7 @@ var _message: Label
 var _hints: Label
 var _auto_key: Label
 var _snap: Label
+var _rec: Label
 
 
 func _ready() -> void:
@@ -65,6 +66,11 @@ func _ready() -> void:
 	rows.add_child(toggles)
 	_auto_key = _chip(toggles, size, "● AUTO-KEY", RECORD)
 	_snap = _chip(toggles, size, "SNAP", ACCENT)
+	_rec = _chip(toggles, size, "● REC", RECORD)
+	var rec_sb := _rec.get_theme_stylebox("normal").duplicate() as StyleBoxFlat
+	rec_sb.bg_color = RECORD
+	_rec.add_theme_stylebox_override("normal", rec_sb)
+	_rec.add_theme_color_override("font_color", Color.WHITE)
 	_time = _label(rows, int(size * 1.5), Color.WHITE)
 	_message = _label(rows, size, DIM)
 	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -105,12 +111,14 @@ func _label(parent: Control, font_size: int, color: Color) -> Label:
 
 ## Everything at once; cheap enough to call every frame.
 func show_state(mode: String, title: String, dirty: bool, t: float, duration: float, playing: bool, message: String,
-		auto_key: bool = false, snap: bool = false) -> void:
+		auto_key: bool = false, snap: bool = false, recording: String = "") -> void:
 	if _mode == null:
 		return
 	_auto_key.visible = auto_key and mode == "EDIT"
 	_snap.visible = snap and mode == "EDIT"
-	_auto_key.get_parent().visible = _auto_key.visible or _snap.visible
+	_rec.visible = recording != ""
+	_rec.text = recording
+	_auto_key.get_parent().visible = _auto_key.visible or _snap.visible or _rec.visible
 	_mode.text = mode
 	_title.text = title
 	_dirty.text = "● unsaved" if dirty else ""

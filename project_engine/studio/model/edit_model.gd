@@ -647,6 +647,43 @@ func set_key(type: String, target: String, name: String, t: float, value, interp
 	return _do(label, _is_structural_track(track), [_change(["tracks", ti, "keyframes"], kfs)])
 
 
+## A recorded take: the keys of the `type` track of `target` / `name` from
+## `t0` to `t1` become `keys` ([{t, value, ...}], inside that range); the
+## keys either side stay, and the curve joins them up. The track is made
+## if there's none.
+func replace_keys(type: String, target: String, name: String, t0: float, t1: float, keys: Array, label: String = "") -> bool:
+	if keys.is_empty() or (type != ScriptFormat.TRACK_TRANSFORM and type != ScriptFormat.TRACK_SHADER_PARAM):
+		return false
+	if label == "":
+		label = "Record %s %s" % [target, name]
+	var ti := find_track(type, target, name)
+	if ti < 0:
+		var track := {"type": type, "target": target}
+		track["channel" if type == ScriptFormat.TRACK_TRANSFORM else "param"] = name
+		track["keyframes"] = keys
+		var list := tracks().duplicate()
+		list.append(track)
+		return _do(label, _is_structural_track(track), [_change(["tracks"], list)])
+	var kfs: Array = tracks()[ti].get("keyframes", []).filter(func(k):
+		var t := float(k.get("t", 0.0))
+		return t < t0 - SAME_TIME or t > t1 + SAME_TIME)
+	for k in keys:
+		kfs.insert(_insert_index(kfs, float(k.t)), k)
+	return _do(label, _is_structural_track(tracks()[ti]), [_change(["tracks", ti, "keyframes"], kfs)])
+
+
+## The piece's beat grid (`media.beats`: {bpm, offset, beats_per_bar}); null
+## removes it (the player detects one from the sound again).
+func set_beats(grid, label: String = "") -> bool:
+	var media = _doc.get("media", {})
+	media = media.duplicate(true) if typeof(media) == TYPE_DICTIONARY else {}
+	if grid == null:
+		media.erase("beats")
+	else:
+		media["beats"] = grid
+	return _do(label if label != "" else "Set the beat grid", false, [_change(["media"], media)])
+
+
 ## Retime key `ki` of track `ti` to `new_t` (it replaces a key already there).
 func move_key(ti: int, ki: int, new_t: float) -> bool:
 	var kfs = _keyframes(ti)

@@ -56,6 +56,7 @@ var _fs := 15
 var _label_w := 132
 var _value_w := 58
 var _diamond_w := 26
+var _dot_w := 20
 
 
 func _ready() -> void:
@@ -64,6 +65,7 @@ func _ready() -> void:
 	_label_w = 230 if vr else 132
 	_value_w = 104 if vr else 58
 	_diamond_w = 48 if vr else 26
+	_dot_w = 40 if vr else 20
 	var th := Theme.new()
 	th.default_font_size = _fs
 	if vr:
@@ -246,9 +248,10 @@ func _add_field(parent: Control, field: Dictionary) -> void:
 	diamond.flat = true
 	diamond.custom_minimum_size.x = _diamond_w
 	row.add_child(diamond)
+	row.add_child(_arm_dot(field))
 	var name := _label(row, _fs, Color.WHITE)
 	name.text = field.label
-	name.custom_minimum_size.x = _label_w
+	name.custom_minimum_size.x = _label_w - _dot_w
 	name.clip_text = true
 	var r := {"field": field, "kind": field.type, "controls": [], "diamond": diamond, "value": null}
 	match field.type:
@@ -343,9 +346,10 @@ func _add_transform(s: Dictionary) -> void:
 		diamond.flat = true
 		diamond.custom_minimum_size.x = _diamond_w
 		row.add_child(diamond)
+		row.add_child(_arm_dot({}))  # a gap: grabbing records transforms
 		var name := _label(row, _fs, Color.WHITE)
 		name.text = {"position": "Position", "rotation_deg": "Rotation °", "scale": "Scale"}[ch]
-		name.custom_minimum_size.x = _label_w
+		name.custom_minimum_size.x = _label_w - _dot_w
 		var value := _label(row, _fs, DIM)
 		value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_rows.append({"field": {"key": "transform/" + ch, "channel": ch}, "kind": "transform", "controls": [],
@@ -494,6 +498,12 @@ func _commit(key: String) -> void:
 		said.emit(label + ".")
 
 
+## Forget changes in progress without writing them (a take that ended
+## wrote them already).
+func drop_pending() -> void:
+	_pending.clear()
+
+
 func _commit_all() -> void:
 	for key in _pending.keys():
 		_commit(key)
@@ -506,6 +516,32 @@ func _toggle_key(field: Dictionary) -> void:
 		said.emit(label + ".")
 	elif String(field.slot) == "":
 		said.emit("%s can't be animated%s." % [field.label, " while the effect is off" if String(field.key).begins_with("effect") else ""])
+
+
+## The record dot before a field's name: red while it's armed (a take
+## records it when you move it). Fields that can't be recorded get a gap.
+func _arm_dot(field: Dictionary) -> Control:
+	var rec: StudioRecorder = edits.recorder
+	if rec == null or not StudioRecorder.can_arm(field):
+		var gap := Control.new()
+		gap.custom_minimum_size.x = _dot_w
+		return gap
+	var dot := _button("●", func(): pass)
+	dot.flat = true
+	dot.custom_minimum_size.x = _dot_w
+	dot.add_theme_font_size_override("font_size", int(_fs * 0.8))
+	dot.tooltip_text = "Arm for recording"
+	var paint := func():
+		var on := rec.is_armed(_id, field)
+		for state in ["font_color", "font_hover_color", "font_pressed_color"]:
+			dot.add_theme_color_override(state, RECORD if on else Color(1, 1, 1, 0.22))
+	paint.call()
+	dot.pressed.connect(func():
+		var on := not rec.is_armed(_id, field)
+		rec.set_armed(_id, field, on)
+		paint.call()
+		said.emit("%s %s %s." % [_id, String(field.label).to_lower(), "armed: a take records it when you move it" if on else "not armed"]))
+	return dot
 
 
 func _toggle_transform_key(channel: String) -> void:

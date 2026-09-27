@@ -223,6 +223,31 @@ static func ticks(grid: BeatGrid, t0: float, t1: float, px_per_s: float) -> Arra
 
 
 ## `t` on the nearest beat (with `grid`), else as it is.
+## Tap tempo: taps further apart than this start over.
+const TAP_GAP := 2.0
+## Taps needed before they set a grid.
+const TAPS := 4
+
+
+## The grid tapped out by `taps` (playhead times, in order): the tempo from
+## their average spacing, the downbeat where the taps fit best (on the last
+## tap's beat). null until there are TAPS of them.
+static func tap_tempo(taps: Array, beats_per_bar: int = 4) -> BeatGrid:
+	if taps.size() < TAPS:
+		return null
+	var span := float(taps.back()) - float(taps[0])
+	if span <= 0.0:
+		return null
+	var bpm := snappedf(60.0 * (taps.size() - 1) / span, 0.1)
+	var spb := 60.0 / bpm
+	var last := float(taps.back())
+	var phase := 0.0
+	for t in taps:
+		var d := float(t) - last
+		phase += d - roundf(d / spb) * spb
+	return BeatGrid.make(bpm, last + phase / taps.size(), beats_per_bar)
+
+
 static func snap(t: float, grid: BeatGrid) -> float:
 	if grid == null or not grid.is_valid():
 		return t

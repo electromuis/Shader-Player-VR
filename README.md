@@ -59,7 +59,7 @@ Open a video or a script from **F2 → Files**, by dropping it on the window, or
 
 ## Studio (the VR editor, early)
 
-Studio opens a script and lets you change it from inside the headset, on the player's own renderer, so what you see while editing is what the player will show. It's being built in steps (see [VR Studio — Plan.md](./VR%20Studio%20%E2%80%94%20Plan.md)); so far it opens a piece, plays and scrubs it, switches between Play and Edit, selects and moves things by hand (keyed or not), tunes their settings and effects in an inspector (keyed or not), undoes and redoes, and saves. A timeline comes next.
+Studio opens a script and lets you change it from inside the headset, on the player's own renderer, so what you see while editing is what the player will show. It's being built in steps (see [VR Studio — Plan.md](./VR%20Studio%20%E2%80%94%20Plan.md)); so far it opens a piece, plays and scrubs it, switches between Play and Edit, selects and moves things by hand (keyed or not), tunes their settings and effects in an inspector (keyed or not), retimes keys on a timeline with the song's waveform and beats, loops a passage, undoes and redoes, and saves. An asset shelf, to build a piece from nothing, comes next.
 
 - **Start it** from its own build (the *Studio* download from CI, or `build_and_run.bat studio [video.json]`) with the piece: `ShaderPlayerVR-Studio.exe -- --piece path\to\video.json`. From the Godot editor, run `res://studio/studio.tscn` with the same arguments. A video with a same-name `.json` next to it works as the piece too; `--start <seconds>` opens at that time, `--vr` / `--desktop` as in the player.
 - **Play and Edit:** Play is the audience view with nothing added. Edit shows the piece's name, the time, whether there are unsaved changes and what just happened, on the left wrist in the headset and in the corner of the desktop window. Switching keeps the playhead.
@@ -89,6 +89,9 @@ Studio opens a script and lets you change it from inside the headset, on the pla
   | Audience seat | wrist | 0 |
   | Deselect | ✕ on the inspector | Esc |
   | Show / hide the inspector | wrist | N |
+  | Show / hide the timeline | wrist | T |
+  | Loop on / off | wrist | L |
+  | Loop from / to the playhead | wrist | [ / ] |
   | Fly (where you look) | left stick | WASD, E / Q |
   | Snap turn / rise, sink | right stick ← → / ↑ ↓ | |
 
@@ -98,6 +101,10 @@ Studio opens a script and lets you change it from inside the headset, on the pla
   - Letting go of a slider (or closing the colour wheel) is one undo step. With auto-key off, a change sets the piece's value (for every time the object appears), or, if the property is animated, scales its whole curve so the motion keeps its shape and a fade from 0 still starts at 0. With auto-key on, it keys the property at the playhead.
   - Each property has a **diamond**: ◆ a key here, ◇ animated, • still. Tap it to key the property here with the value it has now, or to remove the key that's here. (Render scale and resolution can't be animated.)
   - **Effects:** *+ Add effect* (the built-ins and the piece's own effect shaders), ↑ ↓ to reorder, *On / Off*, ✕ to remove. Their animation follows them when they move; a switched-off effect keeps its keys and gets them back when it's switched on again.
+- **The timeline** runs along the bottom of the desktop window, and in the headset lies in front of you at waist height, tilted up (it follows when you fly off). It shows the song's waveform with beat and bar ticks (from the beat grid the player finds for shaders, or the script's `media.beats`), the viewer's cuts, a bar per object for when it's on stage, and under the selected object a row per animated property with its keys.
+  - Click or drag on the ruler, the waveform or a bar to **scrub**. The wheel over the ruler or waveform (or Ctrl+wheel) zooms, Shift+wheel scrolls; in the headset the right stick is the wheel while you point at it (zooming over the ruler, scrolling the lanes below it). *−*, *+* and *Fit* are above it.
+  - **Keys:** drag a diamond to retime it (one undo step when you let go); with snapping on it lands on the nearest beat. A selected key gets a row of buttons for how it moves on to the next one: *Linear*, *Ease*, *Cubic*, *Step*, or a curve (*Ease in*, *Ease out*, *In-out*, *Overshoot*), and *Delete key*.
+  - **Loop:** *[ In* and *Out ]* (or [ and ]) set the region at the playhead, drag its blue handles on the ruler to adjust it, and *Loop* (L) turns it on: playing then starts inside it and comes back round at its end, for rehearsing a passage.
 - **Saving:** Ctrl+S writes the piece back to its `.json`, after checking it with the player's own validator (an edit that would make it invalid isn't saved, and the status says why). Opening and saving without changes, or after undoing them all, leaves the file byte for byte as it was. After edits it's written with the file's own indentation and key order; a version 1 script is saved as version 2. There's no autosave yet, and closing Studio doesn't ask about unsaved changes.
 - Studio doesn't follow changes other programs make to the file while it's open (a Godot export, say); reopen the piece to see them.
 
@@ -106,6 +113,8 @@ Studio opens a script and lets you change it from inside the headset, on the pla
 ![Studio moving things: nothing selected, carrying the cube, the snap grid, auto-key on the screen, the desktop status, the wrist palette](docs/studio/m2_studio.png)
 
 ![Studio's inspector: the main screen's display and glow settings, the glow tint on the colour wheel, the add-effect menu, an effect added and moved up, and the headset panel beside the screen](docs/studio/m3_studio.png)
+
+![Studio's timeline: the waveform with beat ticks, a loop region, object lanes and the cube's keys, a key dragged onto a beat, the headset band](docs/studio/m4_studio.png)
 
 ## Builds and releases (CI)
 

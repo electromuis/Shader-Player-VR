@@ -586,6 +586,60 @@ func move_key(ti: int, ki: int, new_t: float) -> bool:
 	return _do("Move key to %s" % _time_label(new_t), _is_structural_track(track), [_change(["tracks", ti, "keyframes"], kfs)])
 
 
+## Bezier presets for set_key_interp: the segment's handles as fractions of
+## its time and value change, like CSS cubic-bezier(x1, y1, x2, y2).
+const BEZIER_PRESETS := {
+	"ease_in": [0.42, 0.0, 1.0, 1.0],
+	"ease_out": [0.0, 0.0, 0.58, 1.0],
+	"ease_in_out": [0.42, 0.0, 0.58, 1.0],
+	"overshoot": [0.34, 1.56, 0.64, 1.0],
+}
+
+
+## How the segment after key `ki` of track `ti` moves: one of
+## ScriptFormat.INTERP_MODES ("linear" drops the field), or a BEZIER_PRESETS
+## name, which makes it "bezier" with that curve's handles (the key's `out`
+## and the next key's `in`). Leaving bezier drops those handles.
+func set_key_interp(ti: int, ki: int, mode: String) -> bool:
+	var kfs = _keyframes(ti)
+	if kfs == null or ki < 0 or ki >= kfs.size():
+		return false
+	var preset: Array = BEZIER_PRESETS.get(mode, [])
+	if preset.is_empty() and not ScriptFormat.INTERP_MODES.has(mode):
+		return false
+	kfs = kfs.duplicate(true)
+	var key: Dictionary = kfs[ki]
+	var next = kfs[ki + 1] if ki + 1 < kfs.size() else null
+	if mode == "linear":
+		key.erase("interp")
+	else:
+		key["interp"] = "bezier" if not preset.is_empty() else mode
+	if not preset.is_empty() and next != null:
+		var dt := float(next.get("t", 0.0)) - float(key.get("t", 0.0))
+		var a = key.get("value")
+		var b = next.get("value")
+		if typeof(a) == TYPE_ARRAY and typeof(b) == TYPE_ARRAY and a.size() == b.size():
+			var outs: Array = []
+			var ins: Array = []
+			for c in a.size():
+				var dv := float(b[c]) - float(a[c])
+				outs.append([preset[0] * dt, preset[1] * dv])
+				ins.append([(preset[2] - 1.0) * dt, (preset[3] - 1.0) * dv])
+			key["out"] = outs
+			next["in"] = ins
+		elif typeof(a) in [TYPE_FLOAT, TYPE_INT] and typeof(b) in [TYPE_FLOAT, TYPE_INT]:
+			var dv := float(b) - float(a)
+			key["out"] = [preset[0] * dt, preset[1] * dv]
+			next["in"] = [(preset[2] - 1.0) * dt, (preset[3] - 1.0) * dv]
+	elif preset.is_empty() and mode != "bezier":
+		key.erase("out")
+		if next != null:
+			next.erase("in")
+	var track: Dictionary = tracks()[ti]
+	var label := "%s at %s" % [mode.capitalize(), _time_label(float(key.get("t", 0.0)))]
+	return _do(label, _is_structural_track(track), [_change(["tracks", ti, "keyframes"], kfs)])
+
+
 ## Remove key `ki` of track `ti`; the last one takes its track with it.
 func delete_key(ti: int, ki: int) -> bool:
 	var kfs = _keyframes(ti)

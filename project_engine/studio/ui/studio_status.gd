@@ -9,7 +9,7 @@ extends PanelContainer
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
 const DIM := Color(0.72, 0.75, 0.8)
-const HINTS := "Tab  Play / Edit     Space  play / pause     ← →  1 s     Shift+← →  10 s     Home  start\nCtrl+Z  undo     Ctrl+Shift+Z  redo     Ctrl+S  save     R  reset view     F1  VR\nClick  select     Drag  move (wheel: nearer / further)     Esc  deselect     N  inspector\nI  key it     Shift+I  auto-key     Shift+G  snap     F  go to it     0  seat     Shift+F  back"
+const HINTS := "Tab  Play / Edit     Space  play / pause     ← →  1 s     Shift+← →  10 s     Home  start\nCtrl+Z  undo     Ctrl+Shift+Z  redo     Ctrl+S  save     R  reset view     F1  VR\nClick  select     Drag  move (wheel: nearer / further)     Esc  deselect     N  inspector     T  timeline\nI  key it     Shift+I  auto-key     Shift+G  snap     F  go to it     0  seat     Shift+F  back\nL  loop     [ ]  loop from / to here"
 
 ## Wrist layout: bigger text, no keyboard hints.
 @export var compact: bool = false

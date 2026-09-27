@@ -18,6 +18,12 @@ extends Node3D
 ## On the desktop the mouse does the same: click selects, drag moves (the
 ## wheel pushes / pulls while dragging).
 ##
+## The timeline ribbon (StudioTimelineRibbon) shows the song's waveform and
+## beats, cuts, each object's time on stage and the selection's keys: scrub,
+## retime keys (onto beats while snapping), pick their interpolation, and
+## set a loop region that playback repeats (StudioLoop). On the desktop it's
+## a strip along the bottom; in the headset a band at waist height.
+##
 ## The inspector (StudioInspector) shows the selection's settings: display,
 ## the layer's shader, the effects stack, modifiers and reactive motion,
 ## with a key diamond per property. On the desktop it's a side panel; in
@@ -53,6 +59,15 @@ const INSPECTOR_ANGLE := 32.0
 const INSPECTOR_MAX_ANGLE := 60.0
 const INSPECTOR_DROP := 0.12
 const INSPECTOR_REPLACE := 2.0
+const RIBBON_SCENE := preload("res://studio/ui/timeline_ribbon.tscn")
+## The headset ribbon: its size in metres and pixels, and where it goes:
+## this far in front of you, this far below your eyes, tilted back to face
+## you. It follows you like the inspector.
+const RIBBON_SIZE := Vector2(1.3, 0.36)
+const RIBBON_PIXELS := Vector2(1800, 500)
+const RIBBON_DISTANCE := 0.6
+const RIBBON_DROP := 0.55
+const RIBBON_TILT := 40.0
 
 enum Mode { PLAY, EDIT }
 
@@ -60,6 +75,7 @@ enum Mode { PLAY, EDIT }
 @onready var runner: ScriptRunner = $Stage/ScriptRunner
 @onready var status_view: StudioStatus = $UI/Status
 @onready var inspector: StudioInspector = $UI/Inspector
+@onready var ribbon: StudioTimelineRibbon = $UI/Timeline
 
 ## The piece being edited; null until one is open.
 var model: EditModel
@@ -81,6 +97,12 @@ var inspector_on := true
 ## The headset's inspector: its panel and the inspector inside it.
 var inspector_panel: XRToolsViewport2DIn3D
 var _inspector_vr: StudioInspector
+## Whether the timeline shows (in Edit).
+var timeline_on := true
+var ribbon_panel: XRToolsViewport2DIn3D
+var _ribbon_vr: StudioTimelineRibbon
+var waveform: StudioWaveform
+var loop := StudioLoop.new()
 ## Where the viewer was before the last Seat / Go to it jump (for Back).
 var _back_pose: Dictionary = {}
 var _mouse_down := false
@@ -122,6 +144,12 @@ func _ready() -> void:
 	_bind_inspector(inspector)
 	tools.selection_changed.connect(_on_selection_changed)
 	_make_inspector_panel()
+	waveform = StudioWaveform.new()
+	waveform.name = "Waveform"
+	add_child(waveform)
+	stage.media_path_changed.connect(waveform.load_for)
+	_bind_ribbon(ribbon)
+	_make_ribbon_panel()
 	set_mode(Mode.EDIT)
 
 	if _cli_piece != "":
@@ -140,6 +168,8 @@ func _process(delta: float) -> void:
 	_follow_hands(delta)
 	_show_status()
 	_keep_inspector_near()
+	_keep_ribbon_near()
+	_loop_playback()
 
 
 ## Open a script (or a video with its sidecar script) for editing. Returns
@@ -189,6 +219,7 @@ func _apply_mode() -> void:
 		tools.visible = editing
 		flight.enabled = editing and stage.xr_mode.is_in_vr()
 		_show_inspector()
+		_show_ribbon()
 
 
 func save() -> bool:
@@ -220,6 +251,8 @@ func _on_model_changed(structural: bool) -> void:
 		runner.apply_edit(data, structural)
 	for view in _inspectors():
 		view.request_rebuild()
+	for view in _ribbons():
+		view.request_refresh()
 
 
 func _on_command(id: StringName) -> void:
@@ -259,6 +292,22 @@ func _on_command(id: StringName) -> void:
 		&"studio_jump_back": _jump_back()
 		&"studio_deselect":
 			tools.select("")
+		&"studio_toggle_timeline":
+			timeline_on = not timeline_on
+			if timeline_on:
+				_place_ribbon_panel()
+			_show_ribbon()
+		&"studio_toggle_loop":
+			loop.on = not loop.on
+			if loop.on and not loop.is_set():
+				loop.set_in(runner.playhead)
+			_say("Loop %s." % ("on: %s to %s" % [StudioStatus.timecode(loop.a), StudioStatus.timecode(loop.b)] if loop.on else "off"))
+		&"studio_loop_in":
+			loop.set_in(runner.playhead)
+			_say("Loop from %s to %s." % [StudioStatus.timecode(loop.a), StudioStatus.timecode(loop.b)])
+		&"studio_loop_out":
+			loop.set_out(runner.playhead)
+			_say("Loop from %s to %s." % [StudioStatus.timecode(loop.a), StudioStatus.timecode(loop.b)])
 		&"studio_toggle_inspector":
 			inspector_on = not inspector_on
 			if inspector_on:
@@ -409,6 +458,8 @@ func _vr_inspector() -> StudioInspector:
 
 
 func _on_selection_changed(id: String) -> void:
+	for view in _ribbons():
+		view.request_refresh()
 	for view in _inspectors():
 		view.show_object(id)
 	if id != "":
@@ -471,6 +522,93 @@ func _keep_inspector_near() -> void:
 		_place_inspector_panel()
 
 
+# ---------- the timeline ----------
+
+func _bind_ribbon(view: StudioTimelineRibbon) -> void:
+	view.edits = edits
+	view.tools = tools
+	view.waveform = waveform
+	view.loop = loop
+	view.said.connect(_say)
+
+
+func _ribbons() -> Array:
+	var out: Array = [ribbon]
+	if _ribbon_vr != null and is_instance_valid(_ribbon_vr):
+		out.append(_ribbon_vr)
+	return out
+
+
+func _make_ribbon_panel() -> void:
+	ribbon_panel = VP2D3D_SCENE.instantiate()
+	ribbon_panel.name = "RibbonPanel"
+	ribbon_panel.scene = RIBBON_SCENE
+	ribbon_panel.viewport_size = RIBBON_PIXELS
+	ribbon_panel.screen_size = RIBBON_SIZE
+	ribbon_panel.material = FloatingPanel.ui_material()
+	ribbon_panel.visible = false
+	add_child(ribbon_panel)
+	stage.add_masked_panel(ribbon_panel)
+
+
+func _vr_ribbon() -> StudioTimelineRibbon:
+	if _ribbon_vr != null and is_instance_valid(_ribbon_vr):
+		return _ribbon_vr
+	var sub := ribbon_panel.get_node_or_null("Viewport") as SubViewport if ribbon_panel != null else null
+	if sub == null or sub.get_child_count() == 0:
+		return null
+	_ribbon_vr = sub.get_child(0) as StudioTimelineRibbon
+	if _ribbon_vr != null:
+		_bind_ribbon(_ribbon_vr)
+	return _ribbon_vr
+
+
+## In Edit while it's on: the desktop strip, or the headset band.
+func _show_ribbon() -> void:
+	if ribbon == null or tools == null:
+		return
+	var show := mode == Mode.EDIT and timeline_on
+	var in_vr := stage.xr_mode.is_in_vr()
+	ribbon.visible = show and not in_vr
+	if ribbon_panel != null:
+		if show and in_vr and not ribbon_panel.visible:
+			_place_ribbon_panel()
+		ribbon_panel.visible = show and in_vr
+
+
+## In front of you at waist height, level, tilted back to face your eyes.
+func _place_ribbon_panel() -> void:
+	if ribbon_panel == null:
+		return
+	var head := stage.viewer_transform()
+	var fwd := -head.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(0, 0, -1)
+	var at := head.origin + fwd * RIBBON_DISTANCE - Vector3(0, RIBBON_DROP, 0)
+	# The quad's front is +Z: face back toward you, then lean its top away.
+	var basis := Basis.looking_at(fwd, Vector3.UP)
+	basis = basis.rotated(basis.x, -deg_to_rad(RIBBON_TILT))
+	ribbon_panel.global_transform = Transform3D(basis, at)
+	_vr_ribbon()
+
+
+func _keep_ribbon_near() -> void:
+	_vr_ribbon()
+	if ribbon_panel == null or not ribbon_panel.visible:
+		return
+	if stage.viewer_transform().origin.distance_to(ribbon_panel.global_transform.origin) > INSPECTOR_REPLACE:
+		_place_ribbon_panel()
+
+
+## While looping: back to the in point at the out point.
+func _loop_playback() -> void:
+	if not runner.playing:
+		return
+	var back := loop.next_time(runner.playhead)
+	if back >= 0.0:
+		stage.seek_to(back)
+
+
 # ---------- getting around ----------
 
 func _remember_pose() -> void:
@@ -524,6 +662,9 @@ func _toggle_play() -> void:
 	if runner.playing:
 		runner.pause()
 	else:
+		var from := loop.start_time(runner.playhead)
+		if from >= 0.0:
+			stage.seek_to(from)
 		runner.play()
 
 
@@ -562,7 +703,7 @@ func _show_status() -> void:
 			_wrist.action.connect(_on_command)
 	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
 		_wrist.status.callv("show_state", args)
-		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on)
+		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on)
 
 
 func _piece_name() -> String:

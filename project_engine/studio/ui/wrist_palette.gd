@@ -6,7 +6,7 @@ extends PanelContainer
 ## controllers don't have a button for. Press them with the right laser.
 ## Each button asks Studio to run a command (`action`, the same ids as the
 ## router's Studio commands); toggles show their state (auto-key red,
-## snapping and the inspector blue) via show_toggles().
+## snapping, the inspector, the timeline and looping blue) via show_toggles().
 
 signal action(id: StringName)
 
@@ -26,6 +26,10 @@ const BUTTONS := [
 	[&"studio_goto_selection", "Go to it", false],
 	[&"studio_jump_back", "Back", false],
 	[&"studio_toggle_inspector", "Inspector", true],
+	[&"studio_toggle_timeline", "Timeline", true],
+	[&"studio_toggle_loop", "Loop", true],
+	[&"studio_loop_in", "[ In", false],
+	[&"studio_loop_out", "Out ]", false],
 ]
 
 var status: StudioStatus
@@ -45,7 +49,7 @@ func _ready() -> void:
 	status.compact = true
 	rows.add_child(status)
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -65,14 +69,16 @@ func _ready() -> void:
 		_buttons[b[0]] = button
 
 
-## Auto-key, snapping and the inspector as they are in Studio (not what a
-## click toggled).
-func show_toggles(auto_key: bool, snap: bool, inspector: bool = false) -> void:
+## Auto-key, snapping, the inspector, the timeline and looping as they are
+## in Studio (not what a click toggled).
+func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline: bool = false, looping: bool = false) -> void:
 	if _buttons.is_empty():
 		return
 	_buttons[&"studio_toggle_autokey"].set_pressed_no_signal(auto_key)
 	_buttons[&"studio_toggle_snap"].set_pressed_no_signal(snap)
 	_buttons[&"studio_toggle_inspector"].set_pressed_no_signal(inspector)
+	_buttons[&"studio_toggle_timeline"].set_pressed_no_signal(timeline)
+	_buttons[&"studio_toggle_loop"].set_pressed_no_signal(looping)
 
 
 func _style(state: String, id: StringName) -> StyleBoxFlat:

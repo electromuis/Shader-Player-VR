@@ -97,6 +97,10 @@ const COMMANDS := {
 	"studio_jump_back": {"label": "Back to where you were", "context": "studio_edit", "app": "studio"},
 	"studio_deselect": {"label": "Deselect", "context": "studio_edit", "app": "studio"},
 	"studio_toggle_inspector": {"label": "Show / hide the inspector", "context": "studio_edit", "app": "studio"},
+	"studio_toggle_timeline": {"label": "Show / hide the timeline", "context": "studio_edit", "app": "studio"},
+	"studio_toggle_loop": {"label": "Loop on / off", "context": "studio", "app": "studio"},
+	"studio_loop_in": {"label": "Loop from here", "context": "studio_edit", "app": "studio"},
+	"studio_loop_out": {"label": "Loop to here", "context": "studio_edit", "app": "studio"},
 	"studio_fly": {"label": "Fly", "context": "studio_edit", "kind": "axis", "app": "studio"},
 	"studio_right_stick": {"label": "Turn, rise / sink; while grabbing: push / pull", "context": "studio_edit", "kind": "axis", "app": "studio"},
 }
@@ -145,6 +149,10 @@ const DEFAULTS := {
 	"studio_jump_back": [{"input": "key:Shift+F"}],
 	"studio_deselect": [{"input": "key:Escape"}],
 	"studio_toggle_inspector": [{"input": "key:N"}],
+	"studio_toggle_timeline": [{"input": "key:T"}],
+	"studio_toggle_loop": [{"input": "key:L"}],
+	"studio_loop_in": [{"input": "key:BracketLeft"}],
+	"studio_loop_out": [{"input": "key:BracketRight"}],
 	"studio_fly": [{"input": "L.stick"}],
 	"studio_right_stick": [{"input": "R.stick"}],
 }

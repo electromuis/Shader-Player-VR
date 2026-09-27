@@ -83,6 +83,17 @@ func analyze(stream: AudioStream) -> BeatGrid:
 	return result
 
 
+## Decode `stream` and return its loudness over time: {fps, level (mean
+## |sample| per frame)}, or {} if nothing decoded. For drawing a waveform
+## (Studio's timeline); no beat analysis.
+func envelope(stream: AudioStream) -> Dictionary:
+	progress = 0.0
+	if stream == null or not _extract(stream):
+		return {}
+	progress = 1.0
+	return {"fps": _fps, "level": _level}
+
+
 func _analyze_envelopes() -> BeatGrid:
 	_find_onsets()
 	if _onsets.size() < 16:

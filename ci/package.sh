@@ -24,6 +24,8 @@ mkdir -p "$DIST" "$ALL"
 extras() {  # README and third-party licences next to the binaries
   cp "$ROOT/README.md" "$1/"
   cp "$ROOT/project_engine/addons/gde_gozen/LICENSE" "$1/LICENSE-gde_gozen-FFmpeg-LGPL.txt"
+  mkdir -p "$1/resolve"  # DaVinci Resolve's VJ Sync script
+  cp "$ROOT/resolve/VJ Sync.py" "$ROOT/resolve/README.md" "$1/resolve/"
 }
 
 if [ -d "$BUILD/windows" ]; then

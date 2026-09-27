@@ -23,7 +23,8 @@ extends RefCounted
 ##   browser_last_dir      — folder the Files tab last showed ("" = none),
 ##                           reopened at startup.
 ##   live_sync             — follow the authoring editor that started this
-##                           player (`--live-sync`); no effect otherwise.
+##                           player (`--live-sync`), or else DaVinci
+##                           Resolve's VJ Sync script while it runs.
 ##   fullscreen            — desktop window fills the screen (F11).
 ##   show_play_bar         — the desktop bottom media bar (H).
 

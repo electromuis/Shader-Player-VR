@@ -69,3 +69,5 @@ release/media/*
 project_engine/addons/godotopenxrvendors/
 project_engine/android/
 gozen-bin/
+
+__pycache__/

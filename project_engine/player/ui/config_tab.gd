@@ -95,7 +95,7 @@ func _ready() -> void:
 
 	_live_sync = CheckButton.new()
 	_live_sync.text = "Follow the authoring editor"
-	_live_sync.tooltip_text = "When the player was started from the editor's Preview button: scrubbing and playing there drive this player, and pausing here moves the editor's playhead"
+	_live_sync.tooltip_text = "When the player was started from the editor's Preview button, or DaVinci Resolve's VJ Sync script is running: scrubbing and playing there drive this player, and pausing here moves the editor's playhead"
 	_live_sync.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.live_sync = on))
 	_row("Editor sync", _live_sync)

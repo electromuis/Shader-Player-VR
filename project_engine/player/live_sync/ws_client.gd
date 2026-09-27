@@ -1,9 +1,11 @@
 class_name LiveSyncClient
 extends Node
 
-## Live sync with the authoring editor (addon_vj/live_sync/live_sync.gd). The
-## editor runs a WebSocket server on 127.0.0.1 and starts the player with
-## `--live-sync <port>`; this connects to it, retrying every second, so an
+## Live sync with the authoring editor (addon_vj/live_sync/live_sync.gd), or
+## with DaVinci Resolve (resolve/VJ Sync.py, same protocol). The editor runs
+## a WebSocket server on 127.0.0.1 and starts the player with
+## `--live-sync <port>`; without that the player looks for Resolve's script
+## on RESOLVE_PORT. This connects to it, retrying every second, so an
 ## editor restart or addon reload reconnects on its own. JSON text messages
 ## with a `type`:
 ##
@@ -31,6 +33,8 @@ signal seek_requested(t: float)
 signal play_requested
 signal pause_requested
 
+## Where resolve/VJ Sync.py listens (its DEFAULT_PORT).
+const RESOLVE_PORT := 47820
 const RETRY_INTERVAL := 1.0
 const STATE_INTERVAL := 0.1
 ## A play/pause at a time closer than this to the playhead doesn't seek, so

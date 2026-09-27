@@ -42,6 +42,7 @@ Moving around is off by default, so the thumbsticks can seek and change the volu
 - **Source** (how the file is read: flat, 180° or 360°, mono, side-by-side or top-bottom, and swapped eyes) is read from the file name (`_180`, `_360`, `_LR` / `_SBS`, `_RL`, `_TB` / `_OU`, …). If it guesses wrong, change it in **F2 → Camera**. 180° and 360° videos play on a dome around you.
 - **Scripted videos:** put a `.json` with the same name next to the video (`clip.mp4` + `clip.json`) and it plays with that script.
 - **Timecode:** a Whirligig-compatible server runs on `127.0.0.1:2000` for MultiFunPlayer / ScriptPlayer. `-- --whirligig-port N` changes the port (0 turns it off) and `-- --whirligig-lan` lets other machines connect.
+- **DaVinci Resolve:** copy `resolve/VJ Sync.py` into Resolve's `Scripts/Utility` folder and run it from **Workspace → Scripts**. The player then follows Resolve's playhead, and timeline markers can become script events. See `resolve/README.md`.
 
 ## Screen, layers and presets
 

@@ -195,6 +195,8 @@ jobs:
         run: ~/godot/godot --headless --path project_engine --script res://tests/check_extensions.gd
       - name: Unit tests
         run: ~/godot/godot --headless --path project_engine --script res://tests/run.gd
+      - name: DaVinci Resolve script tests
+        run: python3 -m unittest discover -s resolve/tests -v
 
   package:
     name: Export and package

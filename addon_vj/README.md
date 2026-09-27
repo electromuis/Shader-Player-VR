@@ -41,7 +41,9 @@ the player runtime consumes.
   exporter maps them to the player's own. Keep them identical apart from the
   include paths; `project_engine/tests/test_addon_shader_copies.gd` checks
 - `exporter/scene_exporter.gd` — walks a scene + its `AnimationPlayer`, produces
-  the JSON dict, writes it to the configured output path
+  the JSON dict, writes it to the configured output path. Events in the
+  existing file with `"source": "resolve"` (DaVinci Resolve's timeline
+  markers, see `resolve/README.md`) are kept
 
 ## Scene convention (what the exporter expects)
 

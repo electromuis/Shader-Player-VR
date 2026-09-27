@@ -1,9 +1,10 @@
 // @title Oval mask
-// Sets the alpha on one side of an oval, centred on the screen, to `level`:
-// 0 cuts that part away, 1 makes it solid (undoing an earlier Key black
-// there, black included). `size` is the oval's height as a fraction of the
-// screen's, `ratio` its width / height (1.78 fits a 16:9 screen) and `blur`
-// the width of the soft edge, in the same units as size.
+// Cuts away one side of an oval, centred on the screen, by `level`: its
+// alpha goes to 1 - level, so 1 cuts that part away and 0 makes it solid
+// (undoing an earlier Key black there, black included). `size` is the
+// oval's height as a fraction of the screen's, `ratio` its width / height
+// (1.78 fits a 16:9 screen) and `blur` the width of the soft edge, in the
+// same units as size.
 shader_type canvas_item;
 #include "res://player/visualizer/effect_prelude.gdshaderinc"
 
@@ -21,8 +22,9 @@ void fragment() {
 	float f = max(blur, 0.0001) * 0.5;
 	float inside = 1.0 - smoothstep(r - f, r + f, d);
 	float m = outside ? 1.0 - inside : inside;
-	// Premultiplied colour and alpha, each pulled toward the level.
-	float a = mix(c.a, 1.0-level, m);
-	vec3 premul = c.rgb * c.a * mix(1.0, level, m);
+	// Premultiplied colour and alpha, each pulled toward the same target.
+	float target = 1.0 - level;
+	float a = mix(c.a, target, m);
+	vec3 premul = c.rgb * c.a * mix(1.0, target, m);
 	COLOR = vec4(a > 0.0 ? premul / a : vec3(0.0), a);
 }

@@ -44,6 +44,13 @@ if not exist "%GOZEN_DLL%" (
     exit /b 1
 )
 
+rem gozen's own build output carries a .gdignore in bin\; copied in with the
+rem DLLs it hides them from the export, and the player starts without video.
+for %%D in ("%GOZEN_DLL%") do if exist "%%~dpD.gdignore" (
+    echo Removing %%~dpD.gdignore: it keeps the gozen DLL out of the export.
+    del /q "%%~dpD.gdignore"
+)
+
 if exist "%DIST%" rmdir /s /q "%DIST%"
 if exist "%ZIP%" del /q "%ZIP%"
 mkdir "%DIST%"

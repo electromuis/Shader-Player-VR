@@ -264,7 +264,14 @@ func _start_open(retry: bool = false) -> void:
 
 ## Worker thread: the slow part of a load (probing the file / stream).
 func _open_worker(path: String) -> void:
-	var video := GoZenVideo.new()
+	# ClassDB and base types, never the gozen class names: exports load gozen
+	# at runtime (GoZenLoader), after GDScript has listed the classes it can
+	# compile against, so naming one fails or crashes.
+	var video: Resource = ClassDB.instantiate("GoZenVideo")
+	# Decode on the GPU where the codec allows (NVDEC, D3D11VA, ...); gozen
+	# falls back to software by itself. Older gozen builds lack the flag.
+	if video.has_method("set_prefer_hw_decoding"):
+		video.set_prefer_hw_decoding(false)
 	# open() doesn't always report failure (e.g. a missing file); is_open() does.
 	if video.open(path) or not video.is_open():
 		video = null
@@ -274,7 +281,7 @@ func _open_worker(path: String) -> void:
 		# a local file without sound isn't worth a second probe.
 		var tries := OPEN_ATTEMPTS if DefaultScreen.is_url(path) else 1
 		for i in tries:
-			var stream := AudioStreamFFmpeg.new()
+			var stream: AudioStream = ClassDB.instantiate("AudioStreamFFmpeg")
 			if stream.open(path, -1) == OK:
 				audio = stream
 				break
@@ -300,6 +307,9 @@ func _finish_open() -> void:
 		_update_busy()
 		video_load_failed.emit()
 		return
+	if video.has_method("get_hw_device"):
+		var hw: String = video.get_hw_device()
+		print("Video decoding: %s" % (hw if hw != "" else "software"))
 	# No audio track: say so, or update_video retries the open on this thread.
 	_vp.enable_audio = audio != null
 	_vp.update_video(video, audio)  # → video_loaded → _on_video_loaded

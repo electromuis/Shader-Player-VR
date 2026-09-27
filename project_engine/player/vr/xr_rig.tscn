@@ -40,6 +40,7 @@ visible = false
 screen_size = Vector2(0.22, 0.16)
 viewport_size = Vector2(660, 480)
 scene = ExtResource("3_wrist")
+collision_layer = 1048577
 unshaded = true
 
 [node name="RightController" type="XRController3D" parent="."]

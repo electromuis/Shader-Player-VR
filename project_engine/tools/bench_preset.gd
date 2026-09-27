@@ -16,9 +16,16 @@ extends SceneTree
 ## to about 10 fps.
 ##   godot --xr-mode off --path project_engine --script res://tools/bench_preset.gd -- \
 ##       --preset <preset.json> --video <video file> [--seconds 10] [--warmup 3] [--top 8]
+##
+## With `--vr` (and without `--xr-mode off`) it measures in the headset
+## instead: the player enters VR as it does at startup, the runtime paces
+## the frames, and the report adds the headset's refresh rate and how many
+## frames missed it. Wear the headset (or keep its sensor covered) so the
+## runtime doesn't pause the app.
 
 var _args: PackedStringArray
 var _main: Node
+var _vr := false
 
 
 func _init() -> void:
@@ -46,16 +53,22 @@ func _run() -> void:
 		printerr("bench_preset: --video must name a video file")
 		quit(1)
 		return
+	_vr = _args.has("--vr")
 	var xr := XRServer.find_interface("OpenXR")
-	if xr != null and xr.is_initialized():
+	if not _vr and xr != null and xr.is_initialized():
 		printerr("bench_preset: OpenXR is running, which caps frames at ~10 fps: add --xr-mode off")
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0
 
 	_main = load("res://player/main.tscn").instantiate()
-	_main._cli_force_desktop = true
+	_main._cli_force_desktop = not _vr
+	_main._cli_start_in_vr = _vr
 	root.add_child(_main)
 	await process_frame
+	if _vr and not _main.xr_mode.is_in_vr():
+		printerr("bench_preset: --vr but VR didn't start (headset connected? no --xr-mode off?)")
+		quit(1)
+		return
 	_main.open_file(video)
 	await _wait(warmup)
 
@@ -163,6 +176,15 @@ func _report(preset_path: String, frame_ms: Array[float], gpu_ms: Array[float], 
 	lines.append("frame ms    avg %.2f  p50 %.2f  p95 %.2f  p99 %.2f  max %.2f" % [total_time / n,
 			sorted[n / 2], sorted[mini(n - 1, int(n * 0.95))], sorted[mini(n - 1, int(n * 0.99))], sorted[-1]])
 	lines.append("GPU ms      avg %.3f per frame (all viewports)" % (gpu_total / n))
+	if _vr:
+		var xr := XRServer.find_interface("OpenXR")
+		var hz: float = xr.get_display_refresh_rate() if xr != null else 0.0
+		if hz > 0.0:
+			# Half again over the frame budget: the runtime showed a frame twice.
+			var budget := 1000.0 / hz
+			var missed := frame_ms.filter(func(f): return f > budget * 1.5).size()
+			lines.append("headset     %.0f Hz (%.2f ms budget), %d of %d frames missed it (%.1f%%)" % [
+					hz, budget, missed, n, 100.0 * missed / n])
 	var keys := per_pass.keys()
 	keys.sort_custom(func(a, b): return per_pass[a] > per_pass[b])
 	lines.append("costliest viewports (avg GPU ms per frame):")

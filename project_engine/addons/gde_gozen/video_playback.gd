@@ -41,7 +41,7 @@ var playback_speed: float = 1.0: set = set_playback_speed ## Adjust the video pl
 @export var color_profile: COLOR_PROFILE = COLOR_PROFILE.AUTO: set = _set_color_profile ## Force a specific color profile if needed.
 @export var debug: bool = false ## Enable/disable the printing of debug info.
 
-var video: GoZenVideo = null ## Video class object of GDE GoZen which interacts with video files through FFmpeg.
+var video: Resource = null ## GoZenVideo, typed as its base class (see set_video_path). Video class object of GDE GoZen which interacts with video files through FFmpeg.
 
 var video_texture: TextureRect = TextureRect.new() ## The texture rect is the view of the video, you can adjust the scaling options as you like, it is set to always center and scale the image to fit within the main VideoPlayback node size.
 var audio_player: AudioStreamPlayer = AudioStreamPlayer.new() ## Audio player is the AudioStreamPlayer which handles the audio playback for the video, only mess with the settings if you know what you are doing and know what you'd like to achieve.
@@ -142,7 +142,10 @@ func set_video_path(new_path: String) -> void:
 		new_path = ResourceUID.get_id_path(ResourceUID.text_to_id(new_path))
 
 	path = new_path
-	video = GoZenVideo.new()
+	# ClassDB, and no GoZenVideo / AudioStreamFFmpeg types anywhere: exports
+	# load gozen at runtime (GoZenLoader), after GDScript has listed the
+	# classes it can compile against, so naming one fails or crashes.
+	video = ClassDB.instantiate("GoZenVideo")
 	if debug:
 		video.enable_debug()
 	else:
@@ -154,7 +157,7 @@ func set_video_path(new_path: String) -> void:
 
 
 ## Update the video manually by providing a GoZenVideo instance and an optional AudioStreamWAV.
-func update_video(video_instance: GoZenVideo, audio_stream: AudioStream = null) -> void:
+func update_video(video_instance: Resource, audio_stream: AudioStream = null) -> void:
 	close()
 	if !is_node_ready():
 		await ready
@@ -176,7 +179,7 @@ func update_video(video_instance: GoZenVideo, audio_stream: AudioStream = null) 
 
 
 ## Only run this function after manually having added a Video object to the `video` variable. A good reason for doing this is to load your video's at startup time to prevent your program for freezing for a second when loading in big video files. Some video formats load faster then others so if you are experiencing issues with long loading times, try to use this function and create the video object on startup, or try switching the video format which you are using.
-func _update_video(new_video: GoZenVideo) -> void:
+func _update_video(new_video: Resource) -> void:
 	video = new_video
 	if !is_open():
 		printerr("Video isn't open!")
@@ -550,7 +553,7 @@ func _open_video() -> void:
 
 
 func _open_audio(stream_id: int = -1) -> void:
-	var stream: AudioStreamFFmpeg = AudioStreamFFmpeg.new()
+	var stream: AudioStream = ClassDB.instantiate("AudioStreamFFmpeg")
 
 	if stream.open(path, stream_id) != OK:
 		printerr("Failed to open AudioStreamFFmpeg for: %s" % path)

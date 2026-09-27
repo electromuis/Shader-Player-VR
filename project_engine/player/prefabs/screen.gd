@@ -36,6 +36,13 @@ extends Node3D
 ## the unpadded picture sits in it (`picture_rect`), and past a Rounded
 ## corners effect its outline's shape (`picture_shape`).
 ##
+## Passes that read only a VideoBridge's frame (no artist shader, and no
+## effect that animates by itself, VisualizerShaders.is_animated) render on
+## demand like the bridge: when it redraws the frame (its redraw_serial) or
+## the chain changes, not on every display frame. Otherwise they render
+## every frame. Screens process after other nodes (PROCESS_PRIORITY), so a
+## frame the decoder or a script track changed this frame renders now.
+##
 ## An effect that declares `prepass_tex` (VisualizerShaders.has_prepass) gets
 ## a prepass: the same shader with `prepass` on, at `prepass_scale` of the
 ## pass's size, whose output it reads as `prepass_tex`. Heavy, soft work
@@ -58,6 +65,8 @@ const _CURVED_CULL_MARGIN := 16384.0  # curved or moving: can reach far past the
 ## _passes' `effect` for the chain_copy passes.
 const _SOURCE_COPY := -1
 const _MARGIN_COPY := -2
+## After the decoder, the bridge and the script runner (see _update_chain_redraw).
+const PROCESS_PRIORITY := 100
 
 ## The viewer's home eye (where reset view puts them), in world space:
 ## surfaces placed around the viewer centre on it. Set by main.gd.
@@ -94,6 +103,11 @@ var _passes: Array[Dictionary] = []
 ## _pass_counts() when the passes were built: a params change that alters
 ## it rebuilds them.
 var _built_counts: Array = []
+## No active effect animates by itself (see _chain_serial).
+var _chain_static: bool = false
+## The input's redraw serial the passes last rendered for; -1 = rendering
+## every frame.
+var _chain_seen: int = -1
 var _base_scale: Vector3 = Vector3.ONE  # the quad's scale before the margin
 var _pad_scale: Vector2 = Vector2.ONE  # the quad's growth from the margin
 var _chain_holder: Node
@@ -106,6 +120,7 @@ var _scripted: Dictionary = {}
 
 func _ready() -> void:
 	add_to_group(VisualizerShaders.RELOAD_GROUP)
+	process_priority = PROCESS_PRIORITY
 	render_viewport.transparent_bg = true
 	render_viewport.disable_3d = true
 	_requested_size = render_viewport.size
@@ -123,6 +138,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_update_chain_redraw()
 	if _display_material == null:
 		return
 	if _placement() == ScreenGeometry.Placement.AROUND:
@@ -166,6 +182,7 @@ func set_video_texture(tex: Texture2D) -> void:
 	_video_texture = tex
 	for p in _passes:
 		p.material.set_shader_parameter("video_tex", _effect_video())
+	_chain_changed()
 
 
 func _effect_video() -> Texture2D:
@@ -449,11 +466,14 @@ func _build_chains(src: Texture2D) -> void:
 		_chain_holder.remove_child(c)
 		c.queue_free()
 	_passes.clear()
+	_chain_seen = -1  # new passes render every frame until _update_chain_redraw
 	_built_counts = _pass_counts()
 	var active: Array[int] = []
+	_chain_static = true
 	for i in _effect_shaders.size():
 		if _effect_shaders[i] != null:
 			active.append(i)
+			_chain_static = _chain_static and not VisualizerShaders.is_animated(_effect_shaders[i])
 	if active.is_empty() or src == null:
 		_set_display_param("frame_tex", src)
 		_set_display_param("eyes_split", false)
@@ -568,6 +588,7 @@ func _params_changed() -> void:
 ## margin copy on the grown pass size and quad (walked per eye chain, in
 ## units of the unpadded picture's height).
 func _apply_effect_params() -> void:
+	_chain_changed()
 	var base := _display_aspect()
 	var margin := _margin(base)
 	var w := base
@@ -624,6 +645,48 @@ static func pad(base: float, px: Vector2, margin: Vector2) -> Dictionary:
 	var w := base + 2.0 * maxf(margin.x, 0.0)
 	var h := 1.0 + 2.0 * maxf(margin.y, 0.0)
 	return {"w": w, "h": h, "px": px * Vector2(w / base, h)}
+
+
+## Render the passes once when their input frame or they themselves
+## changed, if they can render on demand (_chain_serial); else every frame.
+func _update_chain_redraw() -> void:
+	if _passes.is_empty():
+		return
+	var serial := _chain_serial()
+	if serial < 0:
+		if _chain_seen >= 0:
+			_chain_seen = -1
+			_set_passes_update(SubViewport.UPDATE_ALWAYS)
+		return
+	if serial != _chain_seen:
+		_chain_seen = serial
+		_set_passes_update(SubViewport.UPDATE_ONCE)
+
+
+## The passes' params, sizes or inputs changed: on demand, render them this
+## frame (a resized pass would otherwise show its cleared texture).
+func _chain_changed() -> void:
+	if _chain_seen >= 0:
+		_set_passes_update(SubViewport.UPDATE_ONCE)
+
+
+## The redraw serial of everything the passes read, or -1 if it may change
+## on any frame (an artist shader, an animated effect, or an input that
+## isn't a VideoBridge's frame; see VideoBridge.redraw_serial_of).
+func _chain_serial() -> int:
+	if not _chain_static or get_shader_material() != null:
+		return -1
+	var serial := VideoBridge.redraw_serial_of(_source_texture)
+	var video := _effect_video()
+	if serial >= 0 and video != _source_texture:
+		var v := VideoBridge.redraw_serial_of(video)
+		serial = serial + v if v >= 0 else -1
+	return serial
+
+
+func _set_passes_update(mode: SubViewport.UpdateMode) -> void:
+	for p in _passes:
+		(p.viewport as SubViewport).render_target_update_mode = mode
 
 
 ## The first effect (index) drawing past the picture's edge, which the

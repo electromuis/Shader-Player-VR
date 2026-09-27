@@ -113,6 +113,7 @@ static var _hints_cache := {}
 static var _include_re := RegEx.create_from_string("#include\\s+\"([^\"]+)\"")
 static var _prepass_re := RegEx.create_from_string("(?m)^\\s*uniform\\s+sampler2D\\s+prepass_tex\\b")
 static var _title_re := RegEx.create_from_string("(?m)^\\s*//\\s*@title\\s+(.+?)\\s*$")
+static var _time_re := RegEx.create_from_string("\\bTIME\\b")
 static var _expression_hint_re := RegEx.create_from_string(
 		"(?m)^\\s*//\\s*@(%s)\\s+(.+?)\\s*$" % "|".join(EXPRESSION_HINTS))
 static var _hint_helpers := _HintHelpers.new()
@@ -309,6 +310,13 @@ static func is_effect_code(code: String) -> bool:
 ## mention: an inlined prelude's comments name it too (expand_includes).
 static func has_prepass(shader: Shader) -> bool:
 	return shader != null and _prepass_re.search(shader.code) != null
+
+
+## Whether `shader` changes over time by itself (reads TIME, or includes
+## the Shadertoy prelude, whose inputs do): its output can't be kept from
+## one frame to the next (see Screen's on-demand effect chains).
+static func is_animated(shader: Shader) -> bool:
+	return shader != null and (_time_re.search(shader.code) != null or shader.code.contains(PRELUDE.get_file()))
 
 
 ## parse_hints() for the shader at `key` (cached); {} hints if unreadable.

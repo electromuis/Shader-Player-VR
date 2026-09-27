@@ -44,6 +44,8 @@ var _registry: ObjectRegistry
 var _prefabs: PrefabLibrary
 var _stage: Node3D
 var _events_sorted: Array = []
+## timeline.continuous_tracks(), kept with the timeline (evaluated every frame).
+var _continuous: Array = []
 var _next_event_idx: int = 0
 var _watcher: FileWatcher
 var _video_duration: float = 0.0  # set externally when the video reports its length
@@ -194,6 +196,7 @@ func _apply_timeline(data: TimelineData, preserve_playhead: bool) -> void:
 		DefaultScreen.inject(data)
 	timeline = data
 	_events_sorted = data.events_sorted()
+	_continuous = data.continuous_tracks()
 	if preserve_playhead:
 		_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	else:
@@ -219,6 +222,7 @@ func _reconcile_swap(new_timeline: TimelineData) -> void:
 	var old_timeline := timeline
 	timeline = new_timeline
 	_events_sorted = new_events
+	_continuous = new_timeline.continuous_tracks()
 	_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	_sync_owned(expected)
 	_update_watched_files()
@@ -381,7 +385,7 @@ func _setup_modifiers(id: String, node: Node3D, cfg: Dictionary) -> void:
 	var reactive = cfg.get("reactive")
 	var spin_kfs: Array = []
 	var pulse_track := false
-	for track in timeline.continuous_tracks():
+	for track in _continuous:
 		if track.get("type") == "shader_param" and track.get("target") == id + ".reactive":
 			if track.get("param") == "spin":
 				spin_kfs = track.get("keyframes", [])
@@ -529,7 +533,7 @@ func _do_despawn(ev: Dictionary) -> void:
 func _evaluate_continuous_tracks() -> void:
 	if timeline == null:
 		return
-	for track in timeline.continuous_tracks():
+	for track in _continuous:
 		match track.get("type", ""):
 			"transform": _apply_transform_track(track)
 			"shader_param": _apply_shader_param_track(track)
@@ -569,9 +573,10 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 	var param: String = String(track.get("param", ""))
 	value = shader_value(value)
 	if parts[1] == "modifiers":
-		var mods: Dictionary = node.get_meta(_MODS_META, {}).duplicate()
+		var mods: Dictionary = node.get_meta(_MODS_META, {})
 		value = Modifiers.normalize(param, value)
 		if mods.get(param) != value:
+			mods = mods.duplicate()
 			mods[param] = value
 			node.set_meta(_MODS_META, mods)
 			Modifiers.refresh(node, _mods_lookup)

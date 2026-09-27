@@ -204,6 +204,65 @@ static func test_screen_rebuilds_when_pass_count_changes(t: TestCase) -> void:
 	screen.free()
 
 
+## A Screen whose effects read only a VideoBridge's frame renders them when
+## the bridge redraws or they change; animated effects and other sources
+## render every frame.
+static func test_screen_passes_render_on_demand(t: TestCase) -> void:
+	var tex := ImageTexture.create_from_image(Image.create(4, 4, false, Image.FORMAT_RGBA8))
+	var bridge := VideoBridge.new()
+	VideoBridge._by_texture[tex] = bridge
+	var screen: Screen = load("res://player/prefabs/screen.tscn").instantiate()
+	screen.notification(Node.NOTIFICATION_READY)
+	screen.set_source_texture(tex)
+	var modes := func() -> Array:
+		return screen._passes.map(func(p): return (p.viewport as SubViewport).render_target_update_mode)
+	var rendered := func() -> void:  # what UPDATE_ONCE turns into after a render
+		screen._set_passes_update(SubViewport.UPDATE_DISABLED)
+	var all_are := func(mode: int) -> bool:
+		return modes.call().all(func(m): return m == mode)
+
+	screen.set_effects([{"shader": VisualizerShaders.BLUR}])
+	screen._update_chain_redraw()
+	t.assert_true(all_are.call(SubViewport.UPDATE_ONCE), "first render")
+	rendered.call()
+	screen._update_chain_redraw()
+	t.assert_true(all_are.call(SubViewport.UPDATE_DISABLED), "same frame: nothing to do")
+	bridge.redraw_serial += 1
+	screen._update_chain_redraw()
+	t.assert_true(all_are.call(SubViewport.UPDATE_ONCE), "new video frame")
+	rendered.call()
+	screen.set_effect_param(0, "radius", 0.3)
+	t.assert_true(all_are.call(SubViewport.UPDATE_ONCE), "a param change renders at once")
+
+	screen.set_effects([{"shader": "res://player/visualizer/effects/hue_cycle.gdshader"}])
+	screen._update_chain_redraw()
+	t.assert_true(all_are.call(SubViewport.UPDATE_ALWAYS), "animated effect: every frame")
+
+	VideoBridge._by_texture.erase(tex)
+	screen.set_effects([{"shader": VisualizerShaders.BLUR}])
+	screen._update_chain_redraw()
+	t.assert_true(all_are.call(SubViewport.UPDATE_ALWAYS), "not a bridge's frame: every frame")
+	screen.free()
+	bridge.free()
+
+
+static func test_bridge_redraws_when_its_content_does(t: TestCase) -> void:
+	t.assert_eq(VideoBridge.redraw_serial_of(ImageTexture.new()), -1, "not a bridge's texture")
+	var bridge := VideoBridge.new()
+	bridge._viewport = SubViewport.new()
+	var label := Label.new()
+	bridge._viewport.add_child(label)
+	bridge._watch(bridge._viewport)
+	var before := bridge.redraw_serial
+	label.draw.emit()
+	t.assert_eq(bridge.redraw_serial, before + 1, "a redraw inside")
+	t.assert_eq(bridge._viewport.render_target_update_mode, SubViewport.UPDATE_ONCE)
+	label.visibility_changed.emit()
+	t.assert_eq(bridge.redraw_serial, before + 2, "shown or hidden")
+	bridge._viewport.free()
+	bridge.free()
+
+
 static func test_legacy_padding_dropped(t: TestCase) -> void:
 	var s := ScreenSettings.new()
 	s.from_dict({"effects": [{"shader": VisualizerShaders.LEGACY_PADDING, "params": {"amount": 1.0}},
@@ -263,8 +322,8 @@ static func test_builtin_effects(t: TestCase) -> void:
 	t.assert_eq(names, ["inward", "radius", "pass_scale"])
 	names = VisualizerShaders.hints_for(VisualizerShaders.GLOW).params.map(func(p): return p.name)
 	t.assert_eq(names, ["intensity", "radius", "mirror", "diffuse", "repeat",
-			"smear", "bloom", "saturation", "blur", "border_blur", "soften", "samples",
-			"edge_width", "edge_brighten", "edge_fade", "fade_width", "prepass_scale"])
+			"smear", "saturation", "blur", "border_blur", "soften", "samples",
+			"edge_width", "edge_brighten", "fade_width", "prepass_scale"])
 	t.assert_true(VisualizerShaders.has_prepass(VisualizerShaders.load_shader(VisualizerShaders.GLOW)), "glow has a prepass")
 	t.assert_true(not VisualizerShaders.has_prepass(VisualizerShaders.load_shader(VisualizerShaders.EDGE_BLUR)), "edge blur has none")
 	names = VisualizerShaders.hints_for(VisualizerShaders.CROP).params.map(func(p): return p.name)

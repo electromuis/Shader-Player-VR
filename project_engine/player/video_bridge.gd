@@ -31,6 +31,13 @@ extends Node
 ## layouts, see set_overlay_stereo) when one takes long enough to notice.
 ## While a video opens, set_loading_thumbnail can put its thumbnail in the
 ## frame (under the "Loading..." card) instead of the old video's frame.
+##
+## The frame is drawn on demand: the viewport renders once per new video
+## frame (the decoder's frame_changed) and whenever something drawn in it
+## changes (placeholder, thumbnail, overlay), not on every display frame.
+## At 90 Hz in VR that skips most of the full-resolution YUVâ†’RGB passes of
+## a 30 fps video. Each redraw bumps redraw_serial, which effect chains
+## reading the frame follow the same way (see redraw_serial_of, Screen).
 
 signal video_loaded(duration_seconds: float, framerate: float)
 signal video_load_failed
@@ -74,6 +81,11 @@ var _pending_frame: int = -1  # latest request made during a seek; -1 = none
 var _busy_reported: bool = false  # last busy_changed value
 var _busy_since_msec: int = 0
 var _overlay_text: String = ""  # what the overlay's labels say, "" = none
+## Bumped whenever the output texture is redrawn (see _redraw).
+var redraw_serial: int = 0
+
+## Output texture -> the bridge drawing it (see redraw_serial_of).
+static var _by_texture: Dictionary = {}
 
 
 func _ready() -> void:
@@ -85,7 +97,7 @@ func _ready() -> void:
 	_viewport = SubViewport.new()
 	_viewport.name = "VideoViewport"
 	_viewport.size = Vector2i(1280, 720)  # resized to actual video resolution on load
-	_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	_viewport.transparent_bg = false
 	_viewport.disable_3d = true
 	add_child(_viewport)
@@ -122,9 +134,14 @@ func _ready() -> void:
 	_overlay.visible = false
 	_viewport.add_child(_overlay)
 	set_volume(_volume)
+	_vp.frame_changed.connect(_redraw.unbind(1))
+	_watch(_viewport)
+	_by_texture[_viewport.get_texture()] = self
 
 
 func _exit_tree() -> void:
+	if _viewport != null:
+		_by_texture.erase(_viewport.get_texture())
 	_wait_for_seek()
 	for t in _stale_tasks + ([_load_task] if _load_task != -1 else []):
 		WorkerThreadPool.wait_for_task_completion(t)
@@ -162,6 +179,42 @@ static func _build_placeholder() -> Control:
 ## until VideoPlayback starts rendering.
 func get_output_texture() -> Texture2D:
 	return _viewport.get_texture() if _viewport != null else null
+
+
+## redraw_serial of the bridge whose output texture `tex` is, or -1 when
+## it isn't one (then it may change on any frame).
+static func redraw_serial_of(tex: Texture2D) -> int:
+	var bridge: VideoBridge = _by_texture.get(tex)
+	return bridge.redraw_serial if bridge != null else -1
+
+
+## Render the output texture once more, this frame.
+func _redraw() -> void:
+	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	redraw_serial += 1
+
+
+## Redraw whenever anything under `node` redraws, shows, hides, or comes
+## or goes (the placeholder, thumbnail and overlay; the video frame itself
+## comes through frame_changed).
+func _watch(node: Node) -> void:
+	if node is CanvasItem and not node.draw.is_connected(_redraw):
+		node.draw.connect(_redraw)
+		node.visibility_changed.connect(_redraw)
+	if not node.child_entered_tree.is_connected(_on_child_entered):
+		node.child_entered_tree.connect(_on_child_entered)
+		node.child_exiting_tree.connect(_on_child_exiting)
+	for c in node.get_children():
+		_watch(c)
+
+
+func _on_child_entered(child: Node) -> void:
+	_watch(child)
+	_redraw()
+
+
+func _on_child_exiting(_child: Node) -> void:
+	_redraw()
 
 
 func load_video(os_path: String) -> void:
@@ -462,5 +515,6 @@ func _on_video_loaded() -> void:
 	var h: int = _vp.video.get_resolution().y
 	if w > 0 and h > 0:
 		_viewport.size = Vector2i(w, h)
+	_redraw()
 	_update_busy()
 	video_loaded.emit(duration_seconds(), _vp.get_video_framerate())

@@ -28,6 +28,11 @@ signal felt(kind: String, hand: String)
 
 const SELECT_COLOR := Color(0.3, 0.79, 0.94)
 const GRAB_COLOR := Color(1.0, 0.85, 0.3)
+## What the pointer would pick, and the selection at its next key.
+const HOVER_COLOR := Color(1.0, 1.0, 1.0, 0.4)
+const GHOST_COLOR := Color(0.3, 0.79, 0.94, 0.3)
+## Keys this close to the playhead count as at it (not "next").
+const SAME_KEY := 0.001
 const SEAT_COLOR := Color(1.0, 0.82, 0.4)
 const AXIS_LENGTH := 0.35
 ## Motion paths: their colours (the viewer's in the seat's), how finely
@@ -52,6 +57,9 @@ var recorder: StudioRecorder
 var auto_key := false
 var snap := false
 var selected := ""
+## What the pointer is on (Studio sets it; "" for nothing): drawn faintly.
+var hovered := ""
+var _hover_bounds: Dictionary = {}  # node instance id -> AABB (one)
 
 ## The drag in progress: {id, node, primary, hands {name: Transform3D},
 ## offset, start (node-style dict), two ({} or {a0, b0, obj0})}.
@@ -349,9 +357,14 @@ func _process(_delta: float) -> void:
 	var id := selected
 	var node := runner.registry().get_node_by_id(id) if runner != null and id != "" else null
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
-		_draw_seat()
+		_lines.surface_begin(Mesh.PRIMITIVE_LINES)
+		_draw_hover()
+		_draw_seat_lines()
+		_draw_path_lines()
+		_lines.surface_end()
 		return
 	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
+	_draw_hover()
 	var key := node.get_instance_id()
 	if not _bounds_cache.has(key):
 		var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
@@ -369,9 +382,66 @@ func _process(_delta: float) -> void:
 	_line(o, o + b.z * AXIS_LENGTH, Color(0.36, 0.55, 1))
 	if is_grabbing() and snap:
 		_draw_grid(o, node)
+	elif not is_grabbing() and box.size != Vector3.ZERO:
+		var ghost := next_key_pose(id)
+		if not ghost.is_empty():
+			var parent := node.get_parent() as Node3D
+			var gxf: Transform3D = (parent.global_transform if parent != null else Transform3D()) * (ghost.xf as Transform3D)
+			if not gxf.is_equal_approx(xf):
+				for e in _box_edges(box):
+					_line(gxf * e[0], gxf * e[1], GHOST_COLOR)
 	_draw_seat_lines()
 	_draw_path_lines()
 	_lines.surface_end()
+
+
+## What the pointer would pick: a faint box (not the selection's).
+func _draw_hover() -> void:
+	if hovered == "" or hovered == selected or runner == null:
+		return
+	var node := runner.registry().get_node_by_id(hovered)
+	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
+		return
+	var key := node.get_instance_id()
+	if not _hover_bounds.has(key):
+		var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
+		_hover_bounds = {key: StudioPicker.local_bounds(node, others)}
+	var box: AABB = _hover_bounds[key]
+	var xf := node.global_transform
+	for e in _box_edges(box):
+		_line(xf * e[0], xf * e[1], HOVER_COLOR)
+
+
+## Where `id` will be at its next transform key after the playhead:
+## {t, xf (its local transform then)}, or {} if it has none ahead. Channels
+## without a track keep where it is now.
+func next_key_pose(id: String) -> Dictionary:
+	if model == null or runner == null:
+		return {}
+	var node := runner.registry().get_node_by_id(id)
+	if node == null:
+		return {}
+	var now := runner.playhead
+	var next := INF
+	var tracks := {}
+	for ch in ["position", "rotation_deg", "scale"]:
+		var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, id, ch)
+		if ti < 0:
+			continue
+		var kfs: Array = model.tracks()[ti].get("keyframes", [])
+		tracks[ch] = kfs
+		for k in kfs:
+			if float(k.t) > now + SAME_KEY:
+				next = minf(next, float(k.t))
+				break
+	if next == INF:
+		return {}
+	var d := GrabMath.to_dict(node.transform)
+	for ch in tracks:
+		var v = Interpolation.evaluate(tracks[ch], next)
+		var vec := Interpolation.to_vec3(v)
+		d[ch] = [vec.x, vec.y, vec.z]
+	return {"t": next, "xf": GrabMath.from_dict(d)}
 
 
 ## The snapping grid: 10 cm lines on the object's parent's horizontal plane
@@ -385,13 +455,6 @@ func _draw_grid(at: Vector3, node: Node3D) -> void:
 		var off := i * StudioSnap.GRID
 		_line(pxf * (local + Vector3(off, 0, -0.5)), pxf * (local + Vector3(off, 0, 0.5)), c)
 		_line(pxf * (local + Vector3(-0.5, 0, off)), pxf * (local + Vector3(0.5, 0, off)), c)
-
-
-func _draw_seat() -> void:
-	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
-	_draw_seat_lines()
-	_draw_path_lines()
-	_lines.surface_end()
 
 
 ## The selection's motion path: where its position track takes it (for the

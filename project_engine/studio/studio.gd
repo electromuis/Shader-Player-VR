@@ -283,6 +283,34 @@ func _process(delta: float) -> void:
 	_record_tick()
 	_loop_playback()
 	_autosave_tick(delta)
+	_update_hover(delta)
+
+
+## What the pointer would pick (the mouse, or the main hand's laser when
+## it isn't on a panel), for the edit tools to outline faintly; checked
+## HOVER_SECONDS apart (picking walks every object's meshes).
+const HOVER_SECONDS := 0.1
+var _hover_clock := 0.0
+
+
+func _update_hover(delta: float) -> void:
+	_hover_clock += delta
+	if _hover_clock < HOVER_SECONDS:
+		return
+	_hover_clock = 0.0
+	var id := ""
+	if mode == Mode.EDIT and model != null and not tools.is_grabbing() and not tools.is_grabbing_key() and held_asset.is_empty():
+		var xf := Transform3D()
+		var aiming := false
+		if stage.xr_mode.is_in_vr():
+			aiming = not stage.router.is_context_active("menus")
+			xf = _hand_xf(_main_hand())
+		else:
+			aiming = not _mouse_over_ui()
+			xf = _mouse_hand()
+		if aiming:
+			id = tools.pick(xf.origin, -xf.basis.z)
+	tools.hovered = id
 
 
 # ---------- keeping work safe ----------

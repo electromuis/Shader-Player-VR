@@ -315,6 +315,30 @@ func _initialize() -> void:
 	print("reset all: main hand ", rig.main_hand, ", wrist on ", rig.wrist_panel.get_parent().name, " at ", rig.wrist_panel.position,
 			", pointers L ", rig._pointers.L.enabled, " R ", rig._pointers.R.enabled)
 
+	# The visual pass: screen_2 keyed to rise 1.5 m and turn by 5 s; at 1 s,
+	# selected, a faint ghost shows where its next key puts it; main_screen,
+	# under the pointer, gets a faint hover box.
+	m.set_key(ScriptFormat.TRACK_TRANSFORM, "screen_2", "position", 0.0, [2.0, 1.7, 0.0])
+	m.set_key(ScriptFormat.TRACK_TRANSFORM, "screen_2", "position", 5.0, [2.0, 3.2, 0.0])
+	m.set_key(ScriptFormat.TRACK_TRANSFORM, "screen_2", "rotation_deg", 5.0, [0.0, -25.0, 0.0])
+	studio.stage.seek_to(1.0)
+	tools.select("screen_2")
+	studio._hover_clock = -1000.0  # hold the hover (the check's mouse isn't anywhere)
+	var ms_at := cam.unproject_position((reg.get_node_by_id("main_screen") as Node3D).global_position)
+	tools.hovered = tools.pick(ray_at(ms_at).origin, -ray_at(ms_at).basis.z)
+	await frames(4)
+	var ghost := tools.next_key_pose("screen_2")
+	print("visual: hovered '", tools.hovered, "', screen_2's next key at ", ghost.get("t"), " s, ghost at ", (ghost.xf as Transform3D).origin if not ghost.is_empty() else null)
+	await key(KEY_N)
+	cam.global_position = Vector3(0, 2.6, 11)
+	cam.look_at(Vector3(0, 1.8, 0))
+	await shot("6_hover_and_ghost")
+	await key(KEY_N)
+	for i in 3:
+		await key(KEY_Z, true)
+	studio._hover_clock = 0.0
+	studio.stage.seek_to(0.0)
+
 	# Legibility of the headset panels (their text in degrees of view).
 	tools.select("main_screen")
 	for p in [studio.inspector_panel, studio.ribbon_panel, studio.shelf_panel, rig.wrist_panel]:

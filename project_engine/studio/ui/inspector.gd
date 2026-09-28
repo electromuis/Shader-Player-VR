@@ -190,6 +190,10 @@ func _build() -> void:
 			"effect": _add_effect(s)
 			"layer_shader": _add_layer_shader(s)
 			_: _add_section(s.title, s.title, s.fields)
+	var save_look := _button("★ Save look (Ctrl+L): to the shelf, to put on others", func(): action.emit(&"studio_save_look"))
+	save_look.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	save_look.custom_minimum_size.y = _target_h()
+	_list.add_child(save_look)
 	_refresh_values()
 	_scroll.set_deferred("scroll_vertical", scroll)
 	if _reveal != "":

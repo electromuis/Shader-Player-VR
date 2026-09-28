@@ -236,6 +236,9 @@ func _ready() -> void:
 	_bind_shelf(shelf)
 	_make_shelf_panel()
 	_make_ghost()
+	# Studio's own drawing stays out of looks' snapshots.
+	for helper in [tools, _ghost, inspector_panel, ribbon_panel, shelf_panel]:
+		StudioThumbnailer.mark_helper(helper)
 	_library_signature = library.signature()
 	get_window().files_dropped.connect(_on_files_dropped)
 	status_view.resized.connect(_fit_shelf)
@@ -438,6 +441,7 @@ func _on_command(id: StringName) -> void:
 		&"studio_key_viewer": key_viewer(false)
 		&"studio_cut_here": key_viewer(true)
 		&"studio_miniature": toggle_miniature()
+		&"studio_save_look": save_look()
 		&"studio_arm_ride":
 			recorder.arm_viewer = not recorder.arm_viewer
 			_say("Ride %s." % ("armed: record, and fly the path while it plays" if recorder.arm_viewer else "not armed"))
@@ -1070,6 +1074,27 @@ func _on_taken(asset: Dictionary, view: StudioAssetShelf) -> void:
 	_say("Carrying %s: let go where it goes (Esc puts it back)." % asset.label)
 
 
+## Save the selection's setup (prefab, config, size) as a look on the
+## shelf (StudioLooks, in the first library folder), with a snapshot of it
+## as it is on stage for its card.
+func save_look() -> Dictionary:
+	var id := tools.selected
+	if model == null or id == "" or id == ScriptFormat.VIEWER:
+		_say("Select a screen, layer or object to save its look.")
+		return {"ok": false}
+	var node := runner.registry().get_node_by_id(id) as Node3D
+	var r := StudioLooks.save(model, id, edits.kind_for(id, node), library.library_dirs[0])
+	if not r.ok:
+		_say("Couldn't save the look: %s." % r.error)
+		return r
+	if node != null:
+		thumbnailer.snapshot(node, StudioLooks.picture_path(r.path), "look:" + r.path)
+	_library_signature = library.signature()
+	_refresh_shelf()
+	_say("Saved the look %s: it's on the shelf's Looks tab." % r.label)
+	return r
+
+
 ## Put the carried card back (nothing added).
 func _drop_held() -> void:
 	held_asset = {}
@@ -1140,6 +1165,9 @@ func _drop_hint(asset: Dictionary, where: Dictionary) -> String:
 		"layer":
 			if kind == "layer":
 				return "Let go: %s shows %s." % [on, asset.label]
+		"look":
+			if on != "" and kind == asset.kind:
+				return "Let go: %s takes the look %s." % [on, asset.label]
 	return "Let go: add %s here." % asset.label
 
 

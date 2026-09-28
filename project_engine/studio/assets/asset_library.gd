@@ -5,9 +5,10 @@ extends RefCounted
 ## Assets). Pure: it only lists files, so tests drive it headless.
 ##
 ## An asset: {id (unique: type + path), type ("object" / "layer" /
-##   "effect"), kind ("screen" / "cube" / "prefab" / "layer" / "effect"),
-##   label, path (the prefab for objects, the shader for layers and
-##   effects), source ("builtin", "user" or "piece"), in_piece (a user
+##   "effect" / "look"), kind ("screen" / "cube" / "prefab" / "layer" /
+##   "effect"; a look's: "screen" / "layer" / "object"), label, path (the
+##   prefab for objects, the shader for layers and effects, the file for
+##   looks), source ("builtin", "user" or "piece"), in_piece (a user
 ##   asset the piece has a copy of), scale (the size it's dropped at)}.
 ## A user asset the piece already has a copy of (the same file name and
 ## bytes, as bundling makes) is one card: the user's, marked in_piece.
@@ -22,12 +23,13 @@ extends RefCounted
 ##              prefabs/ subfolders
 ##   piece    — the piece's own: prefabs next to its .json and in its
 ##              prefabs/ folder, shaders in its shaders/ folder
+## Looks (StudioLooks) are the user's: in each library folder's looks/.
 ## Camera effects (`// @camera`) aren't offered: they're not objects.
 ## signature() changes when any of those folders' files do, so the shelf can
 ## watch them.
 
-const TYPES := ["object", "layer", "effect"]
-const TYPE_LABELS := {"object": "Objects", "layer": "Layers", "effect": "Effects"}
+const TYPES := ["object", "layer", "effect", "look"]
+const TYPE_LABELS := {"object": "Objects", "layer": "Layers", "effect": "Effects", "look": "Looks"}
 const PREFAB_EXTENSIONS := ["tscn", "scn"]
 const LAYER_PREFAB := "res://player/prefabs/layer.tscn"
 ## Built-in screens and layers are 32 × 18 m at scale 1: dropped at this
@@ -75,6 +77,14 @@ func assets() -> Array:
 			if f.get_extension().to_lower() in PREFAB_EXTENSIONS:
 				var path := dir.path_join(f)
 				_add(out, seen, "object", "prefab", f.get_basename().capitalize(), path, _source_of(path), 1.0)
+	for dir in _look_dirs():
+		for f in _sorted_files(dir):
+			if f.get_extension().to_lower() == "json":
+				var look := StudioLooks.read(dir.path_join(f))
+				if not look.is_empty():
+					var sc = look.get("scale", [1.0])
+					_add(out, seen, "look", String(look.kind), String(look.get("label", f.get_basename())), dir.path_join(f), "user",
+							float(sc[0]) if typeof(sc) == TYPE_ARRAY and not sc.is_empty() else 1.0)
 	return _merge_copies(out)
 
 
@@ -108,7 +118,7 @@ func of_type(type: String) -> Array:
 ## Changes whenever a file in a watched folder is added, removed or saved.
 func signature() -> String:
 	var parts: Array = []
-	for dir in _shader_scan_dirs() + _prefab_scan_dirs():
+	for dir in _shader_scan_dirs() + _prefab_scan_dirs() + _look_dirs():
 		for f in _sorted_files(dir):
 			parts.append("%s|%d" % [dir.path_join(f), FileAccess.get_modified_time(dir.path_join(f))])
 	return str(hash("\n".join(parts)))
@@ -150,6 +160,13 @@ func _prefab_scan_dirs() -> Array[String]:
 	if piece_dir != "":
 		_push_dir(out, piece_dir)
 		_push_dir(out, piece_dir.path_join("prefabs"))
+	return out
+
+
+func _look_dirs() -> Array[String]:
+	var out: Array[String] = []
+	for d in library_dirs:
+		_push_dir(out, d.path_join(StudioLooks.FOLDER))
 	return out
 
 

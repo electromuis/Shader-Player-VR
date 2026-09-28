@@ -13,6 +13,11 @@ extends Node
 ## (not next to the asset as the plan had it: library folders and the
 ## piece's folder stay free of them). Headless there's no renderer: nothing
 ## is drawn and thumbnail() stays null (the shelf shows its placeholder).
+##
+## A look's picture is different: a snapshot of the object on stage when
+## the look was saved (snapshot()), kept next to the look's file
+## (StudioLooks.picture_path). Studio's own helpers (lines, panels, the
+## carried card) are on HELPER_LAYER, which snapshots leave out.
 
 ## A thumbnail is ready (or came off the disk).
 signal thumbnail_ready(asset_id: String, texture: Texture2D)
@@ -22,6 +27,9 @@ const FRAMES := 10
 ## Bump when the pictures change, so old ones are drawn again.
 const VERSION := 1
 const CACHE_DIR := "user://thumbnails"
+## The render layer (1-based) of Studio's helpers: every camera sees it but
+## a snapshot's.
+const HELPER_LAYER := 20
 const SCREEN_SCENE := preload("res://player/prefabs/screen.tscn")
 const LAYER_SCENE := preload("res://player/prefabs/layer.tscn")
 
@@ -35,6 +43,13 @@ static var _card: Texture2D
 ## (thumbnail_ready says when).
 func thumbnail(asset: Dictionary) -> Texture2D:
 	if _textures.has(asset.id):
+		return _textures[asset.id]
+	if asset.type == "look":
+		var picture := StudioLooks.picture_path(asset.path)
+		var shot := Image.load_from_file(picture) if FileAccess.file_exists(picture) else null
+		if shot == null:
+			return null  # none (saved headless): the placeholder
+		_textures[asset.id] = ImageTexture.create_from_image(shot)
 		return _textures[asset.id]
 	var file := cache_path(asset)
 	if FileAccess.file_exists(file):
@@ -131,17 +146,57 @@ func _render(asset: Dictionary) -> void:
 	_busy = false
 
 
+## A picture of `node` as it is on stage (in its own world and light,
+## without Studio's helpers), saved as `png` and shown for `asset_id`.
+func snapshot(node: Node3D, png: String, asset_id: String) -> void:
+	if not can_render() or node == null or not node.is_inside_tree():
+		return
+	var vp := SubViewport.new()
+	vp.size = SIZE
+	vp.world_3d = node.get_world_3d()
+	vp.msaa_3d = Viewport.MSAA_4X
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	var cam := Camera3D.new()
+	cam.fov = 40.0
+	cam.cull_mask = cam.cull_mask & ~(1 << (HELPER_LAYER - 1))
+	vp.add_child(cam)
+	add_child(vp)
+	_frame(cam, node, node is Screen or node is Visualizer)
+	cam.current = true
+	for i in FRAMES:
+		await get_tree().process_frame
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	if img == null or img.is_empty():
+		return
+	img.save_png(png)
+	var tex := ImageTexture.create_from_image(img)
+	_textures[asset_id] = tex
+	thumbnail_ready.emit(asset_id, tex)
+
+
+## Put `node` and everything drawn under it on HELPER_LAYER only.
+static func mark_helper(node: Node) -> void:
+	if node is VisualInstance3D:
+		(node as VisualInstance3D).layers = 1 << (HELPER_LAYER - 1)
+	for c in node.get_children():
+		mark_helper(c)
+
+
 ## Point the camera at `node`: square on for flat things (screens, layers),
-## else from the front, a little above and to the side.
+## else from the front, a little above and to the side (in its own frame,
+## so a snapshot sees an object on stage from its front).
 static func _frame(cam: Camera3D, node: Node3D, flat: bool) -> void:
 	var box := StudioPicker.local_bounds(node)
 	if box.size == Vector3.ZERO:
 		box = AABB(Vector3(-0.5, -0.5, -0.5), Vector3.ONE)
-	box = node.transform * box
-	var center := box.get_center()
+	var xf := node.global_transform
+	var center := xf * box.get_center()
+	box = Transform3D(Basis.from_scale(xf.basis.get_scale()), Vector3.ZERO) * box
 	var aspect := float(SIZE.x) / SIZE.y
 	var half_v := deg_to_rad(cam.fov) * 0.5
-	var dir := Vector3(0, 0, 1) if flat else Vector3(0.55, 0.45, 1.0).normalized()
+	var facing := xf.basis.orthonormalized()
+	var dir := facing * (Vector3(0, 0, 1) if flat else Vector3(0.55, 0.45, 1.0).normalized())
 	var dist: float
 	if flat:
 		# Fill the picture: whichever of width and height is the tighter fit.

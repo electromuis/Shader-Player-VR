@@ -800,6 +800,48 @@ func delete_key(ti: int, ki: int) -> bool:
 	return _do(label, _is_structural_track(track), [_change(["tracks", ti, "keyframes"], kfs)])
 
 
+## Replace `id`'s spawn config whole ({} removes it): every spawn of it
+## with the same config as its first. When the switched-on effects (or
+## vertex effects) change, their tracks (`<id>.effect<N>`, `.vertex<N>`)
+## go: the effects they animated aren't there any more.
+func replace_config(id: String, cfg: Dictionary, label: String = "") -> bool:
+	var spawns := spawn_indices(id)
+	if spawns.is_empty():
+		return false
+	var old := config_of(id)
+	var first := JSON.stringify(_value_at(["tracks", spawns[0], "config"]))
+	var list := tracks().duplicate()
+	for i in spawns:
+		if JSON.stringify(_value_at(["tracks", i, "config"])) != first:
+			continue
+		var ev: Dictionary = list[i].duplicate()
+		if cfg.is_empty():
+			ev.erase("config")
+		else:
+			ev["config"] = _as_json(cfg)
+		list[i] = ev
+	var gone: Array = []
+	for list_key in ["effects", "vertex_effects"]:
+		if _switched_on_shaders(old, list_key) != _switched_on_shaders(cfg, list_key):
+			gone.append("%s.%s" % [id, "effect" if list_key == "effects" else "vertex"])
+	list = list.filter(func(t):
+		if t.get("type") != ScriptFormat.TRACK_SHADER_PARAM:
+			return true
+		var target := String(t.get("target", ""))
+		for prefix in gone:
+			if target.begins_with(prefix) and target.substr(prefix.length()).is_valid_int():
+				return false
+		return true)
+	return _do(label if label != "" else "Set %s's look" % id, true, [_change(["tracks"], list)])
+
+
+static func _switched_on_shaders(cfg: Dictionary, list_key: String) -> Array:
+	var list = cfg.get(list_key)
+	if typeof(list) != TYPE_ARRAY:
+		return []
+	return list.filter(func(e): return _effect_on(e)).map(func(e): return String(e.get("shader", "")))
+
+
 ## Add an object: `spawn` is a spawn event without "type" / "action"
 ## (id, prefab, t, transform, config, parent). Its prefab key must exist.
 ## With `despawn_at`, a despawn event goes with it.

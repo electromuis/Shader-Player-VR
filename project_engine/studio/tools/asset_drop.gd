@@ -9,6 +9,9 @@ extends RefCounted
 ##     a layer, it becomes that layer's shader instead
 ##   an effect — onto the screen or layer it's dropped on (the end of its
 ##     effects stack)
+##   a look (StudioLooks) — onto an object of its kind (screen, layer,
+##     other), which takes its setup and keeps its place and size; anywhere
+##     else, a new object with it, at the size it was saved at
 ## A user asset is bundled into the piece first (StudioBundle), so the piece
 ## names its own copy. Where it lands (aim): the object the ray hits, else
 ## the floor within FLOOR_REACH, else AIR_DISTANCE out along the ray.
@@ -99,7 +102,43 @@ func drop(asset: Dictionary, where: Dictionary, head: Vector3, t: float, snap: b
 				if not model.set_shader(on, b.path):
 					return {"ok": false, "message": "%s already shows %s." % [on, asset.label]}
 				return {"ok": true, "id": on, "message": "%s now shows %s." % [on, asset.label]}
+		"look":
+			var look := StudioLooks.read(asset.path)
+			if look.is_empty():
+				return {"ok": false, "message": "The look %s can't be read." % asset.label}
+			if on != "" and on_kind == look.kind:
+				var r := StudioLooks.apply(model, on, look)
+				return {"ok": r.ok, "id": on, "message": r.message}
+			return _add_look(asset, look, where, head, t, snap)
 	return _add(asset, where, head, t, snap)
+
+
+## A new object with `look`, where the card lands.
+func _add_look(asset: Dictionary, look: Dictionary, where: Dictionary, head: Vector3, t: float, snap: bool) -> Dictionary:
+	var prefab := StudioBundle.bundle(model.path.get_base_dir(), String(look.prefab))
+	if not prefab.ok:
+		return {"ok": false, "message": prefab.error}
+	var xf := placement(asset, where, head, bounds_of(String(look.prefab)), snap)
+	if typeof(look.get("scale")) == TYPE_ARRAY and look.scale.size() == 3:
+		xf["scale"] = look.scale
+	var result := {"id": "", "message": "Couldn't add %s." % asset.label}
+	model.batch("Add %s" % asset.label, func():
+		var made := StudioLooks.config_for_piece(model, look)
+		if not made.ok:
+			result.message = made.error
+			return
+		var base := "layer" if look.kind == "layer" else String(look.prefab).get_file().get_basename().to_snake_case()
+		if look.kind == "screen":
+			base = "main_screen" if model.spawn_index("main_screen") < 0 else "screen"
+		var spawn := {"t": snappedf(t, 0.001), "prefab": model.name_prefab(prefab.path), "transform": xf,
+				"id": model.free_id(base.validate_node_name().replace(".", "_"))}
+		if not made.config.is_empty():
+			spawn["config"] = made.config
+		if model.add_object(spawn):
+			result.id = spawn.id)
+	if result.id == "":
+		return {"ok": false, "message": result.message}
+	return {"ok": true, "id": result.id, "message": "Added %s with the look %s at %s." % [result.id, asset.label, EditModel._time_label(t)]}
 
 
 func _add(asset: Dictionary, where: Dictionary, head: Vector3, t: float, snap: bool) -> Dictionary:

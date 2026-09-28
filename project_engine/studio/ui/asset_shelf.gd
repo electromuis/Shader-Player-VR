@@ -29,6 +29,7 @@ const HINTS := {
 	"object": "Press a card and let go where it should stand: it comes on at the playhead, facing you.",
 	"layer": "A layer shows a shader on its own screen. Drop it in the space, or on a layer to change its shader.",
 	"effect": "Drop an effect on a screen or a layer: it goes at the end of its effects.",
+	"look": "Your saved looks (the inspector's Save look). Drop one on something of its kind to restyle it (it keeps its place and size), or in the space to add one.",
 	OPEN_TAB: "Open a piece (.json), or a video to start a new piece for it.",
 }
 
@@ -188,6 +189,7 @@ func _make_card(asset: Dictionary) -> Control:
 	var name := Label.new()
 	name.text = asset.label
 	name.clip_text = true
+	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(name)
 	var source: String = SOURCE_LABELS.get(asset.source, "")

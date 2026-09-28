@@ -20,6 +20,9 @@
 // One that declares `uniform sampler2D video_tex` gets the playing video's
 // whole frame (both eyes of a stereo one), on a layer as on a screen;
 // give it hint_default_transparent to tell when there's no video (alpha 0).
+// Any other `uniform sampler2D` is an image picked in the effect's controls
+// (files in an `images/` folder; see ImageLibrary); hint_default_transparent
+// tells when none is picked.
 // COLOR is written as-is with straight (not premultiplied) alpha, which the
 // display pass uses as the screen's transparency.
 // Uniforms with a hint_range (or bools) get controls in the Camera tab.

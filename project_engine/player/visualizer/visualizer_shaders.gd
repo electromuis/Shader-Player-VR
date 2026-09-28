@@ -34,7 +34,8 @@ extends RefCounted
 ##                               the file name
 ##   // @iChannel1 video       — what a layer's iChannelN samples (one of
 ##                               CHANNEL_SOURCES); iChannel0 is "audio" unless
-##                               tagged otherwise
+##                               tagged otherwise. "image" makes it a texture
+##                               param named iChannelN (see below)
 ##   Expression hints (EXPRESSION_HINTS): the value is a Godot Expression
 ##   over the effect's params (its hinted uniforms, current values) and
 ##   `aspect` (the picture's width / height), with the built-ins (max(),
@@ -62,6 +63,10 @@ extends RefCounted
 ##                               plain `uniform bool` gets a checkbox
 ##   uniform int x : hint_enum("A", "B") = 0;
 ##                             — a dropdown of those names (value = index)
+##   uniform sampler2D x : source_color, hint_default_transparent;
+##                             — a texture param: an image picker (value = the
+##                               file's path, "" = none; ImageLibrary). Not
+##                               the ones the player binds (TEXTURE_INPUTS)
 ##
 ## Built-ins ship with the player: every shader in BUILTIN_ROOT's shaders/
 ## (layers) and effects/ folders (builtins()). User shaders are discovered in
@@ -81,9 +86,10 @@ const EFFECT_PRELUDE := "res://player/visualizer/effect_prelude.gdshaderinc"
 const SHADERTOY_EXTENSIONS := ["glsl", "frag", "txt"]
 const GODOT_EXTENSIONS := ["gdshader"]
 const DEFAULT_RESOLUTION := Vector2i(960, 540)
-## @iChannelN sources: the live audio texture, or the playing video's whole
-## frame (both eyes of a stereo video; see Visualizer).
-const CHANNEL_SOURCES := ["audio", "video"]
+## @iChannelN sources: the live audio texture, the playing video's whole
+## frame (both eyes of a stereo video; see Visualizer), or an image the
+## layer's `iChannelN` param names (ImageLibrary).
+const CHANNEL_SOURCES := ["audio", "video", "image"]
 
 ## Not a file: a layer whose source is the playing video itself, drawn like
 ## the main screen (see Visualizer). Pickers list it apart from the files.
@@ -99,6 +105,9 @@ const EDGE_BLUR := "res://player/visualizer/effects/edge_blur.gdshader"
 ## Effect uniforms the chain sets itself (see effect_prelude.gdshaderinc),
 ## never controls.
 const CHAIN_INPUTS := ["prepass"]
+## Sampler uniforms the player binds itself, never texture params.
+const TEXTURE_INPUTS := ["input_tex", "video_tex", "prepass_tex", "pass_source_tex",
+		"iChannel0", "iChannel1", "iChannel2", "iChannel3"]
 ## The Padding effect of earlier versions: margins are automatic now (see
 ## `@reach`), so Screen skips it and ScreenSettings drops it.
 const LEGACY_PADDING := "res://player/visualizer/effects/padding.gdshader"
@@ -275,6 +284,7 @@ static func reload_all(tree: SceneTree) -> void:
 	_builtins_fresh = true
 	_hints_cache.clear()
 	ScreenGeometry.clear_caches()
+	ImageLibrary.clear()
 	tree.call_group(RELOAD_GROUP, "reload_shaders")
 
 
@@ -361,7 +371,8 @@ static func hints_for(key: String) -> Dictionary:
 ## colors: [{name, alpha, default (Color), group, at}], expressions: {hint
 ## name: source} for the EXPRESSION_HINTS given (the first of each), and
 ## eval_hint's caches (parsed, results)} from shader source. Only uniforms
-## with a hint_range (or an int's hint_enum), and bools, become params;
+## with a hint_range (or an int's hint_enum), bools, and textures (type
+## "texture", default "": sampler2Ds and `image` iChannels) become params;
 ## `vec3` / `vec4` uniforms with source_color become colors (alpha: a vec4).
 ## `group` is the `group_uniforms` they sit under ("" for none); `at` their
 ## place in the source, to list both in order. Unknown channel sources are
@@ -384,8 +395,12 @@ static func parse_hints(code: String) -> Dictionary:
 		var source := c.get_string(2).to_lower()
 		if source in CHANNEL_SOURCES:
 			out.channels[int(c.get_string(1))] = source
+	for i in 4:
+		if out.channels.get(i) == "image":
+			out.params.append({"name": "iChannel%d" % i, "label": "iChannel%d" % i,
+					"type": "texture", "group": "", "default": ""})
 	var uni_re := RegEx.create_from_string(
-			"(?m)^\\s*uniform\\s+(float|int|bool)\\s+(\\w+)\\s*(?::\\s*([^=;]*))?(?:=\\s*([^;]+))?;")
+			"(?m)^\\s*uniform\\s+(float|int|bool|sampler2D)\\s+(\\w+)\\s*(?::\\s*([^=;]*))?(?:=\\s*([^;]+))?;")
 	var range_re := RegEx.create_from_string("hint_range\\s*\\(([^)]*)\\)")
 	# Names may hold brackets: "Value (HSV)".
 	var enum_re := RegEx.create_from_string("hint_enum\\s*\\(((?:[^)\"]|\"[^\"]*\")*)\\)")
@@ -399,7 +414,12 @@ static func parse_hints(code: String) -> Dictionary:
 		var p := {"name": u.get_string(2), "type": type, "group": _group_at(groups, u.get_start()), "at": u.get_start()}
 		var default_src := u.get_string(4).strip_edges()
 		var e := enum_re.search(u.get_string(3)) if type == "int" else null
-		if type == "bool":
+		if type == "sampler2D":
+			if p.name in TEXTURE_INPUTS:
+				continue
+			p.type = "texture"
+			p.default = ""
+		elif type == "bool":
 			p.default = default_src == "true"
 		elif e != null:
 			p.options = name_re.search_all(e.get_string(1)).map(func(n: RegExMatch): return n.get_string(1))

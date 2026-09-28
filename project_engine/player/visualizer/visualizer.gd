@@ -29,6 +29,8 @@ extends Node3D
 ## (at the hinted or default height) and a stereo video's output is split
 ## per eye as a flat stereo screen, so locked at size 1 it lines up with
 ## the video.
+## One tagged `// @iChannelN image` reads the image its `iChannelN` param
+## names (a path, see ImageLibrary), as do its other texture params.
 ## The source VisualizerShaders.VIDEO is the video itself, with no shader:
 ## the layer's Screen shows it as the main screen does (the same source
 ## layout, swap and shape, the effects per eye), and its effects render at
@@ -193,7 +195,8 @@ func reload_shaders() -> void:
 		return
 	for spec in _param_specs:
 		if old.get(spec.name) != null:
-			_material.set_shader_parameter(spec.name, old[spec.name])
+			_material.set_shader_parameter(spec.name, ImageLibrary.reloaded(old[spec.name]))
+	_bind_channels()
 
 
 func get_shader_key() -> String:
@@ -206,7 +209,8 @@ func set_params(params: Dictionary) -> void:
 	if _material == null:
 		return
 	for spec in _param_specs:
-		_material.set_shader_parameter(spec.name, params.get(spec.name, spec.default))
+		_material.set_shader_parameter(spec.name, ImageLibrary.value(params.get(spec.name, spec.default)))
+	_bind_channels()
 
 
 func set_effects(effects: Array) -> void:
@@ -245,7 +249,9 @@ func set_material_param(slot: String, param: String, value: Variant) -> void:
 	if slot in ["display", "shape"] or slot.begins_with("effect") or slot.begins_with("vertex"):
 		_screen.set_material_param(slot, param, value)
 	elif _material != null:
-		_material.set_shader_parameter(param, value)
+		_material.set_shader_parameter(param, ImageLibrary.value(value))
+		if param.begins_with("iChannel"):
+			_bind_channels()
 
 
 ## Stack position (0 = first): how far the layer is nudged toward the
@@ -352,7 +358,8 @@ func _configure_video_source() -> void:
 	_screen.set_source_texture(_video)
 
 
-## Point each iChannel at its tagged source (unbound when not available).
+## Point each iChannel at its tagged source (unbound when not available;
+## an image channel keeps the texture its param set).
 func _bind_channels() -> void:
 	if _material == null:
 		return
@@ -361,6 +368,10 @@ func _bind_channels() -> void:
 	for i in 4:
 		var tex: Texture2D = null
 		match channels.get(i, ""):
+			"image":
+				tex = _material.get_shader_parameter("iChannel%d" % i)
+				if tex != null:
+					sizes[i] = Vector3(tex.get_width(), tex.get_height(), 1.0)
 			"audio":
 				tex = _audio.texture if _audio != null else null
 				sizes[i] = _AUDIO_RES

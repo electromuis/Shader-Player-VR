@@ -707,14 +707,14 @@ func _group_separator(group: String) -> Control:
 	return row
 
 
-## A row for one hinted uniform: a slider with its value, a checkbox, or a
-## dropdown (a hint_enum), then a ↺ button back to its default (disabled while at it).
+## A row for one hinted uniform: a slider with its value, a checkbox, a
+## dropdown (a hint_enum), or an image picker (a texture), then a ↺ button back to its default (disabled while at it).
 func _param_control(spec: Dictionary, value: Variant, on_change: Callable) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	var label := Label.new()
 	label.custom_minimum_size.x = LABEL_WIDTH
-	label.text = String(spec.name).capitalize()
+	label.text = String(spec.get("label", String(spec.name).capitalize()))
 	row.add_child(label)
 	var reset := Button.new()
 	reset.text = "↺"
@@ -730,6 +730,30 @@ func _param_control(spec: Dictionary, value: Variant, on_change: Callable) -> Co
 			on_change.call(v))
 		reset.pressed.connect(func(): check.button_pressed = bool(spec.default))
 		row.add_child(check)
+		row.add_child(reset)
+		return row
+	if spec.type == "texture":
+		# None, the discovered images, and the current one if it's elsewhere.
+		var paths: Array[String] = [""]
+		var pick := OptionButton.new()
+		pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pick.add_item("None")
+		for opt in ImageLibrary.list_options():
+			paths.append(opt.key)
+			pick.add_item(opt.label)
+		if not String(value) in paths:
+			paths.append(String(value))
+			pick.add_item(ImageLibrary.label_of(String(value)))
+		pick.select(paths.find(String(value)))
+		reset.disabled = String(value) == ""
+		pick.item_selected.connect(func(i: int):
+			reset.disabled = paths[i] == ""
+			on_change.call(paths[i]))
+		reset.pressed.connect(func():
+			pick.select(0)
+			pick.item_selected.emit(0))
+		pick.tooltip_text = "Images in: " + ", ".join(ImageLibrary.search_dirs())
+		row.add_child(pick)
 		row.add_child(reset)
 		return row
 	if spec.has("options"):

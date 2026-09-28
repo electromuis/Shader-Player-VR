@@ -71,7 +71,7 @@ func _check(path: String) -> void:
 		return
 	if int(original.get("format_version", 1)) < 2:
 		ScriptImporterScript._upgrade_v1(original.get("tracks", []))
-	_same_playback(original, first.data)
+	_same_playback(_normalized(original), _normalized(first.data))
 	var diffs: Array = []
 	_diff(_canonical(first.data), _canonical(second.data), "", diffs, 1e-6)
 	for d in diffs.slice(0, 10):
@@ -133,6 +133,92 @@ func _same_playback(a: Dictionary, b: Dictionary) -> void:
 	for d in diffs.slice(0, 20):
 		_fail("plays differently: " + d)
 	print("   compared %d events, %d tracks (%d samples)" % [_events(a).size(), ta.size(), samples])
+
+
+## What the player makes of a script, where two ways of saying it play the
+## same: earlier versions' curvature (0..1, on the config or a `display`
+## track) is the Pillow surface's arcs / 180 (a `shape` track), a flat
+## fixed Pillow is no surface at all, and their Padding effect does nothing
+## (the effects after it move up a place). Effect params the effect's
+## shader doesn't have (any more) are ignored by the player too.
+static func _normalized(data: Dictionary) -> Dictionary:
+	var out: Dictionary = data.duplicate(true)
+	var shaders: Dictionary = out.get("shaders", {})
+	var moved := {}  # "<id>.effect<N>" -> its new N, -1 for a Padding
+	for t in out.get("tracks", []):
+		if t.get("type") != "event" or t.get("action") != "spawn" or typeof(t.get("config")) != TYPE_DICTIONARY:
+			continue
+		var cfg: Dictionary = t.config
+		if cfg.has("curvature") or cfg.has("vertical_curvature"):
+			if not cfg.has("surface"):
+				cfg["surface"] = {"shader": "pillow", "placement": "fixed", "params": {
+						"arc_x": float(cfg.get("curvature", 0.0)) * 180.0, "arc_y": float(cfg.get("vertical_curvature", 0.0)) * 180.0}}
+			cfg.erase("curvature")
+			cfg.erase("vertical_curvature")
+		if typeof(cfg.get("surface")) == TYPE_DICTIONARY:
+			var sf: Dictionary = cfg.surface
+			var params: Dictionary = sf.get("params", {})
+			if sf.get("shader", "pillow") == "pillow" and sf.get("placement", "fixed") == "fixed" 					and float(params.get("arc_x", 0.0)) == 0.0 and float(params.get("arc_y", 0.0)) == 0.0:
+				cfg.erase("surface")
+		if typeof(cfg.get("effects")) == TYPE_ARRAY:
+			var kept: Array = []
+			var n_old := 0
+			var n_new := 0
+			for e in cfg.effects:
+				var on: bool = typeof(e) == TYPE_DICTIONARY and e.get("enabled", true) != false
+				var pad: bool = typeof(e) == TYPE_DICTIONARY and String(shaders.get(e.get("shader", ""), "")) == ScriptImporterScript._LEGACY_PADDING
+				if on:
+					moved["%s.effect%d" % [t.get("id"), n_old]] = -1 if pad else n_new
+					n_old += 1
+					if not pad:
+						n_new += 1
+				if not pad:
+					kept.append(e)
+			for e in kept:
+				_drop_unknown_params(e, String(shaders.get(e.get("shader", ""), "")))
+			if kept.is_empty():
+				cfg.erase("effects")
+			else:
+				cfg["effects"] = kept
+	var tracks: Array = []
+	for t in out.get("tracks", []):
+		if t.get("type") == "shader_param":
+			var target := String(t.get("target", ""))
+			if moved.has(target):
+				if moved[target] < 0:
+					continue
+				t["target"] = "%s.effect%d" % [target.split(".")[0], moved[target]]
+			elif target.ends_with(".display") and t.get("param") in ["curvature", "vertical_curvature"]:
+				t["target"] = target.trim_suffix(".display") + ".shape"
+				t["param"] = "arc_x" if t.param == "curvature" else "arc_y"
+				for kf in t.keyframes:
+					kf["value"] = float(kf.value) * 180.0
+					for h in ["in", "out"]:
+						if typeof(kf.get(h)) == TYPE_ARRAY and kf[h].size() == 2:
+							kf[h][1] = float(kf[h][1]) * 180.0
+		tracks.append(t)
+	out["tracks"] = tracks
+	for k in shaders.keys():
+		if shaders[k] == ScriptImporterScript._LEGACY_PADDING:
+			shaders.erase(k)
+	return out
+
+
+## Leaves only the params effect `e`'s shader (a player built-in, through
+## the addon's copy) has as uniforms.
+static func _drop_unknown_params(e: Dictionary, path: String) -> void:
+	if typeof(e.get("params")) != TYPE_DICTIONARY or not path.begins_with(ScriptImporterScript._PLAYER_VISUALIZER):
+		return
+	var copy := ScriptImporterScript._ADDON_VISUALIZER + path.substr(ScriptImporterScript._PLAYER_VISUALIZER.length())
+	var shader := load(copy) as Shader if ResourceLoader.exists(copy) else null
+	if shader == null:
+		return
+	var names := shader.get_shader_uniform_list().map(func(u): return String(u.name))
+	for k in e.params.keys():
+		if not names.has(k):
+			e.params.erase(k)
+	if e.params.is_empty():
+		e.erase("params")
 
 
 ## Whether a prefabs / shaders key is used (the exporter only lists used ones).

@@ -1,0 +1,35 @@
+{
+  "format_version": 2,
+  "meta": {"title": "Surfaces, vertex effects and a video layer", "author": "", "created": ""},
+  "media": {"video": "video.mp4"},
+  "prefabs": {
+    "screen": "res://player/prefabs/screen.tscn",
+    "layer": "res://player/prefabs/layer.tscn"
+  },
+  "shaders": {
+    "glow": "res://player/visualizer/effects/glow.gdshader"
+  },
+  "tracks": [
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "dome", "prefab": "screen",
+      "transform": {"position": [0.0, 2.0, -4.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.3, 0.3, 0.3]},
+      "config": {
+        "surface": {"shader": "dome", "placement": "fixed",
+          "params": {"arc_x": 120.0, "arc_y": 60.0, "auto_height": false, "keep_row_width": true, "straight_rows": 0.4}},
+        "vertex_effects": [{"shader": "ripple", "params": {"amplitude": 0.2, "wavelength": 3.0}}]
+      }},
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "halo", "prefab": "layer",
+      "transform": {"position": [0.0, 2.0, -6.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.4, 0.4, 0.4]},
+      "config": {
+        "shader": "video",
+        "resolution": 0.25,
+        "surface": {"shader": "pillow", "placement": "fixed", "params": {"arc_x": 45.0, "arc_y": 0.0}},
+        "effects": [{"shader": "glow", "params": {"intensity": 2.0}}]
+      }},
+    {"type": "shader_param", "target": "dome.shape", "param": "arc_x",
+      "keyframes": [{"t": 0.0, "value": 120.0}, {"t": 4.0, "value": 200.0}]},
+    {"type": "shader_param", "target": "dome.vertex0", "param": "amplitude",
+      "keyframes": [{"t": 1.0, "value": 0.2}, {"t": 3.0, "value": 0.6}]},
+    {"type": "shader_param", "target": "halo.effect0", "param": "intensity",
+      "keyframes": [{"t": 0.0, "value": 2.0}, {"t": 2.0, "value": 0.5}]}
+  ]
+}

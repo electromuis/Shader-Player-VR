@@ -30,6 +30,7 @@ const VJLayerScript := preload("res://addons/vj_editor/builtin_prefabs/layer.gd"
 const VJViewerScript := preload("res://addons/vj_editor/builtin_prefabs/vj_viewer.gd")
 const VJObjectScript := preload("res://addons/vj_editor/modifiers/vj_object.gd")
 const VJEffectScript := preload("res://addons/vj_editor/builtin_prefabs/effect.gd")
+const VJVertexEffectScript := preload("res://addons/vj_editor/builtin_prefabs/vertex_effect.gd")
 const SceneExporterScript := preload("res://addons/vj_editor/exporter/scene_exporter.gd")
 
 const SUPPORTED_VERSION := 2
@@ -40,6 +41,13 @@ const _ADDON_PREFABS := {
 	"cube": "res://addons/vj_editor/builtin_prefabs/cube.tscn",
 }
 const _PLAYER_VISUALIZER := "res://player/visualizer/"
+## Earlier versions' Padding effect: margins are automatic now, the player
+## skips it (keeping its effect<N> place) and the addon has no copy, so it's
+## dropped and the effects after it move up a place.
+const _LEGACY_PADDING := "res://player/visualizer/effects/padding.gdshader"
+const _SURFACES := ["pillow", "dome"]
+## A screen's surface params (animated on `<id>.shape`).
+const _SHAPE_PROPS := ["arc_x", "arc_y", "auto_height", "keep_row_width", "straight_rows"]
 const _ADDON_VISUALIZER := "res://addons/vj_editor/visualizer/"
 const _COMPONENTS := {
 	TYPE_VECTOR2: ["x", "y"],
@@ -175,6 +183,8 @@ class _Ctx:
 	var parents: Dictionary = {}   # id -> parent id ("" at the root)
 	var shaders: Dictionary = {}   # key -> Shader (null: unresolvable)
 	var packed: Dictionary = {}    # prefab key -> PackedScene (null: unresolvable)
+	## id -> {script's effect<N>: the scene's N, or -1 (not imported)}
+	var effect_places: Dictionary = {}
 	var warnings: Array = []
 
 	func warn(msg: String) -> void:
@@ -328,7 +338,9 @@ static func _apply_config(ctx: _Ctx, node: Node3D, cfg, id: String) -> void:
 	var script = node.get_script()
 	var is_layer: bool = script == VJLayerScript
 	if script == VJScreenScript or is_layer:
-		if cfg.has("shader"):
+		if is_layer and cfg.get("shader") == "video":
+			node.video_source = true  # the video itself, no shader
+		elif cfg.has("shader"):
 			var shader := _shader(ctx, String(cfg.shader))
 			if shader != null:
 				var mat := ShaderMaterial.new()
@@ -338,12 +350,25 @@ static func _apply_config(ctx: _Ctx, node: Node3D, cfg, id: String) -> void:
 		var rscale := "resolution" if is_layer else "render_scale"
 		if cfg.has(rscale):
 			node.render_scale = float(cfg[rscale])
+		# Earlier scripts' curvature (0..1) is the Pillow's arcs / 180 (the
+		# screen's compatibility properties); a surface says it outright.
 		for prop in ["curvature", "vertical_curvature", "opacity"]:
 			if cfg.has(prop):
 				node.set(prop, float(cfg[prop]))
+		if typeof(cfg.get("surface")) == TYPE_DICTIONARY:
+			_apply_surface(ctx, node, cfg.surface, id)
 		var names: Dictionary = {}
+		var places := {}
+		var n_script := 0
 		for e in cfg.get("effects", []):
-			_add_effect(ctx, node, e, names)
+			var on: bool = typeof(e) == TYPE_DICTIONARY and e.get("enabled", true) != false
+			var added := _add_effect(ctx, node, e, names)
+			if on:
+				places[n_script] = node.call("effect_nodes").size() - 1 if added else -1
+				n_script += 1
+		ctx.effect_places[id] = places
+		for v in cfg.get("vertex_effects", []):
+			_add_vertex_effect(ctx, node, v, id)
 	elif cfg.has("shader") or cfg.has("effects") or cfg.has("shader_params"):
 		ctx.warn("'%s' isn't a screen or layer; its shader / effects config is dropped" % id)
 	for group in ["modifiers", "reactive"]:
@@ -358,13 +383,68 @@ static func _apply_config(ctx: _Ctx, node: Node3D, cfg, id: String) -> void:
 				node.set(field, _to_type(values[field], node.get(field)))
 
 
-static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> void:
-	if typeof(e) != TYPE_DICTIONARY:
+## A screen's surface (config.surface): Pillow or Dome, its placement and
+## its params.
+static func _apply_surface(ctx: _Ctx, node: Node3D, surface: Dictionary, id: String) -> void:
+	var shader := String(surface.get("shader", "pillow"))
+	if not shader in _SURFACES:
+		ctx.warn("'%s': the surface '%s' isn't one the addon has (pillow, dome); it's a flat Pillow here" % [id, shader])
+		shader = "pillow"
+	node.surface = shader
+	node.placement = String(surface.get("placement", "fixed"))
+	var params = surface.get("params", {})
+	if typeof(params) == TYPE_DICTIONARY:
+		for k in params:
+			if k in _SHAPE_PROPS:
+				node.set(k, _to_type(params[k], node.get(k)))
+
+
+## A vertex effect (config.vertex_effects): the addon's built-in by name
+## ("ripple"), else the piece's own snippet from `shaders`.
+static func _add_vertex_effect(ctx: _Ctx, node: Node3D, v, id: String) -> void:
+	if typeof(v) != TYPE_DICTIONARY:
 		return
+	var key := String(v.get("shader", ""))
+	var path := VJVertexEffectScript.BUILTIN_DIR + key + ".gdshaderinc"
+	if ctx.shader_keys.has(key):
+		var rel := String(ctx.shader_keys[key])
+		var src := rel if rel.is_absolute_path() else ctx.base_dir.path_join(rel).simplify_path()
+		if not FileAccess.file_exists(src):
+			ctx.warn("'%s': vertex effect '%s' not found at '%s'; dropped" % [id, key, src])
+			return
+		path = ctx.dest_dir.path_join("shaders/%s.gdshaderinc" % key)
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		f.store_string(FileAccess.get_file_as_string(src))
+		f.close()
+	elif not FileAccess.file_exists(path):
+		ctx.warn("'%s': vertex effect '%s' isn't one the addon has; dropped" % [id, key])
+		return
+	var effect := Node.new()
+	effect.set_script(VJVertexEffectScript)
+	effect.name = key
+	effect.effect = path
+	effect.enabled = v.get("enabled", true) != false
+	var params = v.get("params", {})
+	if typeof(params) == TYPE_DICTIONARY:
+		for k in params:
+			effect.set("params/" + k, params[k])
+	node.add_child(effect, true)
+	effect.owner = ctx.root
+
+
+## Adds effect `e` (a config.effects entry) as a VJEffect child; false if it
+## can't be (no shader, or earlier versions' Padding).
+static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> bool:
+	if typeof(e) != TYPE_DICTIONARY:
+		return false
 	var key := String(e.get("shader", ""))
+	if String(ctx.shader_keys.get(key, "")) == _LEGACY_PADDING:
+		ctx.warn("'%s': the Padding effect is dropped (margins are automatic now); the effects after it move up" % node.name)
+		return false
 	var shader := _shader(ctx, key)
 	if shader == null:
-		return
+		return false
 	var effect := Node.new()
 	effect.set_script(VJEffectScript)
 	names[key] = int(names.get(key, 0)) + 1
@@ -378,6 +458,7 @@ static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> void:
 		ctx.warn("'%s': the switched-off %s effect's kept animation is dropped (switch it on in Studio first to keep it)" % [node.name, key])
 	node.add_child(effect)
 	effect.owner = ctx.root
+	return true
 
 
 ## The Shader for a `shaders` key: the addon's copy of a player builtin, or a
@@ -547,15 +628,28 @@ static func _param_path(ctx: _Ctx, node: Node3D, slot: String, param: String, ta
 		"display":
 			if is_screen and param in ["curvature", "vertical_curvature", "opacity"]:
 				return [path, param, 0.0]
+		"shape":
+			if is_screen and param in _SHAPE_PROPS:
+				return [path, param, node.get(param)]
 		"modifiers", "reactive":
 			var fields: Array = VJObjectScript.MODIFIER_FIELDS if slot == "modifiers" else VJObjectScript.REACTIVE_FIELDS
 			if node.has_method("modifier_values") and param in fields and not (is_screen and param == "opacity"):
 				return [path, param, node.get(param)]
 		_:
-			if slot.begins_with("effect") and slot.substr(6).is_valid_int():
+			if slot.begins_with("vertex") and slot.substr(6).is_valid_int() and node.has_method("vertex_effect_nodes"):
+				var vertex: Array = node.call("vertex_effect_nodes")
+				var n := slot.substr(6).to_int()
+				if n < vertex.size():
+					return ["%s/%s" % [path, vertex[n].name], "params/" + param, vertex[n].get("params/" + param)]
+			elif slot.begins_with("effect") and slot.substr(6).is_valid_int():
 				var effects: Array = node.call("effect_nodes") if node.has_method("effect_nodes") else []
 				var n := slot.substr(6).to_int()
-				if n < effects.size():
+				var places: Dictionary = ctx.effect_places.get(target.split(".")[0], {})
+				if places.has(n):
+					n = int(places[n])
+					if n < 0:
+						return []  # its effect wasn't imported (Padding; warned)
+				if n >= 0 and n < effects.size():
 					var effect: Node = effects[n]
 					return ["%s/%s" % [path, effect.name], "material:shader_parameter/" + param,
 							_uniform_default(effect.material.shader, param)]

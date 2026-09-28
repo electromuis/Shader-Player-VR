@@ -89,6 +89,8 @@ func _ready() -> void:
 	_home_pos = desktop_camera.global_position
 	_home_yaw_deg = rad_to_deg(desktop_camera.global_rotation.y)
 
+	comfort_vignette = ComfortVignette.new()
+	xr_rig.xr_camera.add_child(comfort_vignette)
 	xr_mode.entered_vr.connect(_on_entered_vr)
 	xr_mode.exited_vr.connect(_on_exited_vr)
 
@@ -115,6 +117,7 @@ func _process(delta: float) -> void:
 	_update_layer_anchor()
 	_update_camera_fx()
 	_drive_viewer()
+	_update_comfort(delta)
 	# `pulse` reactive objects follow the bass.
 	runner.audio_bass = audio.bass if audio != null else 0.0
 	if beats != null:
@@ -677,6 +680,16 @@ func _on_runner_play_state_changed(is_playing: bool) -> void:
 # there differs from the one they were given, so a viewer who walked off
 # while it holds isn't pulled back by a seek.
 
+## The headset's comfort vignette: it eases in while a ride carries the
+## viewer fast (from RIDE_CALM up to RIDE_FULL m/s, or turning up to
+## TURN_FULL °/s), or when the app asks (comfort_extra, 0..1, set each
+## frame: Studio's flight). Never with "cuts only" (nothing glides).
+const RIDE_CALM := 0.5
+const RIDE_FULL := 5.0
+const TURN_FULL := 45.0
+var comfort_vignette: ComfortVignette
+var comfort_extra := 0.0
+
 ## Whether the stage follows the script's viewer track at all (the app can
 ## turn it off; the viewer's own setting also has to allow it).
 var drive_viewer := true
@@ -741,6 +754,21 @@ func _follow_viewer_seek(t: float) -> void:
 	if _viewer_pose.is_empty() or not _same_pose(pose, _viewer_pose):
 		_snap_camera(pose.position, pose.rotation_deg)
 	_viewer_pose = pose
+
+
+## How strong the comfort vignette should be now (0..1): the ride's speed
+## and turn while it carries the viewer, or what the app asks for.
+func comfort_level() -> float:
+	var ride := 0.0
+	if _script_camera_on() and runner.playing and runner.timeline != null and not settings.script_camera_cuts_only:
+		var m := runner.viewer.motion_at(runner.playhead)
+		ride = maxf(inverse_lerp(RIDE_CALM, RIDE_FULL, m.speed), m.turn / TURN_FULL)
+	return clampf(maxf(ride, comfort_extra), 0.0, 1.0)
+
+
+func _update_comfort(delta: float) -> void:
+	if comfort_vignette != null:
+		comfort_vignette.update(comfort_level() if xr_mode.is_in_vr() else 0.0, delta)
 
 
 static func _same_pose(a: Dictionary, b: Dictionary) -> bool:

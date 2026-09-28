@@ -103,6 +103,7 @@ func select(id: String) -> void:
 	if id == selected:
 		return
 	selected = id
+	_key_grab = {}
 	_bounds_cache.clear()
 	if id != "":
 		_say("Selected %s." % ("the viewer" if id == ScriptFormat.VIEWER else id))
@@ -198,6 +199,7 @@ func release() -> String:
 
 ## Drop the grab without writing anything; the runner puts it back.
 func cancel() -> void:
+	_key_grab = {}
 	if not is_grabbing():
 		return
 	runner.held.erase(String(_grab.id))
@@ -385,9 +387,10 @@ func _draw_path_lines() -> void:
 		return
 	var pts: Array = []  # [world point, joined to the one before]
 	var keys: Array = []
+	var tracks := _path_tracks()
 	if selected == ScriptFormat.VIEWER:
 		var vt := ViewerTrack.new()
-		vt.build(model.tracks())
+		vt.build(tracks)
 		var times := vt.key_times()
 		if times.is_empty():
 			return
@@ -399,11 +402,8 @@ func _draw_path_lines() -> void:
 		var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, selected, "position")
 		if ti < 0:
 			return
-		var kfs: Array = model.tracks()[ti].get("keyframes", [])
-		var node := runner.registry().get_node_by_id(selected) if runner != null else null
-		var parent_xf := Transform3D()
-		if node != null and is_instance_valid(node) and node.get_parent() is Node3D:
-			parent_xf = (node.get_parent() as Node3D).global_transform
+		var kfs: Array = tracks[ti].get("keyframes", [])
+		var parent_xf := _path_space(selected)
 		for t in _path_times(float(kfs[0].t), float(kfs.back().t)):
 			pts.append([parent_xf * Interpolation.to_vec3(Interpolation.evaluate(kfs, t)), pts.size() > 0])
 		for k in kfs:
@@ -415,6 +415,119 @@ func _draw_path_lines() -> void:
 	for p in keys:
 		for axis in [Vector3.RIGHT, Vector3.UP, Vector3.BACK]:
 			_line(p - axis * PATH_KEY_SIZE, p + axis * PATH_KEY_SIZE, color)
+
+
+# ---------- a path's keys, by hand ----------
+# With something selected, its path's keys can be grabbed (the grip, or a
+# mouse press on one): the key is carried with the hand like an object, the
+# path redraws with it moved, and letting go writes its new position (one
+# undo step; snapped to 10 cm with snapping on). An object's keys are in its
+# parent's space; the viewer's in the world. The viewer's older cut events
+# aren't keys of a track, so they aren't grabbed.
+
+## A key this close to the ray is hit (metres, or this share of its
+## distance, whichever is more).
+const KEY_PICK := 0.15
+const KEY_PICK_SHARE := 0.03
+
+## The key being carried: {ti, ki, hand, grip (the key in the hand's
+## space), world (where it is now), start}.
+var _key_grab: Dictionary = {}
+
+
+func is_grabbing_key() -> bool:
+	return not _key_grab.is_empty()
+
+
+## The selection's position keys in the world: [{ti, ki, t, world}].
+func path_keys() -> Array:
+	if model == null or selected == "":
+		return []
+	var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, selected, "position")
+	if ti < 0:
+		return []
+	var space := _path_space(selected)
+	var out: Array = []
+	var kfs: Array = model.tracks()[ti].get("keyframes", [])
+	for ki in kfs.size():
+		out.append({"ti": ti, "ki": ki, "t": float(kfs[ki].t), "world": space * Interpolation.to_vec3(kfs[ki].value)})
+	return out
+
+
+## The selection's key nearest the ray (from `origin`, `dir`) within
+## KEY_PICK, or {}.
+func pick_key(origin: Vector3, dir: Vector3) -> Dictionary:
+	dir = dir.normalized()
+	var best := {}
+	var best_d := INF
+	for k in path_keys():
+		var w: Vector3 = k.world
+		var along := (w - origin).dot(dir)
+		if along <= 0.0:
+			continue
+		var miss := (origin + dir * along).distance_to(w)
+		if miss <= maxf(KEY_PICK, along * KEY_PICK_SHARE) and miss < best_d:
+			best_d = miss
+			best = k
+	return best
+
+
+## Start carrying key `k` (pick_key's) with `hand` at `hand_xf`.
+func grab_key(k: Dictionary, hand: String, hand_xf: Transform3D) -> void:
+	_key_grab = {"ti": k.ti, "ki": k.ki, "hand": hand, "grip": hand_xf.affine_inverse() * (k.world as Vector3),
+			"world": k.world, "start": k.world}
+	_say("Moving the key at %s." % StudioStatus.timecode(k.t))
+
+
+func move_key_hand(hand: String, hand_xf: Transform3D) -> void:
+	if _key_grab.is_empty() or _key_grab.hand != hand:
+		return
+	var p: Vector3 = hand_xf * (_key_grab.grip as Vector3)
+	_key_grab.world = StudioSnap.position(p) if snap else p
+
+
+## Let go of the key: write where it is now (one undo step). Returns the
+## undo label ("" if it didn't move).
+func release_key(hand: String) -> String:
+	if _key_grab.is_empty() or _key_grab.hand != hand:
+		return ""
+	var g := _key_grab
+	_key_grab = {}
+	if (g.world as Vector3).distance_to(g.start) < MOVE_EPS:
+		return ""
+	var id := selected
+	var local: Vector3 = _path_space(id).affine_inverse() * (g.world as Vector3)
+	var kfs: Array = model.tracks()[g.ti].keyframes.duplicate(true)
+	kfs[g.ki].value = [local.x, local.y, local.z].map(func(v): return float("%.4f" % v))
+	var label := "Move %s's key at %s" % ["the viewer" if id == ScriptFormat.VIEWER else id, StudioStatus.timecode(float(kfs[g.ki].t))]
+	if not model.set_keyframes(g.ti, kfs, label):
+		return ""
+	_say(label + ".")
+	return label
+
+
+## Where the selection's position keys live: its parent's space (the world
+## for the viewer and for objects without a parent).
+func _path_space(id: String) -> Transform3D:
+	if id == ScriptFormat.VIEWER or runner == null:
+		return Transform3D()
+	var node := runner.registry().get_node_by_id(id)
+	if node != null and is_instance_valid(node) and node.get_parent() is Node3D:
+		return (node.get_parent() as Node3D).global_transform
+	return Transform3D()
+
+
+## The piece's tracks as the path should show them: with the carried key
+## where the hand has it.
+func _path_tracks() -> Array:
+	if _key_grab.is_empty():
+		return model.tracks()
+	var tracks := model.tracks().duplicate()
+	var t: Dictionary = tracks[_key_grab.ti].duplicate(true)
+	var local: Vector3 = _path_space(selected).affine_inverse() * (_key_grab.world as Vector3)
+	t.keyframes[_key_grab.ki].value = [local.x, local.y, local.z]
+	tracks[_key_grab.ti] = t
+	return tracks
 
 
 ## A small camera at a viewer key: a pyramid from the eye toward where it

@@ -101,12 +101,15 @@ func _initialize() -> void:
 			var r := cam().rotation_degrees
 			cam().set_view(cam().global_position, Vector3(r.x, r.y + 15.0, 0.0))
 			print("at %.2f s: camera %s, the ride's pose %s yaw %.1f (then the viewer looks 15° left)" % [t, where(), v(vt.pose_at(t).position), vt.pose_at(t).rotation_deg.y])
+		if t >= 49.0 and not looked.has("comfort"):
+			looked.comfort = main.stage.comfort_level()
 		if t >= 50.5 and not looked.shot:
 			looked.shot = true
 			await shot("1_in_the_tunnel"))
 	var pose := vt.pose_at(main.runner.playhead)
 	print("smooth, at %.2f s: camera %s; the ride %s yaw %.1f: off by %.3f m, looking %.1f° aside" % [main.runner.playhead, where(),
 			v(pose.position), pose.rotation_deg.y, cam().global_position.distance_to(pose.position), cam().rotation_degrees.y - pose.rotation_deg.y])
+	print("comfort vignette (headset only): %.2f at 49 s (%.1f m/s), %.2f while paused" % [looked.comfort, vt.motion_at(49.0).speed, main.stage.comfort_level()])
 	await play(52.0, 57.5)
 	print("after the faded cut at 56 s: camera ", where())
 

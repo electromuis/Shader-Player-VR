@@ -99,3 +99,41 @@ static func test_recording_a_ride(tc: TestCase) -> void:
 	tc.assert_eq(snappedf(vt.pose_at(7.0).rotation_deg.y, 0.5), 180.0, "no spin the long way round")
 	tc.assert_eq(m.undo(), label, "one undo step")
 	tc.assert_eq(_keys(m, "position"), [])
+
+
+static func test_grabbing_a_paths_keys(tc: TestCase) -> void:
+	var m := _model(tc)
+	m.key_viewer(10.0, [0.0, 2.0, 8.0], 0.0)
+	m.key_viewer(20.0, [0.0, 2.0, 0.0], 0.0)
+	var tools := StudioEditTools.new()
+	tools.model = m
+	tools.select("$viewer")
+	tc.assert_eq(tools.path_keys().map(func(k): return k.world), [Vector3(0, 2, 8), Vector3(0, 2, 0)])
+	var eye := Vector3(3, 2, 4)
+	tc.assert_eq(tools.pick_key(eye, Vector3(0, 2, 2.5) - eye), {}, "a miss")
+	var k := tools.pick_key(eye, Vector3(0, 2, 0) - eye)
+	tc.assert_eq([k.get("ki"), k.get("t")], [1, 20.0], "the key the ray points at")
+	var hand := Transform3D(Basis(), eye)
+	tools.grab_key(k, "M", hand)
+	tc.assert_true(tools.is_grabbing_key())
+	tools.move_key_hand("M", hand.translated(Vector3(1.234, 0, -1)))
+	tc.assert_eq(tools.release_key("M"), "Move the viewer's key at 0:20.00")
+	tc.assert_eq(m.tracks()[m.find_track("transform", "$viewer", "position")].keyframes[1].value, [1.234, 2.0, -1.0], "carried with the hand")
+	tc.assert_eq(m.undo(), "Move the viewer's key at 0:20.00", "one undo step")
+	# Snapped, on an object's own path (no parent: world space).
+	m.set_key("transform", "c", "position", 5.0, [1.0, 1.0, 1.0])
+	m.set_key("transform", "c", "position", 9.0, [3.0, 1.0, 1.0])
+	tools.select("c")
+	tools.snap = true
+	k = tools.pick_key(Vector3(3, 1, 5), Vector3(0, 0, -1))
+	tc.assert_eq(k.get("ki"), 1)
+	tools.grab_key(k, "R", Transform3D(Basis(), Vector3(3, 1, 5)))
+	tools.move_key_hand("R", Transform3D(Basis(), Vector3(3.47, 1.52, 5)))
+	tools.select("")  # changing the selection drops it
+	tc.assert_false(tools.is_grabbing_key())
+	tools.select("c")
+	tools.grab_key(k, "R", Transform3D(Basis(), Vector3(3, 1, 5)))
+	tools.move_key_hand("R", Transform3D(Basis(), Vector3(3.47, 1.52, 5)))
+	tools.release_key("R")
+	tc.assert_eq(m.tracks()[m.find_track("transform", "c", "position")].keyframes[1].value, [3.5, 1.5, 1.0], "snapped to 10 cm")
+	tools.free()

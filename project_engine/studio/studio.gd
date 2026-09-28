@@ -55,6 +55,12 @@ extends Node3D
 ## inspector) and record: where you fly becomes the ride. In Edit you fly
 ## freely; Play is the audience view, and rides the script.
 ##
+## The miniature (M, the wrist): the whole scene small, to lay out and fly
+## a ride from above; everything works in it as at full size. In the headset
+## you become a giant (the XR world scale) with the scene as a table at
+## waist height; on the desktop the camera looks down on it. M again puts
+## you back where you were.
+##
 ## Command line (after `--`): --piece <script.json, or a video: its
 ## same-name .json, made empty if there's none>, --start <seconds>, --vr,
 ## --desktop, --library <folder> (more assets for the shelf; repeatable).
@@ -166,6 +172,13 @@ var _library_signature := ""
 var _watch_clock := 0.0
 ## Where the viewer was before the last Seat / Go to it jump (for Back).
 var _back_pose: Dictionary = {}
+## The miniature: whether it's on, and where you were before it.
+var miniature_on := false
+var _before_miniature: Dictionary = {}
+## The headset miniature: the scene this many metres across, its floor this
+## high above your real floor.
+const MINIATURE_SIZE := 1.2
+const MINIATURE_TABLE := 0.8
 var _mouse_down := false
 
 
@@ -243,6 +256,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	stage.comfort_extra = flight.motion
 	_scrub(delta)
 	_follow_hands(delta)
 	_show_status()
@@ -274,6 +288,8 @@ func open_piece(path: String) -> bool:
 	_drop_held()
 	recorder.cancel()
 	recorder.armed.clear()
+	if miniature_on:
+		toggle_miniature()
 	if model != null:
 		model.changed.disconnect(_on_model_changed)
 	tools.cancel()
@@ -326,6 +342,8 @@ func _apply_mode() -> void:
 	stage.desktop_camera.movement_enabled = editing
 	if tools != null:
 		if not editing:
+			if miniature_on:
+				toggle_miniature()
 			if recorder.is_active():
 				_stop_take()
 			tools.cancel()
@@ -419,6 +437,7 @@ func _on_command(id: StringName) -> void:
 		&"studio_grab_left": _grab_with(_hand_of(stage.router.last_input, "L"))
 		&"studio_key_viewer": key_viewer(false)
 		&"studio_cut_here": key_viewer(true)
+		&"studio_miniature": toggle_miniature()
 		&"studio_arm_ride":
 			recorder.arm_viewer = not recorder.arm_viewer
 			_say("Ride %s." % ("armed: record, and fly the path while it plays" if recorder.arm_viewer else "not armed"))
@@ -525,6 +544,10 @@ func _grab_with(hand: String) -> void:
 		tools.add_hand(hand, _hand_xf(hand))
 		return
 	var xf := _hand_xf(hand)
+	var k := tools.pick_key(xf.origin, -xf.basis.z)  # a key of the selection's path first
+	if not k.is_empty():
+		tools.grab_key(k, hand, xf)
+		return
 	var id := tools.pick(xf.origin, -xf.basis.z)
 	if id == "":
 		return
@@ -532,7 +555,9 @@ func _grab_with(hand: String) -> void:
 
 
 func _release(hand: String) -> void:
-	if tools.is_grabbing():
+	if tools.is_grabbing_key():
+		tools.release_key(hand)
+	elif tools.is_grabbing():
 		tools.release_hand(hand)
 
 
@@ -540,6 +565,9 @@ func _release(hand: String) -> void:
 ## pushes / pulls.
 func _follow_hands(delta: float) -> void:
 	flight.right_stick_busy = tools.is_grabbing()
+	if tools.is_grabbing_key() and stage.xr_mode.is_in_vr():
+		for hand in ["L", "R"]:
+			tools.move_key_hand(hand, _hand_xf(hand))
 	if not tools.is_grabbing() or not stage.xr_mode.is_in_vr():
 		return
 	for hand in ["L", "R"]:
@@ -570,16 +598,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
 				var xf := _mouse_hand()
-				var id := tools.pick(xf.origin, -xf.basis.z)
-				tools.select(id)
-				if id != "":
-					tools.grab(id, "M", xf)
+				var k := tools.pick_key(xf.origin, -xf.basis.z)
+				if not k.is_empty():
+					tools.grab_key(k, "M", xf)
+				else:
+					var id := tools.pick(xf.origin, -xf.basis.z)
+					tools.select(id)
+					if id != "":
+						tools.grab(id, "M", xf)
+			elif tools.is_grabbing_key():
+				tools.release_key("M")
 			else:
 				tools.release_hand("M")
 			get_viewport().set_input_as_handled()
 		elif tools.is_grabbing() and mb.pressed and mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			tools.push(WHEEL_PUSH if mb.button_index == MOUSE_BUTTON_WHEEL_UP else -WHEEL_PUSH)
 			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and tools.is_grabbing_key():
+		tools.move_key_hand("M", _mouse_hand())
 	elif event is InputEventMouseMotion and tools.is_grabbing():
 		tools.move_hand("M", _mouse_hand())
 
@@ -799,6 +835,71 @@ func key_viewer(cut: bool) -> void:
 	if model.key_viewer(t, pos, float("%.2f" % eye.yaw), cut, {"type": "fade_to_black", "duration": CUT_FADE} if cut else {}):
 		tools.select(ScriptFormat.VIEWER)
 		_say(model.undo_label() + ".")
+
+
+# ---------- the miniature ----------
+
+## Into the miniature, or back to where you were.
+func toggle_miniature() -> void:
+	if miniature_on:
+		miniature_on = false
+		if _before_miniature.has("origin"):
+			XRServer.world_scale = float(_before_miniature.scale)
+			stage.xr_rig.global_transform = _before_miniature.origin
+		elif _before_miniature.has("camera"):
+			stage.desktop_camera.set_view(_before_miniature.camera, _before_miniature.rotation)
+		_before_miniature = {}
+		_say("Back to full size.")
+		return
+	var box := scene_bounds()
+	var center := box.get_center()
+	var size := maxf(maxf(box.size.x, box.size.z), 4.0)
+	miniature_on = true
+	if stage.xr_mode.is_in_vr():
+		var rig := stage.xr_rig
+		_before_miniature = {"origin": rig.global_transform, "scale": XRServer.world_scale}
+		var s := maxf(size / MINIATURE_SIZE, 1.0)
+		XRServer.world_scale = s
+		# Stand at the table's near edge, facing across it.
+		var fwd := -stage.viewer_transform().basis.z
+		fwd.y = 0.0
+		fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(0, 0, -1)
+		rig.recenter(Vector3(center.x, 0.0, center.z) - fwd * (size * 0.5 + 0.35 * s), rad_to_deg(atan2(-fwd.x, -fwd.z)))
+		rig.global_position.y = box.position.y - MINIATURE_TABLE * s
+		_say("Miniature: the scene at 1:%d, as a table. M to go back." % roundi(s))
+	else:
+		var cam := stage.desktop_camera
+		_before_miniature = {"camera": cam.global_position, "rotation": cam.rotation_degrees}
+		# From high above the seat's side, looking steeply down on it.
+		var dist := size * 0.8 + 4.0
+		var eye := center + Vector3(0.0, dist * 0.94, dist * 0.34)
+		cam.set_view(eye, Vector3(-rad_to_deg(atan2(dist * 0.94, dist * 0.34)), 0.0, 0.0))
+		_say("Miniature: the whole scene from above. M to go back.")
+
+
+## Everything in the piece now, in the world: the objects on stage and the
+## viewer's keys (a 20 m square around the seat when there's nothing).
+func scene_bounds() -> AABB:
+	var out := AABB()
+	var found := false
+	if model != null:
+		for id in model.object_ids():
+			var node := runner.registry().get_node_by_id(id)
+			if node == null or not is_instance_valid(node) or not node.is_inside_tree() or not node.is_visible_in_tree():
+				continue
+			var local := StudioPicker.local_bounds(node)
+			if local.size == Vector3.ZERO:
+				continue
+			var box := node.global_transform * local
+			out = box if not found else out.merge(box)
+			found = true
+		var vt := ViewerTrack.new()
+		vt.build(model.tracks())
+		for t in vt.key_times():
+			var p: Vector3 = vt.pose_at(t).position
+			out = AABB(p, Vector3.ZERO) if not found else out.expand(p)
+			found = true
+	return out if found else AABB(Vector3(-10, 0, -10), Vector3(20, 4, 20))
 
 
 # ---------- recording ----------
@@ -1211,7 +1312,7 @@ func _show_status() -> void:
 			_wrist.action.connect(_on_command)
 	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
 		_wrist.status.callv("show_state", args)
-		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer)
+		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer, miniature_on)
 
 
 ## The status's record chip: "" when not recording.

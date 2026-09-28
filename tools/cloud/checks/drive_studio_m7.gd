@@ -4,7 +4,8 @@ extends SceneTree
 ## where the camera stands (the seat at 46 s, into the tunnel at 48 s,
 ## through it by 54 s, turning) and cut home at 56 s with Shift+V; select
 ## the Viewer lane on the ribbon (the inspector shows the viewer, the ride's
-## path is drawn, the too-fast stretch is red); arm the ride and record a
+## path is drawn, the too-fast stretch is red); grab a key on the path and
+## carry it 3 m left; the miniature (M) and back; arm the ride and record a
 ## second one over a loop at 60–66 s by flying (the camera carried along an
 ## arc while it plays); preview in Play mode (the camera rides the script)
 ## and back in Edit (flying freely: a seek doesn't move it); save, and the
@@ -114,9 +115,29 @@ func _initialize() -> void:
 	print("selected: ", tools.selected, ", inspector: '", studio.inspector._title.text, "' — ",
 			studio.inspector._viewer_state.text.replace("\n", " / ") if studio.inspector._viewer_state != null else "")
 	print("ribbon rows: ", rb._rows.map(func(r): return "%s (%d)" % [r.label, r.keys.size()]))
+	# Grab the 48 s key on the path and carry it 3 m to the left.
+	var from := Vector3(6, 4, -20)
+	var k: Dictionary = tools.pick_key(from, Vector3(0, 3, -30) - from)
+	print("picked the path key at ", k.get("t", "-"), " s")
+	var hand := Transform3D(Basis(), from)
+	tools.grab_key(k, "M", hand)
+	tools.move_key_hand("M", hand.translated(Vector3(-3, 0, 0)))
+	tools.release_key("M")
+	print("carried: '", studio.message, "' now ", viewer_keys("position")[1].value)
 	# Look at the ride from above and to the side.
 	cam().set_view(Vector3(-28, 22, -30), Vector3(-32, -62, 0))
 	await shot("1_viewer_selected")
+
+	# The miniature: the whole scene from above, and back.
+	var before_mini := cam().global_position
+	await key(KEY_M)
+	var box: AABB = studio.scene_bounds()
+	print("miniature: '", studio.message, "' scene %.0f × %.0f m, camera %s" % [box.size.x, box.size.z, where()])
+	studio.inspector.visible = false
+	studio.shelf.visible = false
+	await shot("3_miniature")
+	await key(KEY_M)
+	print("back: '", studio.message, "' where it was: ", cam().global_position.is_equal_approx(before_mini))
 
 	# Record a second ride by flying: an arc at 60–66 s.
 	await key(KEY_V, true, true)

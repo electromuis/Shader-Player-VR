@@ -69,6 +69,4 @@ release/media/*
 # Downloaded by CI (see ci/fetch_addons.sh)
 project_engine/addons/godotopenxrvendors/
 project_engine/android/
-gozen-bin/
-
 __pycache__/

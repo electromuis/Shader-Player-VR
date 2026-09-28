@@ -1,0 +1,103 @@
+{
+  "format_version": 1,
+  "kind": "camera_preset",
+  "layers": [
+    {
+      "blend": "black",
+      "distance": 0.0,
+      "effects": [],
+      "enabled": true,
+      "height": 0.0,
+      "lock_to_screen": false,
+      "opacity": 0.45,
+      "params": {
+        "density": 0.55,
+        "speed": 0.2
+      },
+      "resolution": 1.0,
+      "shader": "res://player/visualizer/shaders/cosmic_nebula.gdshader",
+      "size": 1.0,
+      "surface": {
+        "params": {
+          "arc_x": 240.0,
+          "arc_y": 90.0,
+          "auto_height": true,
+          "keep_row_width": false,
+          "straight_rows": 0.5
+        },
+        "placement": "around",
+        "shader": "res://player/visualizer/surfaces/dome.gdshaderinc"
+      },
+      "tilt": 0.0,
+      "vertex_effects": []
+    },
+    {
+      "blend": "add",
+      "distance": 0.3,
+      "effects": [
+        {
+          "params": {
+            "blur": 0.5,
+            "level": 1.0,
+            "outside": true,
+            "ratio": 1.0,
+            "size": 0.9
+          },
+          "shader": "res://player/visualizer/effects/oval_mask.gdshader"
+        }
+      ],
+      "enabled": true,
+      "height": 0.0,
+      "lock_to_screen": true,
+      "opacity": 0.8,
+      "params": {},
+      "resolution": 1.0,
+      "shader": "res://player/visualizer/shaders/light_ring.gdshader",
+      "size": 1.6,
+      "surface": {
+        "params": {
+          "arc_x": 0.0,
+          "arc_y": 0.0
+        },
+        "placement": "fixed",
+        "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+      },
+      "tilt": 0.0,
+      "vertex_effects": []
+    }
+  ],
+  "name": "Over the room (Passthrough)",
+  "screen": {
+    "blend": "normal",
+    "distance": 0.0,
+    "effects": [
+      {
+        "params": {
+          "roundness": 0.2
+        },
+        "shader": "res://player/visualizer/effects/rounded_corners.gdshader"
+      },
+      {
+        "params": {
+          "inward": true,
+          "radius": 0.03
+        },
+        "shader": "res://player/visualizer/effects/edge_blur.gdshader"
+      }
+    ],
+    "height": 0.0,
+    "opacity": 1.0,
+    "resolution": 1.0,
+    "size": 0.9,
+    "surface": {
+      "params": {
+        "arc_x": 0.0,
+        "arc_y": 0.0
+      },
+      "placement": "fixed",
+      "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+    },
+    "tilt": 0.0,
+    "vertex_effects": []
+  }
+}

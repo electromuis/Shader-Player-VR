@@ -1,0 +1,67 @@
+{
+  "format_version": 1,
+  "kind": "camera_preset",
+  "layers": [
+    {
+      "blend": "normal",
+      "distance": 0.8,
+      "effects": [],
+      "enabled": true,
+      "height": 0.0,
+      "lock_to_screen": true,
+      "opacity": 1.0,
+      "params": {
+        "react": 1.2,
+        "speed": 0.6,
+        "world_scale": 0.05
+      },
+      "resolution": 1.0,
+      "shader": "res://player/visualizer/shaders/gyroid_tunnel.gdshader",
+      "size": 1.45,
+      "surface": {
+        "params": {
+          "arc_x": 0.0,
+          "arc_y": 0.0
+        },
+        "placement": "fixed",
+        "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+      },
+      "tilt": 0.0,
+      "vertex_effects": []
+    }
+  ],
+  "name": "Gyroid window (3D)",
+  "screen": {
+    "blend": "normal",
+    "distance": 0.0,
+    "effects": [
+      {
+        "params": {
+          "roundness": 0.15
+        },
+        "shader": "res://player/visualizer/effects/rounded_corners.gdshader"
+      },
+      {
+        "params": {
+          "inward": true,
+          "radius": 0.02
+        },
+        "shader": "res://player/visualizer/effects/edge_blur.gdshader"
+      }
+    ],
+    "height": 0.0,
+    "opacity": 1.0,
+    "resolution": 1.0,
+    "size": 1.0,
+    "surface": {
+      "params": {
+        "arc_x": 0.0,
+        "arc_y": 0.0
+      },
+      "placement": "fixed",
+      "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+    },
+    "tilt": 0.0,
+    "vertex_effects": []
+  }
+}

@@ -454,3 +454,79 @@ static func test_margin_step(t: TestCase) -> void:
 	t.assert_eq(Screen.picture_rect(a, a, 1.0), Vector4(0, 0, 1, 1), "unpadded: the whole pass")
 	var r := Screen.picture_rect(a, g.w, g.h)
 	t.assert_true(r.is_equal_approx(Vector4(0.5 / (a + 1.0), 0.25, a / (a + 1.0), 0.5)), "padded: centred, margin around it")
+
+
+static func test_vr_code_is_found_by_its_entry_point(t: TestCase) -> void:
+	var vr := "void mainImage(out vec4 c, in vec2 p) { c = vec4(1.0); }\nvoid mainVR(out vec4 c, in vec2 p, in vec3 o, in vec3 d) { c = vec4(d, 1.0); }"
+	t.assert_true(VisualizerShaders.is_vr_code(vr))
+	t.assert_false(VisualizerShaders.is_vr_code("// like Shadertoy's void mainVR(...)\nvoid mainImage(out vec4 c, in vec2 p) {}"),
+			"a comment naming it doesn't count")
+	var gyroid := VisualizerShaders.load_shader(VisualizerShaders.BUILTIN_ROOT + "shaders/gyroid_tunnel.gdshader")
+	t.assert_true(VisualizerShaders.is_vr_code(gyroid.code), "the gyroid tunnel is 3D")
+	t.assert_false(VisualizerShaders.is_vr_code(VisualizerShaders.load_shader(VisualizerShaders.BUILTIN_ROOT + "shaders/light_ring.gdshader").code))
+	var src := VisualizerShaders.vr_source(gyroid.code)
+	t.assert_false(src.contains("shader_type"), "no shader_type in the display shader's middle")
+	t.assert_has(src, VisualizerShaders.PRELUDE, "keeps its includes")
+	var wrapped := VisualizerShaders.vr_source(VisualizerShaders.wrap_shadertoy(vr))
+	t.assert_false(wrapped.contains("shader_type"))
+	t.assert_has(wrapped, "void mainVR")
+
+
+static func test_display_shader_runs_vr_source(t: TestCase) -> void:
+	var four := "void mainVR(out vec4 c, in vec2 p, in vec3 o, in vec3 d) { c = vec4(d, 1.0); }"
+	var code := ScreenGeometry.Code.build(ScreenGeometry.DISPLAY_INCLUDE, [], "", four)
+	t.assert_has(code, "#define SHADERTOY_VR\n")
+	t.assert_false(code.contains("SHADERTOY_VR_DEPTH"), "no fragDepth: no depth define")
+	t.assert_has(code, "depth_draw_always")
+	t.assert_true(code.find("void mainVR") < code.find(ScreenGeometry.DISPLAY_INCLUDE),
+			"mainVR comes before the fragment() that calls it")
+	var depth := "void mainVR(out vec4 c,\n\t\tout float z, in vec2 p, in vec3 o, in vec3 d) { c = vec4(1.0); z = 1.0; }"
+	t.assert_has(ScreenGeometry.Code.build(ScreenGeometry.DISPLAY_INCLUDE, [], "", depth), "#define SHADERTOY_VR_DEPTH\n")
+	var flat := ScreenGeometry.Code.build(ScreenGeometry.DISPLAY_INCLUDE, [], "")
+	t.assert_false(flat.contains("SHADERTOY_VR") or flat.contains("depth_draw_always"), "flat screens as before")
+
+
+## A layer with a 3D shader runs it on its Screen's mesh: no render pass,
+## its params on the display material; a flat shader after it goes back.
+static func test_vr_layer_runs_on_the_mesh(t: TestCase) -> void:
+	# Out of the tree (tests run from the runner's _init): ready the Screen
+	# by hand, as Visualizer._ready would through the tree.
+	var layer := Visualizer.new()
+	var screen: Screen = load("res://player/prefabs/screen.tscn").instantiate()
+	screen.notification(Node.NOTIFICATION_READY)
+	layer._screen = screen
+	layer.add_child(screen)
+	layer.set_shader(VisualizerShaders.BUILTIN_ROOT + "shaders/gyroid_tunnel.gdshader")
+	t.assert_true(screen.get_shader_material() == null, "no canvas pass")
+	t.assert_eq(screen.render_viewport.render_target_update_mode, SubViewport.UPDATE_DISABLED)
+	var display := screen.get_display_material()
+	t.assert_has(display.shader.code, "#define SHADERTOY_VR_DEPTH")
+	layer.set_params({"speed": 2.0})
+	t.assert_eq(display.get_shader_parameter("speed"), 2.0, "params on the display material")
+	t.assert_eq(display.get_shader_parameter("iResolution"), Vector3(1280, 720, 1), "@resolution")
+	layer.set_shader(VisualizerShaders.BUILTIN_ROOT + "shaders/light_ring.gdshader")
+	t.assert_true(screen.get_shader_material() != null, "flat again")
+	t.assert_false(display.shader.code.contains("SHADERTOY_VR"))
+	t.assert_true(display.get_shader_parameter("speed") == null, "the 3D shader's values dropped")
+	layer.free()
+
+
+static func test_blend_setting(t: TestCase) -> void:
+	var s := LayerSettings.new()
+	t.assert_eq(s.blend, "normal", "normal by default")
+	s.blend = "add"
+	var back := LayerSettings.new()
+	back.from_dict(s.to_dict())
+	t.assert_eq(back.blend, "add", "saved in presets")
+	s.blend = "multiply"
+	t.assert_eq(s.blend, "normal", "unknown ones are normal")
+	var old := ScreenSettings.new()
+	old.from_dict({"opacity": 0.5})
+	t.assert_eq(old.blend, "normal", "earlier presets")
+	t.assert_has(ScreenGeometry.Code.build(ScreenGeometry.DISPLAY_INCLUDE, [], ""), "blend_premul_alpha")
+	var screen: Screen = load("res://player/prefabs/screen.tscn").instantiate()
+	screen.notification(Node.NOTIFICATION_READY)
+	screen.configure({"blend": "black"}, null)
+	t.assert_eq(screen.get_display_material().get_shader_parameter("display_blend"), 2)
+	t.assert_true(screen.is_scripted("blend"), "a script's blend stays")
+	screen.free()

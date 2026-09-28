@@ -130,3 +130,11 @@ static func test_recenter_puts_head_on_target(t: TestCase) -> void:
 	t.assert_true(is_equal_approx(origin.origin.y, 0.0), "origin stays on floor")
 	var fwd := -head_world.basis.z
 	t.assert_true(is_equal_approx(rad_to_deg(atan2(-fwd.x, -fwd.z)), 15.0), "head yaw")
+
+
+static func test_passthrough_skybox_is_transparent(t: TestCase) -> void:
+	t.assert_true(SkyboxLibrary.list_options().any(func(o): return o.key == SkyboxLibrary.PASSTHROUGH), "listed")
+	var env := Environment.new()
+	SkyboxLibrary.new().apply(env, SkyboxLibrary.PASSTHROUGH)
+	t.assert_eq(env.background_mode, Environment.BG_COLOR)
+	t.assert_eq(env.background_color.a, 0.0, "the cameras show through")

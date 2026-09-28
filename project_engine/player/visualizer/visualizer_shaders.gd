@@ -11,6 +11,18 @@ extends RefCounted
 ## is an effect instead: it runs on a layer's or the screen's output, after
 ## the layer's shader, and gets none of the Shadertoy inputs.
 ##
+## A layer shader that defines mainVR (is_vr_code) is 3D: Shadertoy's VR
+## entry point, `void mainVR(out vec4 fragColor, in vec2 fragCoord,
+## in vec3 fragRayOri, in vec3 fragRayDir)`, optionally with
+## `out float fragDepth` after fragColor (metres along the ray, for
+## occlusion). Its code (vr_source) runs in the screen's display shader per
+## eye, from the eye along the ray through each point of the surface, in
+## metres in the screen's frame (see screen_display.gdshaderinc), so a
+## raymarcher gets real stereo and head parallax. No render pass, no texture
+## effects; a mainImage alongside it is unused in the player but keeps it
+## working elsewhere (thumbnails, Shadertoy). A .gdshader must include
+## PRELUDE (it defines iResolution and the other inputs).
+##
 ## Hints, read from the source:
 ##   // @resolution 1024x1024  — pixel size a layer shader renders at (and
 ##                               its screen's shape); default DEFAULT_RESOLUTION,
@@ -114,6 +126,9 @@ static var _include_re := RegEx.create_from_string("#include\\s+\"([^\"]+)\"")
 static var _prepass_re := RegEx.create_from_string("(?m)^\\s*uniform\\s+sampler2D\\s+prepass_tex\\b")
 static var _title_re := RegEx.create_from_string("(?m)^\\s*//\\s*@title\\s+(.+?)\\s*$")
 static var _time_re := RegEx.create_from_string("\\bTIME\\b")
+# At a line's start, so a comment naming it doesn't count.
+static var _vr_re := RegEx.create_from_string("(?m)^\\s*void\\s+mainVR\\s*\\(")
+static var _vr_strip_re := RegEx.create_from_string("(?m)^\\s*(?:shader_type|render_mode)\\b[^;]*;")
 static var _expression_hint_re := RegEx.create_from_string(
 		"(?m)^\\s*//\\s*@(%s)\\s+(.+?)\\s*$" % "|".join(EXPRESSION_HINTS))
 static var _hint_helpers := _HintHelpers.new()
@@ -305,6 +320,17 @@ static func wrap_shadertoy(source: String) -> String:
 
 static func is_effect_code(code: String) -> bool:
 	return code.contains("input_tex") or code.contains(EFFECT_PRELUDE.get_file())
+
+
+## Whether a layer shader's code defines mainVR, so it renders in 3D.
+static func is_vr_code(code: String) -> bool:
+	return _vr_re.search(code) != null
+
+
+## A loaded 3D layer shader's code for the screen's display shader
+## (Screen.set_vr_source): without its shader_type and render_mode.
+static func vr_source(code: String) -> String:
+	return _vr_strip_re.sub(code, "", true)
 
 
 ## Whether an effect wants a prepass (it declares `prepass_tex`; see

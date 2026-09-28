@@ -35,6 +35,11 @@ extends Node3D
 ## the main screen's base size times the layer's resolution. So a video
 ## layer locked at size 1 is a copy of the main screen, and at a low
 ## resolution with a Blur effect it's a cheap soft glow.
+## A 3D shader (one with mainVR, see VisualizerShaders.is_vr_code) has no
+## render pass: the Screen runs it on its mesh per eye (Screen.set_vr_source),
+## so its uniforms (params, audio, iChannels, iResolution) go on the
+## Screen's display material, and its effects don't apply. The
+## `@resolution` still sets the screen's shape and iResolution.
 ## The AudioAnalyzer is shared, so the Stage runs it while any layer
 ## is_running(). So is the BeatClock, whose grid sets the beat uniforms.
 ##
@@ -51,7 +56,8 @@ const ORDER_STEP := 0.01  # metres
 @export var at_origin: bool = false
 
 var _screen: Screen
-var _material: ShaderMaterial
+var _material: ShaderMaterial  # the shader's; the Screen's display material when _vr
+var _vr: bool = false  # a 3D shader (mainVR), run by the Screen's display shader
 var _shader_key: String = ""
 var _hints: Dictionary = {}  # VisualizerShaders.parse_hints() of the shader
 var _param_specs: Array = []  # the shader's hinted uniforms (VisualizerShaders.parse_hints)
@@ -139,25 +145,35 @@ func set_shader(key: String) -> void:
 	if key == _shader_key:
 		return
 	_shader_key = key
+	if _vr:
+		# The display material outlives the shader: drop its values.
+		for spec in _param_specs:
+			_material.set_shader_parameter(spec.name, null)
 	_material = null
 	_hints = {}
 	_param_specs = []
 	_video_source = key == VisualizerShaders.VIDEO
 	var shader: Shader = null if _video_source else VisualizerShaders.load_shader(key)
+	_vr = shader != null and VisualizerShaders.is_vr_code(shader.code)
 	if _video_source:
 		_configure_video_source()
 	else:
 		_screen.set_source_texture(null)
+	_screen.set_vr_source(VisualizerShaders.vr_source(shader.code) if _vr else "")
 	if shader != null:
 		_hints = VisualizerShaders.parse_hints(shader.code)
 		_param_specs = _hints.params
-		_material = ShaderMaterial.new()
-		_material.shader = shader
+		if _vr:
+			_material = _screen.get_display_material()
+		else:
+			_material = ShaderMaterial.new()
+			_material.shader = shader
 		_configure_screen()
 	elif key != "" and not _video_source:
 		push_warning("Visualizer: can't load shader %s" % key)
-	# A null material also stops the Screen's render viewport.
-	_screen.set_shader_material(_material)
+	# A null material also stops the Screen's render viewport (a 3D shader
+	# has none: it runs on the mesh).
+	_screen.set_shader_material(null if _vr else _material)
 	visible = _material != null or _video_source
 
 
@@ -166,16 +182,18 @@ func set_shader(key: String) -> void:
 func reload_shaders() -> void:
 	if _shader_key == "" or _video_source:
 		return
-	var old := _material
+	var old := {}
+	if _material != null:
+		for spec in _param_specs:
+			old[spec.name] = _material.get_shader_parameter(spec.name)
 	var key := _shader_key
 	_shader_key = ""
 	set_shader(key)
-	if old == null or _material == null:
+	if _material == null:
 		return
 	for spec in _param_specs:
-		var v: Variant = old.get_shader_parameter(spec.name)
-		if v != null:
-			_material.set_shader_parameter(spec.name, v)
+		if old.get(spec.name) != null:
+			_material.set_shader_parameter(spec.name, old[spec.name])
 
 
 func get_shader_key() -> String:
@@ -197,7 +215,7 @@ func set_effects(effects: Array) -> void:
 
 ## A scripted layer's `config` from the runner, shader keys already turned
 ## into files: shader, params, effects, vertex_effects, surface, opacity,
-## resolution (and earlier scripts' curvature / vertical_curvature). `_mat`
+## blend, resolution (and earlier scripts' curvature / vertical_curvature). `_mat`
 ## is unused (the layer builds its own material, since the shader may be
 ## Shadertoy code).
 func configure(cfg: Dictionary, _mat: ShaderMaterial) -> void:
@@ -207,6 +225,7 @@ func configure(cfg: Dictionary, _mat: ShaderMaterial) -> void:
 	var effects = cfg.get("effects", [])
 	set_effects(effects if typeof(effects) == TYPE_ARRAY else [])
 	set_opacity(float(cfg.get("opacity", 1.0)))
+	set_blend(String(cfg.get("blend", "normal")))
 	var vfx = cfg.get("vertex_effects", [])
 	set_vertex_effects(vfx if typeof(vfx) == TYPE_ARRAY else [])
 	if typeof(cfg.get("surface")) == TYPE_DICTIONARY:
@@ -248,6 +267,11 @@ func set_vertex_effects(effects: Array) -> void:
 
 func set_opacity(amount: float) -> void:
 	_screen.set_opacity(amount)
+
+
+## One of Screen.BLENDS (see Screen.set_blend).
+func set_blend(mode: String) -> void:
+	_screen.set_blend(mode)
 
 
 ## Multiplier on the shader's (and its effects') render size.

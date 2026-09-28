@@ -243,3 +243,9 @@ static func test_bezier_handles_validated(tc: TestCase) -> void:
 	tc.assert_err(ScriptFormat.load_from_string(bad_count), ".out must be")
 	var bad_pair := '{"format_version":2,"media":{"video":"x.mp4"},"tracks":[{"type":"shader_param","target":"a.surface","param":"p","keyframes":[{"t":0,"value":0,"in":[1,2,3]}]}]}'
 	tc.assert_err(ScriptFormat.load_from_string(bad_pair), ".in must be")
+
+
+static func test_spawn_config_blend(tc: TestCase) -> void:
+	var s := '{"format_version":1,"media":{"video":"x.mp4"},"tracks":[{"type":"event","t":1.0,"action":"spawn","id":"a","prefab":"screen","config":{"blend":"%s"}}]}'
+	tc.assert_ok(ScriptFormat.load_from_string(s % "add"))
+	tc.assert_err(ScriptFormat.load_from_string(s % "multiply"), "blend")

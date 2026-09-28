@@ -212,6 +212,7 @@ func _on_entered_vr() -> void:
 	desktop_camera.current = false
 	xr_rig.set_visuals_enabled(true)
 	xr_rig.xr_camera.current = true
+	_apply_passthrough()
 	# The runtime's own recenter (e.g. holding the Oculus/SteamVR button)
 	# should land on our home pose too.
 	var xr := XRServer.find_interface("OpenXR")
@@ -284,7 +285,7 @@ static func _screen_pivot() -> Vector3:
 	return Vector3(DefaultScreen.POSITION[0], DefaultScreen.POSITION[1], DefaultScreen.POSITION[2])
 
 
-## Opacity, surface, effects and vertex effects apply to every screen under
+## Opacity, blend, surface, effects and vertex effects apply to every screen under
 ## the mount (main and split-off).
 func _apply_screen_display() -> void:
 	if screen_settings == null or screen_mount == null:
@@ -315,6 +316,8 @@ func _apply_display_to(screen: Node) -> void:
 	screen.set_resolution_scale(screen_settings.resolution)
 	if not screen.is_scripted("opacity"):
 		screen.set_opacity(screen_settings.opacity)
+	if not screen.is_scripted("blend"):
+		screen.set_blend(screen_settings.blend)
 	if not screen.is_scripted("surface"):
 		screen.set_surface(screen_settings.surface)
 	if not screen.is_scripted("effects"):
@@ -362,6 +365,7 @@ func _apply_layer(layer: LayerSettings, node: Visualizer) -> void:
 	node.set_surface(layer.surface)
 	node.set_vertex_effects(layer.vertex_effects)
 	node.set_opacity(layer.opacity)
+	node.set_blend(layer.blend)
 	node.set_resolution_scale(layer.resolution)
 	# Off: no source, so the layer hides and its render viewport stops.
 	node.set_shader(layer.shader if layer.enabled else "")
@@ -469,10 +473,22 @@ func _apply_settings() -> void:
 	camera_fx.max_strength = settings.camera_fx_max
 	floor_mesh.visible = settings.show_floor
 	_skyboxes.apply(world_env.environment, settings.skybox)
+	_apply_passthrough()
 	if video != null:
 		video.set_volume(settings.volume)
 		if audio != null:
 			audio.set_input_gain(video.audio_gain())
+
+
+## The Passthrough skybox in VR: the headset's cameras behind everything.
+func _apply_passthrough() -> void:
+	if settings == null:
+		return
+	var want := settings.skybox == SkyboxLibrary.PASSTHROUGH and xr_mode.is_in_vr()
+	if want == xr_mode.is_passthrough():
+		return
+	if not xr_mode.set_passthrough(want) and want:
+		status.emit("Passthrough isn't available on this headset or runtime")
 
 
 ## The current video's source layout (a VideoProjection key): the Camera

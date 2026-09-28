@@ -380,10 +380,10 @@ func _init_whirligig() -> void:
 
 
 ## --live-sync <port>: follow the authoring editor's playhead and Preview
-## presses (see LiveSyncClient), while Config → Editor sync is on.
+## presses (see LiveSyncClient), while Config → Editor sync is on. Without
+## it, follow DaVinci Resolve's VJ Sync script whenever that is running.
 func _init_live_sync() -> void:
-	if _cli_live_sync_port <= 0:
-		return
+	var port := _cli_live_sync_port if _cli_live_sync_port > 0 else LiveSyncClient.RESOLVE_PORT
 	_live_sync = LiveSyncClient.new()
 	_live_sync.name = "LiveSyncClient"
 	add_child(_live_sync)
@@ -394,7 +394,7 @@ func _init_live_sync() -> void:
 	_live_sync.seek_requested.connect(stage.seek_to)
 	_live_sync.play_requested.connect(runner.play)
 	_live_sync.pause_requested.connect(runner.pause)
-	_live_sync.connect_to_editor(_cli_live_sync_port)
+	_live_sync.connect_to_editor(port)
 
 
 ## The editor pressed Preview. Already showing that script: reload it in

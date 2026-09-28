@@ -1,0 +1,96 @@
+{
+  "format_version": 1,
+  "kind": "camera_preset",
+  "layers": [
+    {
+      "blend": "normal",
+      "distance": 1.5,
+      "effects": [
+        {
+          "params": {
+            "blur": 0.35,
+            "level": 1.0,
+            "outside": true,
+            "ratio": 1.78,
+            "size": 0.95
+          },
+          "shader": "res://player/visualizer/effects/oval_mask.gdshader"
+        }
+      ],
+      "enabled": true,
+      "height": 0.0,
+      "lock_to_screen": true,
+      "opacity": 0.8,
+      "params": {
+        "density": 1.2,
+        "speed": 0.7
+      },
+      "resolution": 1.0,
+      "shader": "res://player/visualizer/shaders/hyperspace.gdshader",
+      "size": 2.2,
+      "surface": {
+        "params": {
+          "arc_x": 60.0,
+          "arc_y": 20.0
+        },
+        "placement": "fixed",
+        "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+      },
+      "tilt": 0.0,
+      "vertex_effects": []
+    },
+    {
+      "blend": "add",
+      "distance": -0.05,
+      "effects": [],
+      "enabled": true,
+      "height": 0.0,
+      "lock_to_screen": true,
+      "opacity": 0.85,
+      "params": {
+        "bolts": 4,
+        "react": 1.6
+      },
+      "resolution": 1.0,
+      "shader": "res://player/visualizer/shaders/plasma_arcs.gdshader",
+      "size": 1.0,
+      "surface": {
+        "params": {
+          "arc_x": 40.0,
+          "arc_y": 0.0
+        },
+        "placement": "fixed",
+        "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+      },
+      "tilt": 0.0,
+      "vertex_effects": []
+    }
+  ],
+  "name": "Neon over video (Add)",
+  "screen": {
+    "blend": "normal",
+    "distance": 0.0,
+    "effects": [
+      {
+        "params": {
+          "roundness": 0.1
+        },
+        "shader": "res://player/visualizer/effects/rounded_corners.gdshader"
+      }
+    ],
+    "height": 0.0,
+    "opacity": 1.0,
+    "resolution": 1.0,
+    "size": 1.1,
+    "surface": {
+      "params": {
+        "arc_x": 40.0,
+        "arc_y": 0.0
+      },
+      "placement": "fixed",
+      "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+    },
+    "tilt": 0.0,
+    "vertex_effects": []
+  }
+}

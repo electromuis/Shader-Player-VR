@@ -56,6 +56,8 @@ const VJVertexEffectScript := preload("res://addons/vj_editor/builtin_prefabs/ve
 const BezierTracksScript := preload("res://addons/vj_editor/exporter/bezier_tracks.gd")
 
 const _ANIMATION_NAME := "main"
+## `source` of the events resolve/VJ Sync.py writes from timeline markers.
+const RESOLVE_SOURCE := "resolve"
 ## The addon's copies of the player's layer / effect shaders and their
 ## includes map to the player's own (same file names under this folder).
 const _VISUALIZER_ADDON_DIR := "res://addons/vj_editor/visualizer/"
@@ -100,6 +102,8 @@ static func export_from_root(root: Node) -> String:
 		push_error("VJ export failed: %s" % result.error)
 		return ""
 
+	if FileAccess.file_exists(abs_path):
+		carry_over_resolve_events(FileAccess.get_file_as_string(abs_path), result.data)
 	var f := FileAccess.open(abs_path, FileAccess.WRITE)
 	if f == null:
 		push_error("VJ export: could not open '%s' for writing (error %d)" % [abs_path, FileAccess.get_open_error()])
@@ -108,6 +112,25 @@ static func export_from_root(root: Node) -> String:
 	f.close()
 	print("VJ export: wrote %s" % abs_path)
 	return abs_path
+
+
+## Appends the events DaVinci Resolve's VJ Sync script wrote into the
+## previous export (`"source": "resolve"`, from its timeline markers) to
+## `data`'s tracks, so exporting from here doesn't lose them; Resolve
+## replaces exactly those on its next marker export. Returns how many.
+static func carry_over_resolve_events(old_json: String, data: Dictionary) -> int:
+	var json := JSON.new()
+	if json.parse(old_json) != OK:
+		return 0
+	var old = json.data
+	if typeof(old) != TYPE_DICTIONARY or typeof(old.get("tracks")) != TYPE_ARRAY:
+		return 0
+	var kept := 0
+	for track in old["tracks"]:
+		if typeof(track) == TYPE_DICTIONARY and track.get("source") == RESOLVE_SOURCE:
+			data["tracks"].append(track)
+			kept += 1
+	return kept
 
 
 ## Absolute filesystem path the scene exports to ("" if unset).

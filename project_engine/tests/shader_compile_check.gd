@@ -35,5 +35,24 @@ func _run() -> void:
 		print("rendered %d: %s" % [i, JSON.stringify(cfg)])
 		screen.queue_free()
 		i += 1
+	# 3D layer shaders (mainVR) in the display shader: with and without
+	# fragDepth, flat, curved and at infinity.
+	var four := "user://compile_check_vr.glsl"
+	var f := FileAccess.open(four, FileAccess.WRITE)
+	f.store_string("void mainVR(out vec4 c, in vec2 p, in vec3 ro, in vec3 rd) { c = vec4(rd * 0.5 + 0.5, 1.0) * texture(iChannel0, vec2(0.1, 0.25)).x; }\n")
+	f.close()
+	var gyroid := VisualizerShaders.BUILTIN_ROOT + "shaders/gyroid_tunnel.gdshader"
+	for key in [gyroid, ProjectSettings.globalize_path(four)]:
+		for surface in [ScreenGeometry.default_surface(), {"shader": "pillow", "params": {"arc_x": 90.0}},
+				{"shader": "dome", "placement": "infinity"}]:
+			var layer := Visualizer.new()
+			layer.at_origin = true
+			root.add_child(layer)
+			layer.set_shader(key)
+			layer.set_surface(surface)
+			for _f in 3:
+				await process_frame
+			print("rendered 3D %s on %s" % [key.get_file(), JSON.stringify(surface)])
+			layer.queue_free()
 	print("done")
 	quit(0)

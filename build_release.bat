@@ -70,7 +70,7 @@ if not exist "%DIST%\Player.exe" (
 
 echo.
 echo === [2/3] Shaders, presets, media, README ===
-mkdir "%DIST%\shaders\effects" "%DIST%\shaders\sources" "%DIST%\shaders\surfaces" "%DIST%\shaders\vertex" "%DIST%\presets" "%DIST%\media"
+mkdir "%DIST%\shaders\effects" "%DIST%\shaders\sources" "%DIST%\shaders\surfaces" "%DIST%\shaders\vertex" "%DIST%\presets" "%DIST%\media" "%DIST%\resolve"
 copy /y "%VIS%\*.gdshaderinc" "%DIST%\shaders\" >nul || exit /b 1
 copy /y "%VIS%\effects\*.gdshader" "%DIST%\shaders\effects\" >nul || exit /b 1
 copy /y "%VIS%\shaders\*.gdshader" "%DIST%\shaders\sources\" >nul || exit /b 1
@@ -78,6 +78,8 @@ copy /y "%VIS%\surfaces\*.gdshaderinc" "%DIST%\shaders\surfaces\" >nul || exit /
 copy /y "%VIS%\vertex\*.gdshaderinc" "%DIST%\shaders\vertex\" >nul || exit /b 1
 copy /y "%RELEASE%\README.md" "%DIST%\README.md" >nul || exit /b 1
 copy /y "%RELEASE%\portable.ini" "%DIST%\portable.ini" >nul || exit /b 1
+copy /y "%REPO%\resolve\VJ Sync.py" "%DIST%\resolve\" >nul || exit /b 1
+copy /y "%REPO%\resolve\README.md" "%DIST%\resolve\" >nul || exit /b 1
 if exist "%RELEASE%\presets" robocopy "%RELEASE%\presets" "%DIST%\presets" /e /njh /njs /nfl /ndl >nul
 if exist "%RELEASE%\media" robocopy "%RELEASE%\media" "%DIST%\media" /e /xf .gitkeep /njh /njs /nfl /ndl >nul
 rem robocopy exit codes below 8 are success.

@@ -313,6 +313,8 @@ static func _validate_config(cfg, loc: String, errors: Array) -> void:
 	for k in ["opacity", "curvature", "vertical_curvature", "render_scale", "resolution"]:
 		if cfg.has(k) and typeof(cfg[k]) not in [TYPE_INT, TYPE_FLOAT]:
 			errors.append("%s.%s must be a number" % [loc, k])
+	if cfg.has("blend") and not cfg["blend"] in Screen.BLENDS:
+		errors.append("%s.blend must be one of %s" % [loc, Screen.BLENDS])
 	for k in ["modifiers", "reactive"]:
 		if cfg.has(k) and typeof(cfg[k]) != TYPE_DICTIONARY:
 			errors.append("%s.%s must be an object" % [loc, k])

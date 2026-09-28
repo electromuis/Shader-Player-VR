@@ -24,6 +24,9 @@ extends RefCounted
 ##   vertex_effects — vertex effects moving the surface, in order:
 ##                [{shader: ScreenGeometry key, params}] like `effects`
 ##   opacity    — 0..1, likewise a display-shader value, not a transform
+##   blend      — how the picture goes over what's behind it: one of
+##                Screen.BLENDS ("normal", "add" = light, "black" = black
+##                see-through); a display-shader value too
 ##   resolution — RESOLUTION_MIN..RESOLUTION_MAX multiplier on the pixel
 ##                size the shader and effect passes render at (see
 ##                Screen.set_resolution_scale); lower is cheaper and softer
@@ -50,6 +53,7 @@ var height: float = 0.0: set = _set_height
 var tilt: float = 0.0: set = _set_tilt
 var surface: Dictionary = ScreenGeometry.default_surface()
 var opacity: float = 1.0: set = _set_opacity
+var blend: String = "normal": set = _set_blend
 var resolution: float = 1.0: set = _set_resolution
 var effects: Array[Dictionary] = []
 var vertex_effects: Array[Dictionary] = []
@@ -70,6 +74,7 @@ func from_dict(d: Dictionary) -> void:
 			"arc_y": float(d.get("vertical_curvature", 0.0)) * 180.0,
 		}
 	opacity = float(d.get("opacity", 1.0))
+	blend = String(d.get("blend", "normal"))
 	resolution = float(d.get("resolution", 1.0))
 	_read_effects(effects, d.get("effects", []))
 	_read_effects(vertex_effects, d.get("vertex_effects", []))
@@ -95,6 +100,7 @@ func to_dict() -> Dictionary:
 		"tilt": tilt,
 		"surface": surface.duplicate(true),
 		"opacity": opacity,
+		"blend": blend,
 		"resolution": resolution,
 		"effects": effects.duplicate(true),
 		"vertex_effects": vertex_effects.duplicate(true),
@@ -295,6 +301,15 @@ func _set_opacity(v: float) -> void:
 	if v == opacity:
 		return
 	opacity = v
+	changed.emit()
+
+
+func _set_blend(v: String) -> void:
+	if not v in Screen.BLENDS:
+		v = "normal"
+	if v == blend:
+		return
+	blend = v
 	changed.emit()
 
 

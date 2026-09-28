@@ -2,8 +2,13 @@
 // with a bottom-left-origin fragCoord, as Shadertoy does. Alpha is forced
 // opaque (Shadertoy ignores it); the visualizer keys black out instead.
 
+// Left out in 3D (SHADERTOY_VR): the display shader's fragment() calls
+// mainVR there (screen_display.gdshaderinc).
+
+#ifndef SHADERTOY_VR
 void fragment() {
 	vec4 st_color = vec4(0.0, 0.0, 0.0, 1.0);
 	mainImage(st_color, vec2(FRAGCOORD.x, iResolution.y - FRAGCOORD.y));
 	COLOR = vec4(st_color.rgb, 1.0);
 }
+#endif

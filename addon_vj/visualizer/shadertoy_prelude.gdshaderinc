@@ -15,8 +15,15 @@
 // one eye's half to keep a blur from crossing into the other (channels
 // 1–3 repeat).
 // There is no mouse, keyboard or multipass buffer support.
+//
+// A shader that also defines mainVR renders in 3D instead (see
+// VisualizerShaders.is_vr_code): its code goes into the screen's spatial
+// display shader with SHADERTOY_VR defined, which leaves out this
+// canvas_item render_mode and shadertoy_main's fragment().
 
+#ifndef SHADERTOY_VR
 render_mode blend_disabled;
+#endif
 
 uniform sampler2D iChannel0 : filter_linear, repeat_disable;
 uniform sampler2D iChannel1 : filter_linear, repeat_enable;

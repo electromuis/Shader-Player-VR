@@ -212,12 +212,14 @@ static func clear_caches() -> void:
 
 
 ## The display shader for these vertex effects (keys, in order; unreadable
-## ones skipped) and surface. Shared between screens with the same code.
-static func build_shader(vertex_keys: Array, surface_key: String) -> Shader:
+## ones skipped) and surface, running `vr_source` (a 3D layer shader's code,
+## see VisualizerShaders.vr_source) if given. Shared between screens with
+## the same code.
+static func build_shader(vertex_keys: Array, surface_key: String, vr_source: String = "") -> Shader:
 	var sources: Array = []
 	for k in vertex_keys:
 		sources.append(read_code(String(k)))
-	var code := Code.build(DISPLAY_INCLUDE, sources, read_code(surface_key))
+	var code := Code.build(DISPLAY_INCLUDE, sources, read_code(surface_key), vr_source)
 	if VisualizerShaders.builtins_fresh():
 		code = VisualizerShaders.expand_includes(code, DISPLAY_INCLUDE.get_base_dir())
 	if not _shader_cache.has(code):

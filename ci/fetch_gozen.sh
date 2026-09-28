@@ -12,7 +12,7 @@
 set -euo pipefail
 
 : "${GOZEN_REPO:?set GOZEN_REPO, e.g. electromuis/gde_gozen}"
-: "${GOZEN_RELEASE:?set GOZEN_RELEASE, e.g. v9.7-sp1}"
+: "${GOZEN_RELEASE:?set GOZEN_RELEASE, e.g. v9.7-sp4}"
 [ $# -gt 0 ] || { echo "usage: $0 <platform>-<arch>... | all" >&2; exit 2; }
 
 BIN="$(cd "$(dirname "$0")/.." && pwd)/project_engine/addons/gde_gozen/bin"

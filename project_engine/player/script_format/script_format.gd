@@ -1,8 +1,7 @@
 class_name ScriptFormat
 extends RefCounted
 
-## Parser and validator for the VJ script JSON format (see docs/script_format.md,
-## and Scripted VJ Video Player — Project Plan.md → "Script Format").
+## Parser and validator for the VJ script JSON format (see docs/script_format.md).
 ##
 ## Returns `{"ok": bool, "data"?: TimelineData, "error"?: String, "errors"?: Array[String]}`.
 ## Multiple errors are surfaced so authors don't have to fix-then-re-run repeatedly.

@@ -329,7 +329,7 @@ func _update_mode_label() -> void:
 	if stage.xr_mode.is_in_vr():
 		mode_label.text = "VR"
 	else:
-		mode_label.text = "Desktop (right-click look · ←/→ seek · ↑/↓ volume · R reset view · H play bar · F11 fullscreen · F2 menu · F12 VR)"
+		mode_label.text = "Desktop (right-click look · ←/→ seek · ↑/↓ volume · R reset view · H play bar · F11 fullscreen · F2 menu · F1 VR)"
 
 
 ## The play bar sits in its own layer above the stage's fade overlay.

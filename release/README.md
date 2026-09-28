@@ -21,7 +21,7 @@ Everything in `shaders/` is plain text. Edit it in any text editor, and the play
 
 ## Controls
 
-**F2** opens the panel: **Files**, **Network**, **Camera**, **Presets** and **Config**.
+**F2** opens the panel: **Files**, **Network**, **Camera**, **Presets**, **Config** and **Controls**.
 
 | | Desktop | VR |
 |---|---|---|
@@ -35,6 +35,8 @@ Everything in `shaders/` is plain text. Edit it in any text editor, and the play
 
 Moving around is off by default, so the thumbsticks can seek and change the volume. Turn it on in **F2 → Config**.
 
+Every button, stick and key here is a default: **F2 → Controls** lists each command and lets you rebind it (hold another button for a combination), and **Left-handed** swaps the hands.
+
 ## Playing videos
 
 - **Files** browses your drives. You can also drop a video on the window or on `Player.exe`, use *Open with* in Explorer, or start with `Player.exe -- --script <file>`.
@@ -44,6 +46,10 @@ Moving around is off by default, so the thumbsticks can seek and change the volu
 - **Timecode:** a Whirligig-compatible server runs on `127.0.0.1:2000` for MultiFunPlayer / ScriptPlayer. `-- --whirligig-port N` changes the port (0 turns it off) and `-- --whirligig-lan` lets other machines connect.
 - **DaVinci Resolve:** copy `resolve/VJ Sync.py` into Resolve's `Scripts/Utility` folder and run it from **Workspace → Scripts**. The player then follows Resolve's playhead, and timeline markers can become script events. See `resolve/README.md`.
 
+## Video decoder and renderer
+
+**F2 → Config → Video decoder**: **FFmpeg** (the default) plays every format, including network streams. **Hardware** uses Windows' own decoder for local H.264 / HEVC MP4s, which is lighter on the CPU. A video the chosen decoder can't play uses the other one. **Renderer** switches between Direct3D 12 and Vulkan (in case a headset runtime has trouble with one), from the next start.
+
 ## Screen, layers and presets
 
 In **F2 → Camera**, set the screen's size, distance, height and tilt, and its **surface**:
@@ -51,13 +57,13 @@ In **F2 → Camera**, set the screen's size, distance, height and tilt, and its 
 - **Pillow** bends the screen left-to-right and top-to-bottom (0° / 0° is flat). The picture never distorts.
 - **Dome** puts the picture on part of a sphere. Set how wide it is; the height follows the picture's shape unless you turn off *auto height*. **Around viewer** puts you at the centre of the dome, and **At infinity** is the setting for 180° / 360° video.
 
-**Vertex effects** move the surface itself: **Ripple**, **Twist** and **Bulge**, each of which can follow the music.
+**Vertex effects** move the surface itself: **Ripple**, **Twist**, **Bulge**, **Spin** and **Pulse**, each of which can follow the music.
 
 **Layers** adds sound-reactive shader layers in front of or behind the video. Pick a layer under **Adjust**, choose its shader, and position it the same way as the screen. **Lock to screen** keeps a layer centred on the video.
 
 Next to **Opacity**, **Blend** sets how the screen or a layer goes over what's behind it. **Add (light)** adds its light, so black disappears and it glows. **Black transparent** makes black see-through and keeps bright colours solid. Both work for any shader, 3D ones too.
 
-The screen and every layer have an **effect list**: **+ Effect** adds one, **−** removes it, and effects run top to bottom. Built in: Key black, Oval mask, Edge blur, Padding, Glow, Crop, Rounded corners and Keep center.
+The screen and every layer have an **effect list**: **+ Effect** adds one, **−** removes it, and effects run top to bottom. Built in: Blur, Key black, Oval mask, Edge blur, Glow, Crop, Rounded corners, Keep center, Alpha threshold, Image overlay and Match video brightness, plus looks such as Kaleidoscope, Hue cycle, Neon edges and Pop-art grid. Effects that spread past the picture (Blur, Glow) get room around it by themselves.
 
 **Save** stores everything (screen, layers, effects and their settings) as a preset in `presets/`. Preset 0, *Script (defaults)*, is locked. Scripted videos use it so they look the way they were made.
 

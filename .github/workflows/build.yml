@@ -24,7 +24,7 @@ env:
   # a v* tag there to publish one). The fork is private, so reading it takes
   # the GOZEN_TOKEN secret: a token with read access to its contents.
   GOZEN_REPO: electromuis/gde_gozen
-  GOZEN_RELEASE: v9.7-sp1
+  GOZEN_RELEASE: v9.7-sp4
 
 jobs:
   test:

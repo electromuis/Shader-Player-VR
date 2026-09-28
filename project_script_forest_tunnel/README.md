@@ -21,7 +21,7 @@ Running the scene (F5, or **Run Current Scene**) opens a desktop preview. It has
 
 This comes from `addon_vj/preview/desktop_preview.gd`, which `VJScene` adds at runtime (turn it off with `desktop_preview` on the root). Other authoring projects get the same preview without video, unless they also link gde_gozen.
 
-## The piece (video: `scripts/minimal/video.mp4`, 188.9 s)
+## The piece (video: `scripts/forest_tunnel/video.mp4`, not tracked; 188.9 s)
 
 | Time | What happens |
 | --- | --- |
@@ -40,7 +40,7 @@ The effects and the two layers come from the player's "Preset 2" camera preset: 
 
 - `main.tscn`: the piece.
   - `Stage` (root, `VJScene`): meta, video path, `output_path = res://../scripts/forest_tunnel/video.json`, and an optional `preview_image` (a still to use instead of the test card).
-  - `Viewer` (`VJViewer` camera): the viewer. Each key after t=0 on `Viewer:position` / `:rotation` exports as a `vr_cut` (`fade_to_black`, `fade_duration`). Toggle its camera preview in the 3D editor to see what the viewer sees.
+  - `Viewer` (`VJViewer` camera): the viewer. Its `motion` is *cuts* here, so each key after t=0 on `Viewer:position` / `:rotation` exports as a `vr_cut` (`fade_to_black`, `fade_duration`); *smooth* would make them a ride the viewer glides along. Toggle its camera preview in the 3D editor to see what the viewer sees.
   - `forest`, `tunnel`: custom prefabs, spawned and despawned by their `visible` tracks. Both are VJ objects (`vj_object.gd` attached, see the addon README), with `opacity` keyed for the fades.
   - `main_screen`, `screen_left|center|right`: `screen` prefab instances. None has an artist shader; everything is effects (`VJEffect` children). `main_screen` has `glow`, `oval_mask`, `edge_blur`; each column has `crop`, `glow`.
   - `main_screen/backdrop`: a `layer` prefab (Blur + Oval mask) inside the screen, so it follows the screen's sway and goes when the screen does.
@@ -68,15 +68,18 @@ The effects and the two layers come from the player's "Preset 2" camera preset: 
 | `<id>:material_override:shader_parameter/<p>` (e.g. `tunnel`) | `shader_param`, target `<id>.surface` |
 | `<path>:opacity` / `:tint` / `:flash` / `:speed` / `:sort_offset` (VJ objects; opacity on screens and layers is the display row above) | `shader_param`, target `<id>.modifiers` |
 | `<path>:spin` / `:pulse` (VJ objects) | `shader_param`, target `<id>.reactive` |
-| `Viewer:position` / `:rotation` | `vr_cut` events |
+| `Viewer:position` / `:rotation` | `vr_cut` events (*cuts*) or a `$viewer` ride (*smooth*) |
 
 On export, custom prefabs are copied into `scripts/forest_tunnel/prefabs/`, with
 any external shaders or scripts embedded, so the script folder is
 self-contained.
 
-## Known gaps
+## Notes
 
-- The viewer only *cuts*. The two cuts here return to the home pose, (0, 2, 8)
-  looking down −Z, so their job is to cover the environment swap. The screens
-  live in the player's `ScreenMount`, which is anchored at the origin, so
-  moving the viewer far away would leave the screens behind.
+- The two cuts return to the home pose, (0, 2, 8) looking down −Z; their job
+  is to cover the environment swap. The screens live in the player's
+  `ScreenMount` at the origin, so a viewer sent far away (a cut or a ride)
+  leaves them behind, as it would any object in the world.
+- `scripts/forest_tunnel/video.json` is still a format 1 export with the
+  Bezier tracks baked to linear keys. Re-export it for the exact curves and
+  format 2.

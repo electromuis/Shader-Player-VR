@@ -87,7 +87,7 @@ project, and its export writes back to that JSON (see *Import* below).
 - Vertex effects (screens and layers): `VJVertexEffect` child nodes
   (`builtin_prefabs/vertex_effect.gd`), run in child order before the
   surface bends the result. Right-click a screen or layer → **Add VJ vertex
-  effect ▸** Ripple, Twist or Bulge, or set `effect` to your own
+  effect ▸** (every file in `visualizer/vertex/`: Ripple, Twist, Bulge, Spin, Pulse), or set `effect` to your own
   `.gdshaderinc` (see the player's `ScreenGeometry`; copied to
   `<json dir>/shaders/` on export). Its sliders are `params/<name>`. The
   enabled ones export as `config.vertex_effects`. Audio-driven ones stay
@@ -95,7 +95,8 @@ project, and its export writes back to that JSON (see *Import* below).
 - Effects (screens and layers): `VJEffect` child nodes (`builtin_prefabs/effect.gd`),
   run in child order, so drag them to reorder. Right-click a screen or layer →
   **Add VJ effect ▸** picks one of `visualizer/effects/` (Key black, Oval mask,
-  Edge blur, Blur, Glow, Crop, Rounded corners, Keep center); **Empty** takes your own effect shader (include
+  Edge blur, Blur, Glow, Crop, Rounded corners, Keep center, Alpha threshold,
+  Image overlay and the looks: Chroma split, Kaleidoscope, Neon edges, ...); **Empty** takes your own effect shader (include
   `visualizer/effect_prelude.gdshaderinc`) in its `material`. They export as
   `config.effects`; switched-off ones (`enabled` off) go along with
   `"enabled": false`, which the player skips. Scenes from before effects were nodes have
@@ -302,10 +303,10 @@ by every project; the receiver listens on `127.0.0.1`, port
 
 ## Sharing between projects
 
-The canonical copy of this addon lives at `<repo-root>/addon_vj/`. Each Godot
-project that uses it (`project_engine`, `project_script_example`) contains a
-Windows junction at `addons/vj_editor/` pointing there. Create the junction
-with:
+The canonical copy of this addon lives at `<repo-root>/addon_vj/`. The
+authoring projects (`project_script_example`, `project_script_forest_tunnel`)
+reach it through a Windows junction at `addons/vj_editor/` (gitignored, so a
+fresh clone has to make it). Create the junction with:
 
 ```powershell
 New-Item -ItemType Junction -Path "<project>/addons/vj_editor" -Target "<repo>/addon_vj"
@@ -314,5 +315,5 @@ New-Item -ItemType Junction -Path "<project>/addons/vj_editor" -Target "<repo>/a
 ## Not-yet-implemented
 
 - Fade `transition` on despawn — the exporter emits a plain despawn event
-- `vr_teleport` (the Viewer only produces `vr_cut`s)
+- `vr_teleport` (the viewer exports as `vr_cut`s or a ride)
 - Multiple animations / clip chaining

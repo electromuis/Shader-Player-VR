@@ -302,7 +302,29 @@ Found by the user in their own Studio runs, plus what the design mockups (`docs/
   - **Proof:** 306/306 tests (`test_script_runner.gd`: `test_playhead_follows_the_clock`). The check needs the decoder: `addons/gde_gozen/bin` is gitignored, so a fresh worktree has none and `stage.video` is null (copy `bin/` from another checkout). Test clip: `ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=30,drawtext=text='%{n}':fontsize=160:fontcolor=white:x=40:y=40:box=1:boxcolor=black" -f lavfi -i "sine=frequency=880:beep_factor=4" -t 60 -c:v libx264 -g 60 -pix_fmt yuv420p -c:a aac -shortest $WORK/jump_piece/clip.mp4`.
   - **Not verified:** the user's own piece (not on this machine) and the headset (a missed frame there is a reprojected one; the same catch-up applies).
 - **Shader time follows the video.** Shaders keep animating while paused; their time should be the video's (stopped when paused, jumping with seeks).
-  - **Plan (not started):** shaders read Godot's built-in `TIME` (the prelude has `#define iTime TIME`, and effects, surfaces and vertex effects use `TIME` directly). Add a global shader uniform (project setting `shader_globals`, e.g. `vj_time`), set by the Stage every frame from the playhead, and have the preludes map `iTime` / `iFrame` / `TIME` to it. User shaders that include no prelude keep engine time. Check the camera effects' own time input too.
+  - **Why:** shaders read Godot's `TIME` (seconds since the app started, running regardless): the Shadertoy prelude has `#define iTime TIME` / `iFrame int(TIME * 60.0)` / `iChannelTime`, and effects, vertex effects (`ripple`) and surfaces use `TIME` directly. The camera effects (`CameraFxEffect`, a compute pass) push their own `time` from `Time.get_ticks_msec()` (`camera_fx_effect.gd`, around line 130).
+  - **Decided with the user (2026-09-28):** keep it generic: **every** shader the player runs follows the video's time, custom ones without a prelude too; a shader that wants free-running time says so with a header, **`// @free_time`** (next to `@title`, `@reach`, ...; document it in `VisualizerShaders`' hint list and the README).
+  - **Plan (not started; the previous session's file was removed, nothing is in the tree yet):**
+    1. `player/visualizer/media_time.gdshaderinc`, include-guarded:
+       ```
+       #ifndef VJ_MEDIA_TIME
+       #define VJ_MEDIA_TIME
+       #ifndef VJ_FREE_TIME
+       global uniform float vj_time;
+       #define TIME vj_time
+       #endif
+       #endif
+       ```
+       First check that Godot's shader preprocessor accepts redefining `TIME` and expands `iTime` → `TIME` → `vj_time` (a throwaway check compiling a canvas_item shader; compile errors only print, so look for them).
+    2. `project.godot`: `[shader_globals]` `vj_time={"type": "float", "value": 0.0}` (tests compile shaders headless, so it must exist there, not just be added at runtime). Worker A (`studio/inspector-menu`) may also touch `project.godot`.
+    3. Include it from `shadertoy_prelude.gdshaderinc`, `effect_prelude.gdshaderinc` and `player/prefabs/screen_display.gdshaderinc` (vertex effects and surfaces), before their `#define iTime TIME` etc. That covers built-ins loaded as resources (`VisualizerShaders.load_shader` returns those as is).
+    4. **The addon:** those three are copied into `addon_vj` (`tests/test_addon_shader_copies.gd`, `sync_addon_copies.gd` rewrite `res://player/visualizer/` to the addon's path). Give the addon its own `addon_vj/visualizer/media_time.gdshaderinc` that does nothing (a comment: the editor keeps engine time), not in the copy list, so the Godot editor's previews keep animating and the authoring project needs no shader global.
+    5. **Loader** (`VisualizerShaders._from_code`, and `ScreenGeometry.build_shader`): a shader with `@free_time` gets `#define VJ_FREE_TIME` inserted right after its `shader_type` line; any other gets `#include "res://player/visualizer/media_time.gdshaderinc"` there (the guard makes a second include harmless). A built-in returned as a resource goes through code only when it has `@free_time` or includes no prelude (so built-ins stay cached). Vertex effects share one display shader, so `@free_time` there isn't supported (say so).
+    6. `MediaTime` (`player/visualizer/media_time.gd`, static): `seconds`, `set_seconds(t)` also sets `RenderingServer.global_shader_parameter_set(&"vj_time", t)`. `Stage._process` sets it every frame to `runner.playhead`, or engine seconds when no timeline is loaded. Since the playhead now follows the sound (see *Playback jumps* above), shader time does too.
+    7. Camera effects: `CameraFxEffect` uses `MediaTime.seconds` instead of its own tick count, unless the camera code has `@free_time` (it runs on the render thread; a static float read is fine).
+    8. `tools/render_shader_gallery.gd` steps frames to advance `TIME`: make it set `vj_time` itself (`--time`).
+    9. `VisualizerShaders.is_animated` (Screen's on-demand effect chains) stays as it is: media-time shaders still animate while playing.
+  - **Proof to write:** a test that built-ins, a custom `.gdshader` without a prelude, a Shadertoy `.glsl` and an `@free_time` shader compile (and that the `@free_time` one keeps `TIME`); a check (`checks/drive_shader_time.gd`, rendered) with a TIME-driven layer and effect: paused, two frames 1 s apart are identical; after a seek they differ; playing, they move; an `@free_time` layer moves while paused. Renders for the user.
 - (FPS counter: see 1.)
 
 ### 9. Catch up with the player (no picture)

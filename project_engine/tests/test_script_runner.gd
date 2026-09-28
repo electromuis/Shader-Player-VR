@@ -319,6 +319,38 @@ static func test_reached_end_fires_once_and_rearms_on_seek(tc: TestCase) -> void
 	stage.queue_free()
 
 
+## The playhead keeps with the sound: a hitch (the sound played on while
+## the frame's delta was cut short) jumps it forward, the stalled time
+## Godot hands out afterwards doesn't carry it past the sound, and without
+## sound only delta counts.
+static func test_playhead_follows_the_clock(tc: TestCase) -> void:
+	var pair := _make_runner_with_stage()
+	var runner: ScriptRunner = pair[0]
+	var stage: Node3D = pair[1]
+	runner.load_timeline(_timeline_from({}))
+	var heard := [5.0]
+	runner.clock = func() -> float: return heard[0]
+	runner.seek(5.0)
+	# A 1.2 s hitch: 17 ms of delta, the sound 1.2 s on.
+	heard[0] = 6.2
+	runner.tick(0.017)
+	tc.assert_true(absf(runner.playhead - 6.2) <= ScriptRunner.CLOCK_SLACK + 1e-6, "jumped to the sound (%f)" % runner.playhead)
+	# The held-back delta arrives: the sound moved 17 ms, not 150.
+	heard[0] = 6.217
+	runner.tick(0.15)
+	tc.assert_true(runner.playhead <= 6.217 + ScriptRunner.CLOCK_SLACK + 1e-6, "not past the sound (%f)" % runner.playhead)
+	# Small differences are pulled in, not jumped.
+	runner.seek(10.0)
+	heard[0] = 10.03
+	runner.tick(0.0)
+	tc.assert_true(runner.playhead > 10.0 and runner.playhead < 10.01, "pulled a tenth of the way (%f)" % runner.playhead)
+	# No sound (paused, seeking, silent video): delta only.
+	heard[0] = -1.0
+	runner.tick(1.0)
+	tc.assert_true(absf(runner.playhead - (10.003 + 1.0)) < 1e-3, "delta only (%f)" % runner.playhead)
+	stage.queue_free()
+
+
 static func test_reached_end_waits_for_duration(tc: TestCase) -> void:
 	var pair := _make_runner_with_stage()
 	var runner: ScriptRunner = pair[0]

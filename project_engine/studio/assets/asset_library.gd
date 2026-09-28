@@ -115,12 +115,19 @@ func of_type(type: String) -> Array:
 	return assets().filter(func(a): return a.type == type)
 
 
-## Changes whenever a file in a watched folder is added, removed or saved.
+## Changes whenever a file the shelf could show is added, removed or saved
+## in a watched folder. Only those: the piece's folder also holds the piece,
+## its autosave and backups (rewritten while editing) and often its video
+## among many other files, and a change there would rebuild the shelf, a
+## hitch in playback.
 func signature() -> String:
 	var parts: Array = []
-	for dir in _shader_scan_dirs() + _prefab_scan_dirs() + _look_dirs():
-		for f in _sorted_files(dir):
-			parts.append("%s|%d" % [dir.path_join(f), FileAccess.get_modified_time(dir.path_join(f))])
+	var shader_exts: Array = VisualizerShaders.GODOT_EXTENSIONS + VisualizerShaders.SHADERTOY_EXTENSIONS
+	for pair in [[_shader_scan_dirs(), shader_exts], [_prefab_scan_dirs(), PREFAB_EXTENSIONS], [_look_dirs(), ["json"]]]:
+		for dir in pair[0]:
+			for f in _sorted_files(dir):
+				if String(f).get_extension().to_lower() in pair[1]:
+					parts.append("%s|%d" % [dir.path_join(f), FileAccess.get_modified_time(dir.path_join(f))])
 	return str(hash("\n".join(parts)))
 
 

@@ -590,6 +590,8 @@ func _init_video() -> void:
 	# Freeze the timeline while the picture catches up (opening, seeking), so
 	# script events and the scrub bar stay in step with the video.
 	video.busy_changed.connect(func(busy: bool): runner.hold = busy)
+	# The timeline keeps with the sound (it plays on through a hitch).
+	runner.clock = video.audio_seconds
 	video.set_volume(settings.volume)
 	# Live analysis of the video's sound for the visualizer plane.
 	audio = AudioAnalyzer.new()

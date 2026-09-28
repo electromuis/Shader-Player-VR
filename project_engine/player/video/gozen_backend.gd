@@ -22,18 +22,33 @@ extends VideoBackend
 ## decoder is paused; requests arriving meanwhile collapse into one follow-up
 ## seek to the latest position.
 ##
-## VideoPlayback's own audio sync never runs (it waits for its frame-time
-## remainder, always under one frame, to pass 1.2 s), so the sound drifted
-## until the next seek. _resync_audio does the check instead: past
-## AUDIO_DRIFT_MAX it moves the sound to the frame, as a seek would.
+## The sound is the clock. It plays on through a hitch, but the picture
+## only moves by the frame's delta, which Godot also cuts short (to about
+## 150 ms), so after a long frame the picture is behind the sound. Pulling
+## the sound back to the picture (as this did before) made every hitch an
+## audible jump back and forth. _follow_sound sets the picture's clock
+## from the sound instead, before VideoPlayback runs each frame: it skips
+## the frames it's behind, or waits when it's ahead (Godot hands out the
+## stalled time over the frames after a hitch, so delta alone overshoots).
+## Further behind than CATCH_UP_SEEK it seeks on a worker to where the sound
+## will be, the sound playing on meanwhile. Only sound far behind the
+## picture (AUDIO_BEHIND_MAX: it stalled) is moved to it. (VideoPlayback's
+## own audio sync never runs: it waits for its frame-time remainder, always
+## under a frame, to pass 1.2 s.)
 
 const PLAYBACK_SCRIPT_PATH := "res://addons/gde_gozen/video_playback.gd"
 const PROBE_CLASS := "GoZenVideo"
 ## Tries at opening a video (and its audio) before giving up.
 const OPEN_ATTEMPTS := 2
-## Sound further off the picture than this (seconds) is moved back to it.
-const AUDIO_DRIFT_MAX := 0.1
-const AUDIO_CHECK_MSEC := 500
+## Sound further behind the picture than this (seconds) is moved to it.
+const AUDIO_BEHIND_MAX := 0.5
+## A picture this many frames off the sound is set to it.
+const PICTURE_OFF_FRAMES := 1.5
+## A picture further behind than this (seconds) seeks to the sound instead
+## of decoding every frame in between on the main thread.
+const CATCH_UP_SEEK := 0.5
+## How long a catch-up seek is expected to take: it aims that far ahead.
+const CATCH_UP_LEAD := 0.1
 ## Left alone this long after starting, while the audio output fills up.
 const AUDIO_SETTLE_MSEC := 1000
 
@@ -57,6 +72,9 @@ var _seek_task: int = -1
 var _seek_frame: int = 0
 var _seek_error: int = OK  # written by the worker, read after it completes
 var _pending_frame: int = -1  # latest request made during a seek; -1 = none
+## The seek running is a catch-up with the sound (_follow_sound): the sound
+## plays on, and it isn't reported as seeking (the timeline doesn't hold).
+var _catching_up: bool = false
 var _next_audio_check_msec: int = 0
 
 
@@ -80,6 +98,8 @@ func _init() -> void:
 	_vp.anchor_bottom = 1.0
 	_vp.video_loaded.connect(_on_video_loaded)
 	view = _vp
+	# _follow_sound sets VideoPlayback's clock before it runs.
+	process_priority = -1
 
 
 func _exit_tree() -> void:
@@ -113,7 +133,8 @@ func play() -> void:
 
 func pause() -> void:
 	_want_playing = false
-	if _loaded and _seek_task == -1:
+	# Also during a seek: a catch-up leaves the sound playing.
+	if _loaded:
 		_vp.pause()
 
 
@@ -125,6 +146,13 @@ func seek_seconds(t: float) -> void:
 	if fps <= 0.0:
 		return
 	var frame := clampi(roundi(t * fps), 0, maxi(_vp.get_video_frame_count() - 1, 0))
+	if _catching_up:
+		# The catch-up becomes a seek of the viewer's: silence and report it.
+		_catching_up = false
+		_vp.pause()
+		_pending_frame = frame
+		seeking_changed.emit(true)
+		return
 	if _seek_task != -1:
 		_pending_frame = frame
 		return
@@ -133,7 +161,7 @@ func seek_seconds(t: float) -> void:
 
 
 func is_seeking() -> bool:
-	return _seek_task != -1
+	return _seek_task != -1 and not _catching_up
 
 
 ## The audio player's position, plus time since its last mix, minus the
@@ -187,7 +215,9 @@ func _drop_seek() -> void:
 	if _seek_task != -1:
 		_stale_tasks.append(_seek_task)
 		_seek_task = -1
-		seeking_changed.emit(false)
+		if not _catching_up:
+			seeking_changed.emit(false)
+	_catching_up = false
 	_pending_frame = -1
 
 
@@ -262,8 +292,8 @@ func _finish_open() -> void:
 	_vp.update_video(video, audio)  # → video_loaded → _on_video_loaded
 
 
-func _process(_delta: float) -> void:
-	_resync_audio()
+func _process(delta: float) -> void:
+	_follow_sound(delta)
 	for t in _stale_tasks.duplicate():
 		if WorkerThreadPool.is_task_completed(t):
 			WorkerThreadPool.wait_for_task_completion(t)
@@ -276,6 +306,8 @@ func _process(_delta: float) -> void:
 		return
 	WorkerThreadPool.wait_for_task_completion(_seek_task)
 	_seek_task = -1
+	var caught_up := _catching_up
+	_catching_up = false
 	_vp.current_frame = _seek_frame
 	if _seek_error:
 		push_warning("GozenVideoBackend: seek to frame %d failed." % _seek_frame)
@@ -285,6 +317,13 @@ func _process(_delta: float) -> void:
 		var next := _pending_frame
 		_pending_frame = -1
 		_start_seek(next)
+		return
+	if caught_up:
+		# The sound played on: carry on from here without restarting it
+		# (_follow_sound skips whatever the seek took longer than aimed).
+		if _want_playing:
+			_vp._time_elapsed = 0.0
+			_vp.is_playing = true
 		return
 	seeking_changed.emit(false)
 	if _want_playing:
@@ -297,23 +336,46 @@ func _start_playback() -> void:
 	_next_audio_check_msec = Time.get_ticks_msec() + AUDIO_SETTLE_MSEC
 
 
-func _resync_audio() -> void:
+## Keeps the picture with the sound (see the class notes). Every frame
+## once the sound has settled after starting, before VideoPlayback adds
+## `delta` to its clock.
+func _follow_sound(delta: float) -> void:
 	if not _loaded or _seek_task != -1 or not _vp.is_playing 			or Time.get_ticks_msec() < _next_audio_check_msec:
 		return
-	_next_audio_check_msec = Time.get_ticks_msec() + AUDIO_CHECK_MSEC
 	var player: AudioStreamPlayer = _vp.audio_player
 	if not _vp.enable_audio or player == null or not player.playing or player.stream_paused:
 		return
 	var fps: float = _vp.get_video_framerate()
 	if fps <= 0.0:
 		return
-	# The same reckoning VideoPlayback.play() starts the sound with.
-	var picture: float = (_vp.current_frame + 1) / fps
-	var drift := player.get_playback_position() + AudioServer.get_time_since_last_mix() - picture
-	if absf(drift) > AUDIO_DRIFT_MAX:
-		print("Video audio drifted %.0f ms; resyncing." % (drift * 1000.0))
-		player.seek(picture)
+	# The same reckoning VideoPlayback.play() starts the sound with, plus
+	# the time owed to the next frame: the picture's own clock.
+	var picture: float = (_vp.current_frame + 1) / fps + _vp._time_elapsed + delta
+	var sound := player.get_playback_position() + AudioServer.get_time_since_last_mix()
+	var behind := sound - picture
+	if behind > CATCH_UP_SEEK:
+		_catch_up(sound + CATCH_UP_LEAD, fps)
+	elif behind < -AUDIO_BEHIND_MAX:
+		print("Video audio behind the picture by %.0f ms; resyncing." % (-behind * 1000.0))
+		player.seek((_vp.current_frame + 1) / fps)
 		_next_audio_check_msec = Time.get_ticks_msec() + AUDIO_SETTLE_MSEC
+	elif absf(behind) > PICTURE_OFF_FRAMES / fps:
+		# VideoPlayback skips the frames it's behind, or waits.
+		_vp._time_elapsed += behind
+
+
+## Seek the picture to `t` on a worker while the sound plays on.
+func _catch_up(t: float, fps: float) -> void:
+	var last := maxi(_vp.get_video_frame_count() - 1, 0)
+	var frame := clampi(roundi(t * fps), 0, last)
+	if frame >= last:
+		return  # at the end: let it run out
+	print("Video picture %.0f ms behind the sound; catching up." % ((t - CATCH_UP_LEAD - (_vp.current_frame + 1) / fps) * 1000.0))
+	# The decoder is the worker's until it's done; the sound isn't paused.
+	_vp.is_playing = false
+	_catching_up = true
+	_seek_frame = frame
+	_seek_task = WorkerThreadPool.add_task(_seek_worker.bind(_vp.video, frame))
 
 
 func _wait_for_seek() -> void:

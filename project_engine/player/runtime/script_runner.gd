@@ -22,6 +22,12 @@ signal play_state_changed(is_playing: bool)
 signal reached_end
 
 const Modifiers := preload("res://player/runtime/modifiers.gd")
+## The playhead stays within this of the clock (seconds): it played on
+## through a hitch, while Godot cuts a long frame's delta short and hands
+## the rest out over the frames after.
+const CLOCK_SLACK := 0.05
+## The share of a smaller difference taken up each tick.
+const CLOCK_PULL := 0.1
 
 @export var stage_path: NodePath
 @export var autostart: bool = false
@@ -39,6 +45,10 @@ var hold: bool = false
 ## The music's bass level (0..1) for `pulse` (see Modifiers); the Stage feeds
 ## it from the audio analyzer while wants_audio().
 var audio_bass: float = 0.0
+## The media clock the playhead follows while ticking: the seconds of the
+## sound being heard, or below 0 when there's none (paused, seeking, no
+## sound). The Stage sets it to the video's; unset, only delta counts.
+var clock: Callable
 
 var _registry: ObjectRegistry
 var _prefabs: PrefabLibrary
@@ -184,7 +194,12 @@ func _spawn_expected(id: String, expected: Dictionary, depth: int) -> void:
 func tick(delta: float) -> void:
 	if timeline == null:
 		return
-	playhead = clampf(playhead + delta, 0.0, _duration())
+	var t := playhead + delta
+	var heard: float = clock.call() if clock.is_valid() else -1.0
+	if heard >= 0.0:
+		t += (heard - t) * CLOCK_PULL
+		t = clampf(t, heard - CLOCK_SLACK, heard + CLOCK_SLACK)
+	playhead = clampf(t, 0.0, _duration())
 	_fire_pending_events()
 	_reactive_begin()
 	_evaluate_continuous_tracks()

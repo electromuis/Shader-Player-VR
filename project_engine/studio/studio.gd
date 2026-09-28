@@ -161,6 +161,9 @@ var dropper := StudioAssetDrop.new()
 var haptics := StudioHaptics.new()
 ## The take being recorded has been felt starting (after its pre-roll).
 var _take_felt := false
+## Autosave (StudioSafety): time since the last one, and what it wrote.
+var _autosave_clock := 0.0
+var _autosaved_text := ""
 ## Whether the shelf shows (in Edit).
 var shelf_on := false
 var shelf_panel: XRToolsViewport2DIn3D
@@ -277,11 +280,62 @@ func _process(delta: float) -> void:
 	_watch_library(delta)
 	_record_tick()
 	_loop_playback()
+	_autosave_tick(delta)
+
+
+# ---------- keeping work safe ----------
+
+## Every StudioSafety.AUTOSAVE_SECONDS.
+func _autosave_tick(delta: float) -> void:
+	_autosave_clock += delta
+	if _autosave_clock < StudioSafety.AUTOSAVE_SECONDS:
+		return
+	_autosave_clock = 0.0
+	autosave_now()
+
+
+## Unsaved changes to the piece's autosave; with none (saved, or all
+## undone) the autosave goes.
+func autosave_now() -> void:
+	if model == null or model.path == "":
+		return
+	if not model.is_dirty():
+		StudioSafety.clear_autosave(model.path)
+		_autosaved_text = ""
+		return
+	var text := model.to_text()
+	if text != _autosaved_text and StudioSafety.autosave(model):
+		_autosaved_text = text
+
+
+func _notification(what: int) -> void:
+	# Closing the window keeps unsaved changes (the next open restores them).
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		autosave_now()
+
+
+## A newer autosave with other contents than the piece: put it back as one
+## undo step. Whether it did.
+func _restore_autosave() -> bool:
+	var text := StudioSafety.pending_autosave(model.path)
+	if text == "":
+		return false
+	var unix := FileAccess.get_modified_time(StudioSafety.autosave_path(model.path))
+	var local := Time.get_datetime_dict_from_unix_time(unix + Time.get_time_zone_from_system().get("bias", 0) * 60)
+	var when := "%02d:%02d" % [local.hour, local.minute]
+	var r := model.replace_document(text, "Restore the unsaved changes from %s" % when)
+	if not r.ok:
+		return false
+	_autosaved_text = model.to_text()
+	_say("Opened %s with its unsaved changes from %s (kept by the autosave; undo drops them)." % [_piece_name(), when])
+	return true
 
 
 ## Open a script (or a video with its sidecar script) for editing. A video
 ## with no script gets a new, empty one next to it (<video>.json). Returns
-## whether it opened; the current piece stays otherwise.
+## whether it opened; the current piece stays otherwise. The piece that was
+## open keeps its unsaved changes in its autosave; one whose autosave has
+## changes that weren't saved gets them back (StudioSafety).
 func open_piece(path: String) -> bool:
 	var r: Dictionary
 	var fresh := false
@@ -295,6 +349,9 @@ func open_piece(path: String) -> bool:
 	if not r.ok:
 		_say("Can't open %s: %s" % [path.get_file(), r.error])
 		return false
+	autosave_now()  # the piece being left
+	_autosaved_text = ""
+	_autosave_clock = 0.0
 	_drop_held()
 	recorder.cancel()
 	recorder.armed.clear()
@@ -328,7 +385,8 @@ func open_piece(path: String) -> bool:
 		if shelf_on and shelf.tab == StudioAssetShelf.OPEN_TAB:
 			shelf_on = false  # it was open to pick a piece
 			_show_shelf()
-		_say("Opened %s." % _piece_name())
+		if not _restore_autosave():
+			_say("Opened %s." % _piece_name())
 	return true
 
 
@@ -368,7 +426,14 @@ func _apply_mode() -> void:
 func save() -> bool:
 	if model == null:
 		return false
+	# The file this save replaces is kept (only when it changes, and only
+	# when it will be saved: an invalid piece isn't).
+	if model.is_dirty() and model.check().ok:
+		StudioSafety.back_up(model.path)
 	var r := model.save()
+	if r.ok:
+		StudioSafety.clear_autosave(model.path)
+		_autosaved_text = ""
 	_say("Saved %s." % model.path.get_file() if r.ok else String(r.error))
 	return r.ok
 

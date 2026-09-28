@@ -97,9 +97,9 @@ static func from_text(text: String, file_path: String = "") -> Dictionary:
 	var parsed = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return {"ok": false, "error": "Not a script JSON: %s" % file_path, "errors": ["Not a script JSON: %s" % file_path]}
-	var check := ScriptFormat.load_from_dict(parsed.duplicate(true), file_path if file_path != "" else "<memory>")
-	if not check.ok:
-		return check
+	var valid := ScriptFormat.load_from_dict(parsed.duplicate(true), file_path if file_path != "" else "<memory>")
+	if not valid.ok:
+		return valid
 	var m := EditModel.new()
 	m.path = file_path
 	m._original_text = text
@@ -168,15 +168,21 @@ func redo() -> String:
 
 # ---------- saving ----------
 
+## Whether the document is a valid script now ({ok} / {ok: false, error}),
+## as save checks it.
+func check() -> Dictionary:
+	return ScriptFormat.load_from_dict(_doc.duplicate(true), path if path != "" else "<memory>")
+
+
 ## Validate and write the document (to `to_path`, else where it came
 ## from). {ok: true} or {ok: false, error}.
 func save(to_path: String = "") -> Dictionary:
 	var target := to_path if to_path != "" else path
 	if target == "":
 		return {"ok": false, "error": "No file to save to"}
-	var check := ScriptFormat.load_from_dict(_doc.duplicate(true), target)
-	if not check.ok:
-		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % check.error}
+	var valid := ScriptFormat.load_from_dict(_doc.duplicate(true), target)
+	if not valid.ok:
+		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % valid.error}
 	var text := _original_text if _undo.size() == _loaded_depth else to_text()
 	# Write next to it, then swap, so a failed write never leaves half a file.
 	var tmp := target + ".tmp"
@@ -192,6 +198,30 @@ func save(to_path: String = "") -> Dictionary:
 	if target == path:
 		_saved_depth = _undo.size()
 	return {"ok": true}
+
+
+## Replace the whole document with the script in `text` as one undo step
+## (restoring an autosave). {ok} or {ok: false, error} (not a valid script;
+## nothing changes).
+func replace_document(text: String, label: String) -> Dictionary:
+	var json := JSON.new()
+	if json.parse(text) != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return {"ok": false, "error": "not a script JSON"}
+	var doc: Dictionary = json.data
+	var valid := ScriptFormat.load_from_dict(doc.duplicate(true), path if path != "" else "<memory>")
+	if not valid.ok:
+		return {"ok": false, "error": valid.error}
+	ScriptFormat.upgrade(doc)
+	doc["format_version"] = ScriptFormat.SUPPORTED_VERSION
+	var changes: Array = []
+	for k in _doc:
+		if not doc.has(k):
+			changes.append(_removal([k]))
+	for k in doc:
+		# As JSON reads them (the loaded format_version is an int).
+		if not _doc.has(k) or JSON.stringify(_as_json(_doc[k])) != JSON.stringify(_as_json(doc[k])):
+			changes.append(_change([k], doc[k]))
+	return {"ok": _do(label, true, changes)}
 
 
 ## The document as JSON, in the original file's indentation (and with its

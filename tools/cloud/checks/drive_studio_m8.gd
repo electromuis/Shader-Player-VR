@@ -277,6 +277,22 @@ func _initialize() -> void:
 	await key(KEY_S, true)
 	var piece: String = m.path
 	print("save: '", studio.message, "' valid ", ScriptFormat.load_from_file(piece).ok)
+
+	# Keeping work safe: an unsaved move is autosaved; opening the piece
+	# again (as after closing, or a crash) brings it back as one undo step.
+	var saved_text := FileAccess.get_file_as_string(piece)
+	m.set_spawn_transform("screen_2", {"position": [2.0, 2.7, 0.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.12, 0.12, 0.12]})
+	studio.autosave_now()
+	print("autosaved: ", FileAccess.file_exists(StudioSafety.autosave_path(piece)), ", the file untouched ", FileAccess.get_file_as_string(piece) == saved_text)
+	studio.open_piece(piece)
+	await frames(4)
+	m = studio.model
+	print("opened again: '", studio.message, "' screen_2 at ", m.tracks()[m.spawn_index("screen_2")].transform.position, ", unsaved ", m.is_dirty())
+	await key(KEY_Z, true)
+	print("undo: '", studio.message, "' screen_2 at ", m.tracks()[m.spawn_index("screen_2")].transform.position, ", unsaved ", m.is_dirty())
+	studio.autosave_now()
+	print("nothing unsaved: autosave gone ", not FileAccess.file_exists(StudioSafety.autosave_path(piece)))
+	print("backups: ", Array(DirAccess.get_files_at(piece_dir)).filter(func(f): return ".bak" in f))
 	print("piece shaders/: ", Array(DirAccess.get_files_at(piece_dir.path_join("shaders"))))
 	studio.queue_free()
 	await frames(3)

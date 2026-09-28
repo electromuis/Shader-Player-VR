@@ -297,8 +297,9 @@ func _draw_canvas() -> void:
 		if y + _lane > top and y < h:
 			if sel:
 				c.draw_rect(Rect2(0, y, w, _lane), Color(ACCENT, 0.12))
-			c.draw_string(font, Vector2(6 * _k + lane.depth * 12 * _k, y + _lane * 0.75), lane.id, HORIZONTAL_ALIGNMENT_LEFT,
-					_gutter - 10 * _k - lane.depth * 12 * _k, _fs, Color.WHITE if sel else DIM)
+			var viewer: bool = lane.id == ScriptFormat.VIEWER
+			c.draw_string(font, Vector2(6 * _k + lane.depth * 12 * _k, y + _lane * 0.75), "Viewer" if viewer else lane.id, HORIZONTAL_ALIGNMENT_LEFT,
+					_gutter - 10 * _k - lane.depth * 12 * _k, _fs, (KEY if viewer else Color.WHITE) if sel else (Color(KEY, 0.8) if viewer else DIM))
 			for si in lane.spans.size():
 				var s: Array = _shown_span(lane, si)
 				var x0 := maxf(_gutter + view.x_of(s[0]), _gutter)
@@ -308,8 +309,15 @@ func _draw_canvas() -> void:
 					# End handles: grab them to change when it comes on / goes.
 					var hw := maxf(2.0, 2.0 * _k)
 					for ex in [_gutter + view.x_of(s[0]), _gutter + view.x_of(s[1])]:
-						if ex >= _gutter and ex <= w:
+						if ex >= _gutter and ex <= w and not viewer:
 							c.draw_rect(Rect2(ex - hw, y + _lane * 0.12, hw * 2.0, _lane * 0.76), Color(1, 1, 1, 0.9 if sel else 0.5))
+			# The viewer's lane: where the ride goes or turns too fast for
+			# comfort, in red.
+			for wr in lane.get("warn", []):
+				var wx0 := maxf(_gutter + view.x_of(wr[0]), _gutter)
+				var wx1 := minf(_gutter + view.x_of(wr[1]), w)
+				if wx1 > wx0:
+					c.draw_rect(Rect2(wx0, y + _lane * 0.2, wx1 - wx0, _lane * 0.6), Color(RECORD, 0.85))
 		y += _lane
 		if not sel:
 			continue
@@ -442,6 +450,8 @@ func hit(at: Vector2) -> Dictionary:
 ## The lane end of `id` within `r` pixels of `x`: {kind: "lane_start" /
 ## "lane_end", id, si, t}, or {}.
 func _lane_end_at(id: String, x: float, r: float) -> Dictionary:
+	if id.begins_with("$"):
+		return {}  # the viewer is always there: its keys say where it is
 	var lane := _lane_of(id)
 	var best := {}
 	var best_d := r

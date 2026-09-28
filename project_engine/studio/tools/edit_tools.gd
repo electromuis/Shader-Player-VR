@@ -26,6 +26,13 @@ const SELECT_COLOR := Color(0.3, 0.79, 0.94)
 const GRAB_COLOR := Color(1.0, 0.85, 0.3)
 const SEAT_COLOR := Color(1.0, 0.82, 0.4)
 const AXIS_LENGTH := 0.35
+## Motion paths: their colours (the viewer's in the seat's), how finely
+## they're drawn, and the key crosses' size.
+const PATH_COLOR := Color(0.3, 0.79, 0.94, 0.85)
+const KEY_PATH_COLOR := Color(1.0, 0.82, 0.4, 0.9)
+const PATH_STEP := 1.0 / 15.0
+const PATH_POINTS := 1500.0
+const PATH_KEY_SIZE := 0.08
 ## Differences smaller than these don't count as a change on release.
 const MOVE_EPS := 0.0005
 const ANGLE_EPS := 0.01
@@ -98,7 +105,7 @@ func select(id: String) -> void:
 	selected = id
 	_bounds_cache.clear()
 	if id != "":
-		_say("Selected %s." % id)
+		_say("Selected %s." % ("the viewer" if id == ScriptFormat.VIEWER else id))
 	selection_changed.emit(id)
 
 
@@ -346,6 +353,7 @@ func _process(_delta: float) -> void:
 	if is_grabbing() and snap:
 		_draw_grid(o, node)
 	_draw_seat_lines()
+	_draw_path_lines()
 	_lines.surface_end()
 
 
@@ -365,7 +373,73 @@ func _draw_grid(at: Vector3, node: Node3D) -> void:
 func _draw_seat() -> void:
 	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
 	_draw_seat_lines()
+	_draw_path_lines()
 	_lines.surface_end()
+
+
+## The selection's motion path: where its position track takes it (for the
+## viewer, "$viewer", its ride), as a line with a cross at each key; a cut
+## breaks the line.
+func _draw_path_lines() -> void:
+	if model == null or selected == "":
+		return
+	var pts: Array = []  # [world point, joined to the one before]
+	var keys: Array = []
+	if selected == ScriptFormat.VIEWER:
+		var vt := ViewerTrack.new()
+		vt.build(model.tracks())
+		var times := vt.key_times()
+		if times.is_empty():
+			return
+		for t in _path_times(times[0], times.back()):
+			pts.append([vt.pose_at(t).position, pts.size() > 0 and not vt.is_cut_at(t) and vt.cuts_between(t - PATH_STEP, t).is_empty()])
+		for t in times:
+			_camera_marker(vt.pose_at(t))
+	else:
+		var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, selected, "position")
+		if ti < 0:
+			return
+		var kfs: Array = model.tracks()[ti].get("keyframes", [])
+		var node := runner.registry().get_node_by_id(selected) if runner != null else null
+		var parent_xf := Transform3D()
+		if node != null and is_instance_valid(node) and node.get_parent() is Node3D:
+			parent_xf = (node.get_parent() as Node3D).global_transform
+		for t in _path_times(float(kfs[0].t), float(kfs.back().t)):
+			pts.append([parent_xf * Interpolation.to_vec3(Interpolation.evaluate(kfs, t)), pts.size() > 0])
+		for k in kfs:
+			keys.append(parent_xf * Interpolation.to_vec3(k.value))
+	var color := KEY_PATH_COLOR if selected == ScriptFormat.VIEWER else PATH_COLOR
+	for i in range(1, pts.size()):
+		if pts[i][1]:
+			_line(pts[i - 1][0], pts[i][0], color)
+	for p in keys:
+		for axis in [Vector3.RIGHT, Vector3.UP, Vector3.BACK]:
+			_line(p - axis * PATH_KEY_SIZE, p + axis * PATH_KEY_SIZE, color)
+
+
+## A small camera at a viewer key: a pyramid from the eye toward where it
+## faces.
+func _camera_marker(pose: Dictionary) -> void:
+	var eye: Vector3 = pose.position
+	var b := Basis(Vector3.UP, deg_to_rad((pose.rotation_deg as Vector3).y))
+	var corners: Array = []
+	for c in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		corners.append(eye + b * Vector3(c.x * 0.24, c.y * 0.15, -0.45))
+	for i in 4:
+		_line(eye, corners[i], KEY_PATH_COLOR)
+		_line(corners[i], corners[(i + 1) % 4], KEY_PATH_COLOR)
+
+
+## Times to sample a path at between `t0` and `t1` (at most PATH_POINTS).
+static func _path_times(t0: float, t1: float) -> Array:
+	var step := maxf(PATH_STEP, (t1 - t0) / PATH_POINTS)
+	var out: Array = []
+	var t := t0
+	while t < t1:
+		out.append(t)
+		t += step
+	out.append(t1)
+	return out
 
 
 ## Where the audience sits at the playhead: a ring on the floor, a line up

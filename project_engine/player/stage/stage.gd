@@ -686,6 +686,22 @@ var _viewer_pose: Dictionary = {}
 var _viewer_t := -0.001
 
 
+## Put the viewer where the script has them now (home before it first
+## moves them), and follow it from here: what an app does when it hands the
+## viewer back to the script (Studio going to Play).
+func follow_script_viewer() -> void:
+	_viewer_pose = {}
+	_viewer_t = runner.playhead
+	if not _script_camera_on():
+		return
+	var pose := runner.viewer.pose_at(runner.playhead, settings.script_camera_cuts_only)
+	if pose.is_empty():
+		reset_view()
+	else:
+		_snap_camera(pose.position, pose.rotation_deg)
+		_viewer_pose = pose
+
+
 func _script_camera_on() -> bool:
 	return drive_viewer and settings != null and settings.allow_script_camera
 

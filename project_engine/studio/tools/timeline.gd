@@ -78,11 +78,23 @@ func _clamp() -> void:
 # ---------- what's on it ----------
 
 ## [{id, depth, parent, spans: [[from, to]], ends: [{spawn, despawn}]}]
-## for every object, in file order; depth = how many parents it has. Each
+## for every object, in file order; depth = how many parents it has. The
+## viewer ("$viewer"), when the piece moves it, comes first: its span from
+## its first key, `warn` the stretches too fast for comfort (comfort()). Each
 ## span's ends are the track indices of the events that make it: its spawn,
 ## and the despawn of this object that ends it (-1 when it runs to the end,
 ## or its parent's despawn or its own respawn ends it).
 static func lanes(model: EditModel, until: float) -> Array:
+	var out := _object_lanes(model, until)
+	var vt := ViewerTrack.new()
+	vt.build(model.tracks())
+	if not vt.is_empty():
+		out.push_front({"id": ScriptFormat.VIEWER, "depth": 0, "parent": "", "spans": [[vt.start_time(), maxf(until, vt.start_time())]],
+				"ends": [{"spawn": -1, "despawn": -1}], "warn": comfort(vt, vt.start_time(), until)})
+	return out
+
+
+static func _object_lanes(model: EditModel, until: float) -> Array:
 	var ids: Array = model.object_ids()
 	var parent := {}
 	var events: Array = []
@@ -190,12 +202,9 @@ static func _slot_label(slot: String, effects: Array, model: EditModel) -> Strin
 
 ## Times of the viewer's cuts.
 static func cuts(model: EditModel) -> Array:
-	var out: Array = []
-	for t in model.tracks():
-		if t.get("type") == "event" and t.get("action") in ["vr_cut", "vr_teleport"]:
-			out.append(float(t.get("t", 0.0)))
-	out.sort()
-	return out
+	var vt := ViewerTrack.new()
+	vt.build(model.tracks())
+	return vt.cuts_between(-INF, INF).map(func(c): return float(c.t))
 
 
 ## Beat ticks between t0 and t1: [{t, bar}], thinned so neighbours are at
@@ -223,6 +232,32 @@ static func ticks(grid: BeatGrid, t0: float, t1: float, px_per_s: float) -> Arra
 
 
 ## `t` on the nearest beat (with `grid`), else as it is.
+## Comfort limits for the viewer's motion (see "Animating the viewer").
+const COMFORT_SPEED := 3.0  # m/s
+const COMFORT_TURN := 30.0  # °/s
+
+
+## The stretches of `vt` between `t0` and `t1` where the viewer moves faster
+## than COMFORT_SPEED or turns faster than COMFORT_TURN: [[from, to]],
+## sampled every `step` seconds.
+static func comfort(vt: ViewerTrack, t0: float, t1: float, step: float = 0.1) -> Array:
+	var out: Array = []
+	var t := t0
+	var open := -1.0
+	while t <= t1 + 1e-6:
+		var m := vt.motion_at(t)
+		var bad: bool = m.speed > COMFORT_SPEED or m.turn > COMFORT_TURN
+		if bad and open < 0.0:
+			open = t
+		elif not bad and open >= 0.0:
+			out.append([open, t])
+			open = -1.0
+		t += step
+	if open >= 0.0:
+		out.append([open, t1])
+	return out
+
+
 ## Tap tempo: taps further apart than this start over.
 const TAP_GAP := 2.0
 ## Taps needed before they set a grid.

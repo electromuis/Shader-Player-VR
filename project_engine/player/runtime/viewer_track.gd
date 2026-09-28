@@ -101,6 +101,11 @@ func is_empty() -> bool:
 	return _keys.position.is_empty() and _keys.rotation_deg.is_empty()
 
 
+## Every key's time, in order.
+func key_times() -> Array:
+	return _all_times.duplicate()
+
+
 ## When the viewer first leaves home (INF with no keys).
 func start_time() -> float:
 	return _all_times[0] if not _all_times.is_empty() else INF

@@ -16,6 +16,10 @@ extends RefCounted
 ## touched thing's value is sampled; a slider moved this frame is sampled
 ## at the playhead it was moved at, so the take isn't a frame late.
 ##
+## A **ride**: with the viewer armed (arm_viewer), the take records where you
+## are (viewer_pose: your eye and which way you face) every frame from its
+## start, as the "$viewer" track: fly the path while the music plays.
+##
 ## When the take ends (finish), each stream is thinned to keys
 ## (StudioKeyThinning) and replaces that property's keys over the time it
 ## was recorded (EditModel.replace_keys), all as one undo step; a transform
@@ -29,6 +33,8 @@ const PRE_ROLL := 2.0
 const PARAM_TOLERANCE := 0.005
 const COLOR_TOLERANCE := 0.004
 const TRANSFORM_TOLERANCE := {"position": 0.005, "rotation_deg": 0.5, "scale": 0.002}
+## A ride: 2 cm and half a degree.
+const RIDE_TOLERANCE := {"position": 0.02, "yaw": 0.5}
 ## A playhead this far behind the last sample means playback jumped back.
 const WRAP_SECONDS := 0.05
 
@@ -43,6 +49,10 @@ var until := -1.0
 
 ## Armed properties: "<id>|<field key>" -> {id, field}.
 var armed: Dictionary = {}
+## Record the viewer's ride (from the take's start).
+var arm_viewer := false
+## Where the viewer is now: returns {position: Vector3, yaw: float (°)}.
+var viewer_pose: Callable
 ## What's being recorded: key -> {kind: "param" / "transform", id, field
 ## or node, latest, samples: [[t, value]]}.
 var _streams: Dictionary = {}
@@ -93,6 +103,8 @@ func begin(start: float, end: float = -1.0) -> float:
 	until = end if end > from else -1.0
 	_last_t = -INF
 	state = State.PRE_ROLL
+	if arm_viewer and viewer_pose.is_valid():
+		_streams["$viewer"] = {"kind": "viewer", "id": ScriptFormat.VIEWER, "samples": []}
 	return maxf(from - PRE_ROLL, 0.0)
 
 
@@ -166,6 +178,9 @@ func tick(t: float) -> String:
 func _value_now(s: Dictionary):
 	if s.kind == "param":
 		return s.get("latest")
+	if s.kind == "viewer":
+		var p: Dictionary = viewer_pose.call()
+		return [p.position, float(p.yaw)]
 	var node: Node3D = s.node
 	if not is_instance_valid(node):
 		return null
@@ -184,6 +199,9 @@ func finish() -> String:
 			continue
 		var t0: float = s.samples[0][0]
 		var t1: float = s.samples.back()[0]
+		if s.kind == "viewer":
+			takes.append_array(_ride_takes(s.samples, t0, t1))
+			continue
 		if s.kind == "param":
 			var field: Dictionary = s.field
 			var keys := StudioKeyThinning.thin(s.samples, _param_tolerance(field))
@@ -232,10 +250,33 @@ func _release_all() -> void:
 	if runner == null:
 		return
 	for s in _streams.values():
+		if s.kind == "viewer":
+			continue
 		if s.kind == "param":
 			runner.held_params.erase("%s.%s:%s" % [s.id, s.field.slot, s.field.param])
 		else:
 			runner.held.erase(String(s.id))
+
+
+## A ride's samples ([t, [eye, yaw]]) as "$viewer" position and turn keys;
+## the turn unwrapped, so it never spins the long way round.
+static func _ride_takes(samples: Array, t0: float, t1: float) -> Array:
+	var pos: Array = []
+	var yaws: Array = []
+	var last := 0.0
+	for i in samples.size():
+		var p: Vector3 = samples[i][1][0]
+		var y: float = samples[i][1][1]
+		if i > 0:
+			y = last + wrapf(y - last, -180.0, 180.0)
+		last = y
+		pos.append([samples[i][0], [p.x, p.y, p.z]])
+		yaws.append([samples[i][0], y])
+	var rot_keys := StudioKeyThinning.thin(yaws, RIDE_TOLERANCE.yaw).map(func(k): return {"t": k.t, "value": [0.0, k.value, 0.0]})
+	return [
+		[ScriptFormat.TRACK_TRANSFORM, ScriptFormat.VIEWER, "position", t0, t1, StudioKeyThinning.thin(pos, RIDE_TOLERANCE.position)],
+		[ScriptFormat.TRACK_TRANSFORM, ScriptFormat.VIEWER, "rotation_deg", t0, t1, rot_keys],
+	]
 
 
 static func _param_tolerance(field: Dictionary):
@@ -256,7 +297,8 @@ static func _moved(samples: Array, tol: float) -> bool:
 static func _what(takes: Array) -> String:
 	var names := {}
 	for tk in takes:
-		names[String(tk[1]).split(".")[0] + ("" if tk[0] == ScriptFormat.TRACK_TRANSFORM else " " + String(tk[2]))] = true
+		var who := "the ride" if tk[1] == ScriptFormat.VIEWER else String(tk[1]).split(".")[0]
+		names[who + ("" if tk[0] == ScriptFormat.TRACK_TRANSFORM else " " + String(tk[2]))] = true
 	return ", ".join(names.keys())
 
 

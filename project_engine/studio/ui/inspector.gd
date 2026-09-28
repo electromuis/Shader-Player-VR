@@ -16,6 +16,9 @@ extends PanelContainer
 
 signal said(text: String)
 signal close_requested
+## A Studio command from a button here (the viewer's: key it, cut, arm the
+## ride).
+signal action(id: StringName)
 
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
@@ -46,6 +49,7 @@ var _clock := 0.0
 var _keep_scroll := -1
 var _picker_open := ""  # field key whose colour wheel is open
 var _reveal := ""  # field key (or "add_effect") to scroll into view after the next build
+var _viewer_state: Label  # the viewer's panel: where it is and how fast it goes
 
 var _title: Label
 var _kind: Label
@@ -168,6 +172,9 @@ func _build() -> void:
 		_title.text = "Inspector"
 		_kind.text = ""
 		_hint.text = "Select something to see its settings: point and pull the trigger, or click it."
+		return
+	if _id == ScriptFormat.VIEWER:
+		_build_viewer()
 		return
 	_title.text = _id
 	var kind := edits.kind_for(_id, node)
@@ -498,6 +505,53 @@ func _commit(key: String) -> void:
 		said.emit(label + ".")
 
 
+## The viewer ("$viewer"): no settings, but what it does here, and buttons
+## to key it, cut, and arm recording a ride.
+func _build_viewer() -> void:
+	_title.text = "Viewer"
+	_kind.text = "the audience's eye"
+	_hint.text = "Where the audience is taken. Its keys are on the timeline's Viewer lane: retime them, pick how they move on (Step before a key makes it a cut)."
+	_hint.remove_theme_color_override("font_color")
+	_viewer_state = _label(_list, _fs, Color.WHITE)
+	_viewer_state.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	for b in [[&"studio_key_viewer", "◆ Key viewer here (V): glide here"], [&"studio_cut_here", "✂ Cut here (Shift+V): jump here"]]:
+		var button := _button(b[1], func(): action.emit(b[0]))
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.custom_minimum_size.y = _target_h()
+		_list.add_child(button)
+	var rec := edits.recorder
+	if rec != null:
+		var arm := _button("", func():
+			action.emit(&"studio_arm_ride")
+			_needs_build = true)
+		arm.toggle_mode = true
+		arm.set_pressed_no_signal(rec.arm_viewer)
+		arm.text = "● Ride armed: record, and fly the path" if rec.arm_viewer else "● Arm the ride (record where you fly)"
+		arm.add_theme_color_override("font_color", RECORD if rec.arm_viewer else DIM)
+		arm.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		arm.custom_minimum_size.y = _target_h()
+		_list.add_child(arm)
+	_refresh_viewer(_playhead())
+
+
+func _refresh_viewer(t: float) -> void:
+	if _viewer_state == null or not is_instance_valid(_viewer_state):
+		return
+	var vt := ViewerTrack.new()
+	vt.build(edits.model.tracks())
+	var pose := vt.pose_at(t)
+	if pose.is_empty():
+		_viewer_state.text = "At %s: at home (the seat), until %s." % [StudioStatus.timecode(t),
+				StudioStatus.timecode(vt.start_time()) if not vt.is_empty() else "the script moves them"]
+		return
+	var m := vt.motion_at(t)
+	var p: Vector3 = pose.position
+	var fast: bool = m.speed > StudioTimeline.COMFORT_SPEED or m.turn > StudioTimeline.COMFORT_TURN
+	_viewer_state.text = "At %s: (%.2f, %.2f, %.2f), facing %.0f°\nMoving %.1f m/s, turning %.0f°/s%s" % [StudioStatus.timecode(t), p.x, p.y, p.z,
+			pose.rotation_deg.y, m.speed, m.turn, "  — too fast for comfort (%.0f m/s, %.0f°/s)" % [StudioTimeline.COMFORT_SPEED, StudioTimeline.COMFORT_TURN] if fast else ""]
+	_viewer_state.add_theme_color_override("font_color", RECORD if fast else Color.WHITE)
+
+
 ## Forget changes in progress without writing them (a take that ended
 ## wrote them already).
 func drop_pending() -> void:
@@ -567,6 +621,9 @@ func _refresh_values() -> void:
 	if _id == "" or edits == null:
 		return
 	var t := _playhead()
+	if _id == ScriptFormat.VIEWER:
+		_refresh_viewer(t)
+		return
 	if tools.auto_key:
 		_hint.text = "● Auto-key: changes key at %s." % StudioStatus.timecode(t)
 		_hint.add_theme_color_override("font_color", RECORD)

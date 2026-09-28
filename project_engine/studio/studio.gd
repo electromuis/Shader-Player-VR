@@ -48,6 +48,13 @@ extends Node3D
 ## (Record again, pause, or the loop's out point) writes the take as keys,
 ## one undo step; Esc drops it.
 ##
+## The viewer (the audience's eye) is the "$viewer" track: a lane at the
+## top of the timeline (select it there). Key viewer here (V) keys where you
+## are at the playhead (the ride glides there); Cut here (Shift+V) jumps
+## there with a short fade. Arm the ride (Ctrl+Shift+V, or its ● in the
+## inspector) and record: where you fly becomes the ride. In Edit you fly
+## freely; Play is the audience view, and rides the script.
+##
 ## Command line (after `--`): --piece <script.json, or a video: its
 ## same-name .json, made empty if there's none>, --start <seconds>, --vr,
 ## --desktop, --library <folder> (more assets for the shelf; repeatable).
@@ -59,8 +66,10 @@ const SEEK_SECONDS := 10.0
 const WRIST_SCENE := preload("res://studio/ui/wrist_palette.tscn")
 ## The wrist palette's size in metres and pixels (bigger than the player's
 ## wrist HUD: it has buttons).
-const WRIST_SIZE := Vector2(0.26, 0.315)
-const WRIST_PIXELS := Vector2(780, 945)
+const WRIST_SIZE := Vector2(0.26, 0.365)
+const WRIST_PIXELS := Vector2(780, 1095)
+## A cut made with Cut here fades this long.
+const CUT_FADE := 0.5
 ## Push / pull speed with the right stick while grabbing (m/s at full push).
 const PUSH_SPEED := 2.5
 ## Desktop: a mouse wheel notch pushes / pulls this far.
@@ -197,6 +206,7 @@ func _ready() -> void:
 	edits.library = library
 	edits.recorder = recorder
 	recorder.runner = runner
+	recorder.viewer_pose = func(): return _eye_pose()
 	_bind_inspector(inspector)
 	tools.selection_changed.connect(_on_selection_changed)
 	_make_inspector_panel()
@@ -289,6 +299,9 @@ func open_piece(path: String) -> bool:
 			view.show_tab("object")
 		_show_shelf()
 	else:
+		if shelf_on and shelf.tab == StudioAssetShelf.OPEN_TAB:
+			shelf_on = false  # it was open to pick a piece
+			_show_shelf()
 		_say("Opened %s." % _piece_name())
 	return true
 
@@ -300,6 +313,12 @@ func set_mode(new_mode: Mode) -> void:
 
 func _apply_mode() -> void:
 	var editing := mode == Mode.EDIT
+	# Play is the audience view: the script moves the viewer. In Edit you
+	# fly freely.
+	var was_driving := stage.drive_viewer
+	stage.drive_viewer = not editing
+	if not editing and not was_driving:
+		stage.follow_script_viewer()
 	stage.router.set_context("studio_edit", editing)
 	status_view.visible = editing
 	# The wrist shows only in the headset (the stage turns it on with VR).
@@ -398,8 +417,15 @@ func _on_command(id: StringName) -> void:
 				drop_held_at(_hand_xf("R"))
 		&"studio_grab": _grab_with(_hand_of(stage.router.last_input, "R"))
 		&"studio_grab_left": _grab_with(_hand_of(stage.router.last_input, "L"))
+		&"studio_key_viewer": key_viewer(false)
+		&"studio_cut_here": key_viewer(true)
+		&"studio_arm_ride":
+			recorder.arm_viewer = not recorder.arm_viewer
+			_say("Ride %s." % ("armed: record, and fly the path while it plays" if recorder.arm_viewer else "not armed"))
 		&"studio_key_selection":
-			if model != null:
+			if model != null and tools.selected == ScriptFormat.VIEWER:
+				key_viewer(false)
+			elif model != null:
 				if tools.key_selection() == "":
 					_say("Select something first (right trigger, or click it).")
 		&"studio_toggle_autokey":
@@ -564,6 +590,7 @@ func _bind_inspector(view: StudioInspector) -> void:
 	view.edits = edits
 	view.tools = tools
 	view.said.connect(_say)
+	view.action.connect(_on_command)
 	view.close_requested.connect(func(): tools.select(""))
 	view.show_object(tools.selected)
 
@@ -751,6 +778,29 @@ func _keep_ribbon_near() -> void:
 		_place_ribbon_panel()
 
 
+# ---------- the viewer ----------
+
+## Where you are: your eye, and which way you face (°).
+func _eye_pose() -> Dictionary:
+	var xf := stage.viewer_transform()
+	var fwd := -xf.basis.z
+	return {"position": xf.origin, "yaw": rad_to_deg(atan2(-fwd.x, -fwd.z))}
+
+
+## Key the viewer where you are, at the playhead: a glide into it, or with
+## `cut` a jump there (with a short fade).
+func key_viewer(cut: bool) -> void:
+	if model == null:
+		return
+	var eye := _eye_pose()
+	var p: Vector3 = eye.position
+	var t := snappedf(runner.playhead, 0.001)
+	var pos := [p.x, p.y, p.z].map(func(v): return float("%.3f" % v))
+	if model.key_viewer(t, pos, float("%.2f" % eye.yaw), cut, {"type": "fade_to_black", "duration": CUT_FADE} if cut else {}):
+		tools.select(ScriptFormat.VIEWER)
+		_say(model.undo_label() + ".")
+
+
 # ---------- recording ----------
 
 ## Record: from the loop's in point to its out point while looping (a
@@ -765,8 +815,10 @@ func start_take() -> void:
 	stage.seek_to(start)
 	runner.play()
 	var armed := recorder.armed.size()
-	_say("Recording from %s%s: %s." % [StudioStatus.timecode(from), " to %s" % StudioStatus.timecode(loop.b) if looping else "",
-			"move the armed sliders (%d), or grab something" % armed if armed > 0 else "grab something (or arm sliders with their ●)"])
+	var what := "move the armed sliders (%d), or grab something" % armed if armed > 0 else "grab something (or arm sliders with their ●)"
+	if recorder.arm_viewer:
+		what = "fly the ride" + (", and move the armed sliders (%d)" % armed if armed > 0 else "")
+	_say("Recording from %s%s: %s." % [StudioStatus.timecode(from), " to %s" % StudioStatus.timecode(loop.b) if looping else "", what])
 
 
 ## End the take and write it. A slider still being dragged, or an object
@@ -1159,7 +1211,7 @@ func _show_status() -> void:
 			_wrist.action.connect(_on_command)
 	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
 		_wrist.status.callv("show_state", args)
-		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active())
+		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer)
 
 
 ## The status's record chip: "" when not recording.

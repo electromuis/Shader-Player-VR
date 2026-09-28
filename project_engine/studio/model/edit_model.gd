@@ -672,6 +672,35 @@ func replace_keys(type: String, target: String, name: String, t0: float, t1: flo
 	return _do(label, _is_structural_track(tracks()[ti]), [_change(["tracks", ti, "keyframes"], kfs)])
 
 
+## The viewer at `t`: its eye at `position` ([x, y, z]) facing `yaw` (°), on
+## the "$viewer" track. The viewer glides into it from the key before; with
+## `cut`, it jumps there instead (the key before holds: its segment becomes
+## a step) through `transition` ({} = at once). One undo step.
+func key_viewer(t: float, position: Array, yaw: float, cut: bool = false, transition: Dictionary = {}) -> bool:
+	var label := "%s at %s" % ["Cut the viewer to here" if cut else "Key the viewer", _time_label(t)]
+	return batch(label, func():
+		for ch in ["position", "rotation_deg"]:
+			var value: Array = position if ch == "position" else [0.0, yaw, 0.0]
+			set_key(ScriptFormat.TRACK_TRANSFORM, ScriptFormat.VIEWER, ch, t, value)
+			var ti := find_track(ScriptFormat.TRACK_TRANSFORM, ScriptFormat.VIEWER, ch)
+			var kfs: Array = tracks()[ti].keyframes.duplicate(true)
+			var at := _key_at(kfs, t)
+			if cut:
+				if at > 0:
+					kfs[at - 1]["interp"] = "step"
+					kfs[at - 1].erase("out")
+					kfs[at].erase("in")
+				if not transition.is_empty():
+					kfs[at]["transition"] = transition
+				else:
+					kfs[at].erase("transition")
+			else:
+				kfs[at].erase("transition")
+				if at > 0 and String(kfs[at - 1].get("interp", "")) == "step":
+					kfs[at - 1].erase("interp")  # glide into it, not jump
+			set_keyframes(ti, kfs))
+
+
 ## The piece's beat grid (`media.beats`: {bpm, offset, beats_per_bar}); null
 ## removes it (the player detects one from the sound again).
 func set_beats(grid, label: String = "") -> bool:

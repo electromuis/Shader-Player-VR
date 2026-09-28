@@ -5,7 +5,9 @@ extends SceneTree
 ## button too), find it on the shelf's Looks tab with a snapshot of the
 ## screen as its card, then drop it on a plain screen (which takes it,
 ## keeping its place and size) and on the floor (a new screen with it).
-## Undo / redo, save, and the player plays the piece with both. The
+## Undo / redo. Haptics: the pulses a grab with snapping, the key button,
+## a refused drop and a take ask for (undone after). Save, and the player
+## plays the piece with the looks. The
 ## library (and so the looks) is $WORK/studio_m8/library, not the user's.
 ## Headless (HEADLESS=1) it prints; rendered it also saves studio_m8_*.png
 ## to OUT_DIR.
@@ -208,6 +210,42 @@ func _initialize() -> void:
 	await key(KEY_N)  # the inspector out of the way
 	await shot("3_looks_applied")
 	await key(KEY_N)
+
+	# Haptics: what the hands feel. "In the headset" is faked here, so the
+	# pulses go through to the controllers' calls (no XR runtime to feel
+	# them). A grab of screen_2 carried 30 cm with snapping on, the key
+	# button, a card let go on nothing, and a take through its pre-roll.
+	var hx: StudioHaptics = studio.haptics
+	hx.in_vr = func(): return true
+	var n0 := hx.count
+	var s2: Node3D = reg.get_node_by_id("screen_2")
+	var hand := Transform3D(Basis(), s2.global_position + Vector3(0, 0, 2))
+	tools.snap = true
+	tools.grab("screen_2", "R", hand)
+	for i in 6:
+		tools.move_hand("R", hand.translated(Vector3(0.06 * i, 0, 0)))
+	var moved := tools.release_hand("R")
+	var keyed := tools.key_selection()
+	await press_card(asset("effect", "Glow"))
+	studio._held_hand = "R"
+	studio.drop_held_at(ray_at(Vector2(vp.x * 0.5, vp.y * 0.05)))  # the sky: refused
+	print("haptics: ", hx.kinds_since(n0), ", all sent ", hx.log.slice(hx.log.size() - (hx.count - n0)).all(func(e): return e.sent),
+			" (moved: '", moved, "', keyed: '", keyed, "')")
+	await key(KEY_Z, true)
+	await key(KEY_Z, true)
+	tools.snap = false
+	n0 = hx.count
+	await key(KEY_R, false, true)  # record: 2 s of pre-roll, then it records
+	for i in 600:
+		await process_frame
+		if studio.runner.playhead >= studio.recorder.from + 0.2:
+			break
+	var during := hx.kinds_since(n0)
+	await key(KEY_R, false, true)
+	print("take: pulses during it ", during, ", after stopping ", hx.kinds_since(n0), " ('", studio.message, "')")
+	hx.in_vr = func(): return false
+	studio.stage.seek_to(0.0)
+	await frames(3)
 
 	await key(KEY_S, true)
 	var piece: String = m.path

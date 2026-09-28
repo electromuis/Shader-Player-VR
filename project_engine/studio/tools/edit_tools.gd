@@ -21,6 +21,10 @@ extends Node3D
 signal said(text: String)
 ## The selection changed (to "" when nothing is selected).
 signal selection_changed(id: String)
+## What a hand should feel (StudioHaptics kinds): "grab", "release",
+## "snap" (the snapped placement moved on a step), "key" (a let-go that
+## keyed, or the key button).
+signal felt(kind: String, hand: String)
 
 const SELECT_COLOR := Color(0.3, 0.79, 0.94)
 const GRAB_COLOR := Color(1.0, 0.85, 0.3)
@@ -136,6 +140,7 @@ func grab(id: String, hand: String, hand_xf: Transform3D) -> bool:
 	}
 	if recorder != null:
 		recorder.touch_transform(id, node)
+	felt.emit("grab", hand)
 	return true
 
 
@@ -155,6 +160,7 @@ func add_hand(hand: String, hand_xf: Transform3D) -> void:
 	var node: Node3D = _grab.node
 	_grab.two = {"a0": (_grab.hands[_grab.primary] as Transform3D).origin, "b0": hand_xf.origin,
 			"obj0": node.global_transform, "other": hand}
+	felt.emit("grab", hand)
 
 
 ## A hand lets go: with two, the other carries on alone; with one, the
@@ -167,6 +173,7 @@ func release_hand(hand: String) -> String:
 	_grab.hands.erase(hand)
 	_grab.two = {}
 	_grab.primary = _grab.hands.keys()[0]
+	felt.emit("release", hand)
 	var node: Node3D = _grab.node
 	_grab.offset = GrabMath.grip_offset(_grab.hands[_grab.primary], node.global_transform)
 	return ""
@@ -186,14 +193,17 @@ func release() -> String:
 		return ""
 	var id: String = _grab.id
 	var node: Node3D = _grab.node
+	var hand: String = _grab.primary
 	var label := ""
 	if recorder != null and recorder.owns_transform(id):
 		_grab = {}  # the take holds it where it was let go, and writes it
+		felt.emit("release", hand)
 		return ""
 	if is_instance_valid(node):
 		label = _commit(id, _grab.start, GrabMath.to_dict(node.transform))
 	runner.held.erase(id)
 	_grab = {}
+	felt.emit("key" if auto_key and label != "" else "release", hand)
 	return label
 
 
@@ -221,7 +231,11 @@ func _apply() -> void:
 		global = GrabMath.carried(_grab.hands[_grab.primary], _grab.offset)
 	var local := GrabMath.to_local(node.get_parent().global_transform, global) if node.get_parent() is Node3D else global
 	if snap:
-		local = GrabMath.from_dict(StudioSnap.snapped(GrabMath.to_dict(local)))
+		var on_grid := StudioSnap.snapped(GrabMath.to_dict(local))
+		if _grab.has("on_grid") and JSON.stringify(on_grid) != JSON.stringify(_grab.on_grid):
+			felt.emit("snap", _grab.primary)
+		_grab.on_grid = on_grid
+		local = GrabMath.from_dict(on_grid)
 	node.transform = local
 
 
@@ -243,6 +257,7 @@ func key_selection() -> String:
 		for ch in ["position", "rotation_deg", "scale"]:
 			model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, t, now[ch]))
 	_say(label + ".")
+	felt.emit("key", "R")
 	return label
 
 
@@ -477,13 +492,17 @@ func grab_key(k: Dictionary, hand: String, hand_xf: Transform3D) -> void:
 	_key_grab = {"ti": k.ti, "ki": k.ki, "hand": hand, "grip": hand_xf.affine_inverse() * (k.world as Vector3),
 			"world": k.world, "start": k.world}
 	_say("Moving the key at %s." % StudioStatus.timecode(k.t))
+	felt.emit("grab", hand)
 
 
 func move_key_hand(hand: String, hand_xf: Transform3D) -> void:
 	if _key_grab.is_empty() or _key_grab.hand != hand:
 		return
 	var p: Vector3 = hand_xf * (_key_grab.grip as Vector3)
+	var was: Vector3 = _key_grab.world
 	_key_grab.world = StudioSnap.position(p) if snap else p
+	if snap and not was.is_equal_approx(_key_grab.world):
+		felt.emit("snap", hand)
 
 
 ## Let go of the key: write where it is now (one undo step). Returns the
@@ -494,6 +513,7 @@ func release_key(hand: String) -> String:
 	var g := _key_grab
 	_key_grab = {}
 	if (g.world as Vector3).distance_to(g.start) < MOVE_EPS:
+		felt.emit("release", hand)
 		return ""
 	var id := selected
 	var local: Vector3 = _path_space(id).affine_inverse() * (g.world as Vector3)
@@ -501,8 +521,10 @@ func release_key(hand: String) -> String:
 	kfs[g.ki].value = [local.x, local.y, local.z].map(func(v): return float("%.4f" % v))
 	var label := "Move %s's key at %s" % ["the viewer" if id == ScriptFormat.VIEWER else id, StudioStatus.timecode(float(kfs[g.ki].t))]
 	if not model.set_keyframes(g.ti, kfs, label):
+		felt.emit("release", hand)
 		return ""
 	_say(label + ".")
+	felt.emit("key", hand)
 	return label
 
 

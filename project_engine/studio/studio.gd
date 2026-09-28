@@ -157,6 +157,10 @@ var recorder := StudioRecorder.new()
 var _beats_applied := ""
 var thumbnailer: StudioThumbnailer
 var dropper := StudioAssetDrop.new()
+## Pulses on the controllers confirming grabs, snaps, keys, drops, takes.
+var haptics := StudioHaptics.new()
+## The take being recorded has been felt starting (after its pre-roll).
+var _take_felt := false
 ## Whether the shelf shows (in Edit).
 var shelf_on := false
 var shelf_panel: XRToolsViewport2DIn3D
@@ -209,6 +213,9 @@ func _ready() -> void:
 	tools.said.connect(_say)
 	tools.recorder = recorder
 	add_child(tools)
+	haptics.rig = stage.xr_rig
+	haptics.in_vr = stage.xr_mode.is_in_vr
+	tools.felt.connect(haptics.tick)
 	flight = StudioFlight.new()
 	flight.name = "Flight"
 	flight.router = stage.router
@@ -839,6 +846,7 @@ func key_viewer(cut: bool) -> void:
 	if model.key_viewer(t, pos, float("%.2f" % eye.yaw), cut, {"type": "fade_to_black", "duration": CUT_FADE} if cut else {}):
 		tools.select(ScriptFormat.VIEWER)
 		_say(model.undo_label() + ".")
+		haptics.tick("key", "R")
 
 
 # ---------- the miniature ----------
@@ -917,6 +925,7 @@ func start_take() -> void:
 	var looping := loop.on and loop.is_set()
 	var from := loop.a if looping else runner.playhead
 	var start := recorder.begin(from, loop.b if looping else -1.0)
+	_take_felt = false
 	stage.seek_to(start)
 	runner.play()
 	var armed := recorder.armed.size()
@@ -932,6 +941,8 @@ func _stop_take() -> void:
 	var label := recorder.finish()
 	_after_take()
 	runner.pause()
+	if label != "":
+		haptics.tick("key", "both")
 	_say(label + "." if label != "" else "Nothing recorded (touch an armed slider, or grab something, while it records).")
 
 
@@ -948,6 +959,9 @@ func _record_tick() -> void:
 	if not runner.playing:
 		_stop_take()
 		return
+	if not _take_felt and runner.playhead >= recorder.from:
+		_take_felt = true
+		haptics.tick("record", "both")  # the pre-roll is over: it records now
 	if recorder.tick(runner.playhead) != "":
 		_stop_take()
 
@@ -1111,12 +1125,14 @@ func drop_held_at(hand_xf: Transform3D) -> bool:
 	if held_asset.is_empty() or model == null:
 		return false
 	var asset := held_asset
+	var hand := _held_hand
 	_drop_held()
 	var where := StudioAssetDrop.aim(hand_xf.origin, -hand_xf.basis.z, tools.candidates())
 	var r := dropper.drop(asset, where, stage.viewer_transform().origin, runner.playhead, tools.snap)
 	if r.ok:
 		tools.select(r.id)
 	_say(r.message)
+	haptics.tick("drop" if r.ok else "refuse", hand)
 	if r.ok:
 		if asset.source == "user":
 			_refresh_shelf()  # it's in the piece now

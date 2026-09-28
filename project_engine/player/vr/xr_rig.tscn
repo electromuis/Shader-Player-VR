@@ -43,6 +43,9 @@ scene = ExtResource("3_wrist")
 collision_layer = 1048577
 unshaded = true
 
+[node name="FunctionPointer" parent="LeftController" instance=ExtResource("4_pointer")]
+enabled = false
+
 [node name="RightController" type="XRController3D" parent="."]
 tracker = &"right_hand"
 pose = &"aim"

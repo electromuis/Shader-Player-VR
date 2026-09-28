@@ -149,6 +149,9 @@ func _init_input(bindings: InputBindings) -> void:
 	router.process_priority = -10
 	add_child(router)
 	xr_rig.router = router
+	# Left-handed: the laser and wrist panel change hands with the profile.
+	xr_rig.set_left_handed(bindings.left_handed)
+	bindings.changed.connect(func(): xr_rig.set_left_handed(bindings.left_handed))
 
 
 ## Leave the menus a camera effect should not cover (the app's own panels).

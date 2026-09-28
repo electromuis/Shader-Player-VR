@@ -247,6 +247,33 @@ func _initialize() -> void:
 	studio.stage.seek_to(0.0)
 	await frames(3)
 
+	# Left-handed (the Controls tab's profile): the laser and wrist panel
+	# change hands, the shelf goes to the right, and a card is carried and
+	# let go of with the left trigger.
+	var rig: XRRig = studio.stage.xr_rig
+	var b: InputBindings = studio.stage.router.bindings
+	b.apply_left_handed()
+	await frames(2)
+	var head: Transform3D = studio.stage.viewer_transform()
+	studio._place_shelf_panel()
+	var shelf_side: float = (head.affine_inverse() * studio.shelf_panel.global_position).x
+	print("left-handed: main hand ", rig.main_hand, ", pointers on L ", rig._pointers.L.enabled, " R ", rig._pointers.R.enabled,
+			", wrist on ", rig.wrist_panel.get_parent().name, " at ", rig.wrist_panel.position, ", shelf to the ", "right" if shelf_side > 0.0 else "left",
+			", select bound to ", b.bindings_for("studio_select"))
+	studio.stage.router.feed_button("L.trigger", true, 5000.0)
+	await press_card(asset("object", "Cube"))
+	studio._held_hand = studio._main_hand()  # as in the headset
+	rig.left_controller.global_transform = Transform3D(Basis.looking_at(Vector3(0.3, -0.25, -1.0).normalized(), Vector3.UP), Vector3(0, 1.3, 9))
+	await frames(3)
+	studio.stage.router.feed_button("L.trigger", false, 5000.5)
+	await frames(4)
+	print("carried in the left hand, let go of the left trigger: '", studio.message, "'")
+	await key(KEY_Z, true)
+	b.reset_all()
+	await frames(2)
+	print("reset all: main hand ", rig.main_hand, ", wrist on ", rig.wrist_panel.get_parent().name, " at ", rig.wrist_panel.position,
+			", pointers L ", rig._pointers.L.enabled, " R ", rig._pointers.R.enabled)
+
 	await key(KEY_S, true)
 	var piece: String = m.path
 	print("save: '", studio.message, "' valid ", ScriptFormat.load_from_file(piece).ok)

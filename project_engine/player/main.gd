@@ -228,14 +228,15 @@ func _on_right_trigger() -> void:
 		_toggle_play()
 
 
-## Whether the right controller points at the main screen's picture, on
-## its surface. At infinity (180°/360° video) it surrounds the viewer, so
-## there is no screen to aim at and the click keeps its reset-view meaning.
+## Whether the main hand (the right one, unless left-handed) points at the
+## main screen's picture, on its surface. At infinity (180°/360° video) it
+## surrounds the viewer, so there is no screen to aim at and the click
+## keeps its reset-view meaning.
 func _aiming_at_screen() -> bool:
 	var screen := runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID) as Screen
 	if screen == null:
 		return false
-	var ray := stage.xr_rig.right_aim_ray()
+	var ray := stage.xr_rig.aim_ray()
 	return screen.ray_hit(ray[0], ray[1])
 
 

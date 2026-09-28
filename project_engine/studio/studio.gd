@@ -215,7 +215,7 @@ func _ready() -> void:
 	add_child(tools)
 	haptics.rig = stage.xr_rig
 	haptics.in_vr = stage.xr_mode.is_in_vr
-	tools.felt.connect(haptics.tick)
+	tools.felt.connect(func(kind: String, hand: String): haptics.tick(kind, _main_hand() if hand == "main" else hand))
 	flight = StudioFlight.new()
 	flight.name = "Flight"
 	flight.router = stage.router
@@ -442,9 +442,9 @@ func _on_command(id: StringName) -> void:
 			if held_asset.is_empty():
 				_select_pointed()
 			elif not stage.router.is_context_active("menus"):
-				drop_held_at(_hand_xf("R"))
-		&"studio_grab": _grab_with(_hand_of(stage.router.last_input, "R"))
-		&"studio_grab_left": _grab_with(_hand_of(stage.router.last_input, "L"))
+				drop_held_at(_hand_xf(_main_hand()))
+		&"studio_grab": _grab_with(_hand_of(stage.router.last_input, _main_hand()))
+		&"studio_grab_left": _grab_with(_hand_of(stage.router.last_input, _off_hand()))
 		&"studio_key_viewer": key_viewer(false)
 		&"studio_cut_here": key_viewer(true)
 		&"studio_miniature": toggle_miniature()
@@ -541,8 +541,23 @@ func _hand_xf(hand: String) -> Transform3D:
 	return _controller(hand).global_transform
 
 
+## The hand that points and acts: "R", or "L" with the Left-handed
+## profile (XRRig.main_hand); and the other one.
+func _main_hand() -> String:
+	return stage.xr_rig.main_hand
+
+
+func _off_hand() -> String:
+	return "R" if _main_hand() == "L" else "L"
+
+
+## 1, or -1 when left-handed: panels placed to one side go to the other.
+func _side() -> float:
+	return -1.0 if _main_hand() == "L" else 1.0
+
+
 func _select_pointed() -> void:
-	var xf := _hand_xf("R")
+	var xf := _hand_xf(_main_hand())
 	tools.select(tools.pick(xf.origin, -xf.basis.z))
 
 
@@ -725,7 +740,8 @@ func _place_inspector_panel() -> void:
 	toward.y = 0.0
 	if toward.length() < 0.01:
 		toward = Vector3(0, 0, -1)
-	toward = toward.normalized().rotated(Vector3.UP, -deg_to_rad(angle))
+	# To the side of the hand that acts (the right; mirrored left-handed).
+	toward = toward.normalized().rotated(Vector3.UP, -deg_to_rad(angle) * _side())
 	var at := head.origin + toward * INSPECTOR_DISTANCE - Vector3(0, INSPECTOR_DROP, 0)
 	# The quad's front is +Z: look away from the head.
 	inspector_panel.global_transform = Transform3D(Basis.looking_at(at - head.origin, Vector3.UP), at)
@@ -846,7 +862,7 @@ func key_viewer(cut: bool) -> void:
 	if model.key_viewer(t, pos, float("%.2f" % eye.yaw), cut, {"type": "fade_to_black", "duration": CUT_FADE} if cut else {}):
 		tools.select(ScriptFormat.VIEWER)
 		_say(model.undo_label() + ".")
-		haptics.tick("key", "R")
+		haptics.tick("key", _main_hand())
 
 
 # ---------- the miniature ----------
@@ -1046,7 +1062,8 @@ func _show_shelf() -> void:
 		shelf_panel.visible = show and in_vr
 
 
-## To your front left, a little below your eyes, facing you.
+## To your front left (right when left-handed), a little below your eyes,
+## facing you.
 func _place_shelf_panel() -> void:
 	if shelf_panel == null:
 		return
@@ -1054,7 +1071,7 @@ func _place_shelf_panel() -> void:
 	var fwd := -head.basis.z
 	fwd.y = 0.0
 	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(0, 0, -1)
-	var toward := fwd.rotated(Vector3.UP, deg_to_rad(SHELF_ANGLE))
+	var toward := fwd.rotated(Vector3.UP, deg_to_rad(SHELF_ANGLE) * _side())
 	var at := head.origin + toward * SHELF_DISTANCE - Vector3(0, SHELF_DROP, 0)
 	# The quad's front is +Z: look away from the head.
 	shelf_panel.global_transform = Transform3D(Basis.looking_at(at - head.origin, Vector3.UP), at)
@@ -1077,7 +1094,7 @@ func _on_taken(asset: Dictionary, view: StudioAssetShelf) -> void:
 		view.show_held("")
 		return
 	held_asset = asset
-	_held_hand = "R" if stage.xr_mode.is_in_vr() else "M"
+	_held_hand = _main_hand() if stage.xr_mode.is_in_vr() else "M"
 	_trigger_was_down = true
 	for other in _shelves():
 		other.show_held(asset.id)
@@ -1152,8 +1169,8 @@ func _carry(_delta: float) -> void:
 		xf = _mouse_hand()
 	else:
 		over_ui = stage.router.is_context_active("menus")
-		xf = _hand_xf("R")
-		var down := stage.router.is_down("R.trigger")
+		xf = _hand_xf(_held_hand)
+		var down := stage.router.is_down(_held_hand + ".trigger")
 		if _trigger_was_down and not down and not over_ui:
 			_trigger_was_down = false
 			drop_held_at(xf)

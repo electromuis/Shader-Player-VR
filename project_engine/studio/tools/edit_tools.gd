@@ -23,7 +23,7 @@ signal said(text: String)
 signal selection_changed(id: String)
 ## What a hand should feel (StudioHaptics kinds): "grab", "release",
 ## "snap" (the snapped placement moved on a step), "key" (a let-go that
-## keyed, or the key button).
+## keyed, or the key button: hand "main", the hand that acts).
 signal felt(kind: String, hand: String)
 
 const SELECT_COLOR := Color(0.3, 0.79, 0.94)
@@ -257,7 +257,7 @@ func key_selection() -> String:
 		for ch in ["position", "rotation_deg", "scale"]:
 			model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, t, now[ch]))
 	_say(label + ".")
-	felt.emit("key", "R")
+	felt.emit("key", "main")  # the key button: the hand that acts
 	return label
 
 

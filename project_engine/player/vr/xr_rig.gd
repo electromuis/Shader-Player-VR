@@ -7,6 +7,12 @@ extends XROrigin3D
 ## in-headset fade_to_black transitions (the CanvasLayer FadeOverlay only
 ## renders to the desktop mirror).
 ##
+## Left-handed (set_left_handed, from the bindings' Left-handed profile):
+## the laser is on the left hand and the wrist HUD on the right wrist,
+## mirrored. Each hand has its own pointer; only the main hand's is on
+## (XR Tools' pointer binds to its controller when it starts, so it isn't
+## moved).
+##
 ## Buttons and sticks mean nothing here: InputRouter (see `router`) turns
 ## them into commands from the user's bindings. The rig tells it when the
 ## laser is on a panel (the "menus" context: the right stick scrolls, the
@@ -38,8 +44,15 @@ var router: InputRouter:
 @onready var wrist_panel: XRToolsViewport2DIn3D = $LeftController/WristHud
 @onready var fade_quad: MeshInstance3D = $XRCamera3D/VRFade
 @onready var movement: XRMovement = $Movement
+## The laser of the main hand (the right one unless left-handed).
 @onready var pointer: XRToolsFunctionPointer = $RightController/FunctionPointer
+@onready var _pointers := {"L": $LeftController/FunctionPointer, "R": $RightController/FunctionPointer}
 
+## "R", or "L" when left-handed: the hand with the laser, that acts.
+var main_hand := "R"
+## The wrist HUD's place on the left wrist (xr_rig.tscn); on the right
+## wrist it's mirrored.
+var _wrist_left_xf: Transform3D
 var _fade_material: StandardMaterial3D
 
 
@@ -51,9 +64,39 @@ func _ready() -> void:
 	fade_quad.material_override = _fade_material
 	_set_fade_alpha(0.0)
 	wrist_panel.material = FloatingPanel.ui_material()
+	_wrist_left_xf = wrist_panel.transform
 
 	left_controller.button_pressed.connect(_on_button_pressed.bind("L"))
 	right_controller.button_pressed.connect(_on_button_pressed.bind("R"))
+
+
+## Left-handed: the laser on the left hand, the wrist HUD on the right
+## wrist (mirrored). Off: as the scene has them.
+func set_left_handed(on: bool) -> void:
+	main_hand = "L" if on else "R"
+	for hand in _pointers:
+		(_pointers[hand] as XRToolsFunctionPointer).enabled = hand == main_hand
+	pointer = _pointers[main_hand]
+	var wrist_on: XRController3D = right_controller if on else left_controller
+	if wrist_panel.get_parent() != wrist_on:
+		wrist_panel.reparent(wrist_on, false)
+	wrist_panel.transform = mirrored(_wrist_left_xf) if on else _wrist_left_xf
+
+
+## The main hand's controller (the one with the laser), and the other.
+func main_controller() -> XRController3D:
+	return left_controller if main_hand == "L" else right_controller
+
+
+func off_controller() -> XRController3D:
+	return right_controller if main_hand == "L" else left_controller
+
+
+## `xf` seen in a mirror across the controller's YZ plane (x → -x):
+## the left wrist's place, on the right wrist.
+static func mirrored(xf: Transform3D) -> Transform3D:
+	var m := Basis.from_scale(Vector3(-1, 1, 1))
+	return Transform3D(m * xf.basis * m, Vector3(-xf.origin.x, xf.origin.y, xf.origin.z))
 
 
 func _process(_delta: float) -> void:
@@ -62,8 +105,8 @@ func _process(_delta: float) -> void:
 		router.set_context("menus", pointer_panel_body() != null)
 
 
-## The panel body (XRToolsViewport2DIn3D's StaticBody3D) the right laser is
-## on, or null. Any pointer target that maps hits to viewport pixels counts.
+## The panel body (XRToolsViewport2DIn3D's StaticBody3D) the laser is on,
+## or null. Any pointer target that maps hits to viewport pixels counts.
 ## The wrist HUD is kept off XR Tools' suppress layer (23) in xr_rig.tscn:
 ## on it, the laser drops it as a target whenever the hands are close, this
 ## returns null, and the trigger falls through to the "play" bindings.
@@ -74,8 +117,8 @@ func pointer_panel_body() -> Node3D:
 	return null
 
 
-## Scroll the panel under the right laser by whole wheel notches (positive =
-## up), as a mouse wheel at the laser's hit point.
+## Scroll the panel under the laser by whole wheel notches (positive = up),
+## as a mouse wheel at the laser's hit point.
 func scroll_pointed_panel(notches: int) -> void:
 	var body := pointer_panel_body()
 	if body == null or notches == 0:
@@ -96,10 +139,10 @@ func scroll_pointed_panel(notches: int) -> void:
 			sub.push_input(ev)
 
 
-## The right controller's pointing ray as [origin, direction] (world space),
-## the same ray the FunctionPointer laser uses.
-func right_aim_ray() -> Array:
-	var xf := right_controller.global_transform
+## The main hand's pointing ray as [origin, direction] (world space), the
+## same ray its laser uses.
+func aim_ray() -> Array:
+	var xf := main_controller().global_transform
 	return [xf.origin, -xf.basis.z.normalized()]
 
 

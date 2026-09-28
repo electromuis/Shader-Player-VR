@@ -182,6 +182,10 @@ const _FACE_BUTTONS := {"L.ax": "X", "L.by": "Y", "R.ax": "A", "R.by": "B"}
 var _path: String
 ## command id -> Array of bindings, only where they differ from DEFAULTS.
 var _overrides: Dictionary = {}
+## The Left-handed profile is on (apply_left_handed; Reset all ends it):
+## the laser, and what the apps do with "the hand that acts", are on the
+## left hand, the wrist panel on the right (XRRig.set_left_handed).
+var left_handed := false
 ## context -> physical input -> Array of [command id, binding]. Rebuilt on change.
 var _index: Dictionary = {}
 
@@ -238,7 +242,19 @@ func bindings_on(context: String, physical_input: String) -> Array:
 
 ## Whether `context` uses `physical_input` at all (so it owns it).
 func context_uses(context: String, physical_input: String) -> bool:
-	return not bindings_on(context, physical_input).is_empty() or physical_input in RESERVED.get(context, [])
+	return not bindings_on(context, physical_input).is_empty() or physical_input in reserved(context)
+
+
+## The inputs `context` keeps without a command (RESERVED; left-handed,
+## the laser's click is the left trigger).
+func reserved(context: String) -> Array:
+	var list: Array = RESERVED.get(context, [])
+	return list.map(func(i): return _mirror_input(i)) if left_handed else list
+
+
+## "R", or "L" when left-handed: the hand that points and acts.
+func main_hand() -> String:
+	return "L" if left_handed else "R"
 
 
 ## Same input, gesture, modifier and context on two commands: the second
@@ -299,12 +315,15 @@ func reset(command: String) -> void:
 
 func reset_all() -> void:
 	_overrides.clear()
+	left_handed = false
 	_changed()
 
 
-## Every command's defaults with left and right swapped.
+## Every command's defaults with left and right swapped, and the laser on
+## the left hand (left_handed).
 func apply_left_handed() -> void:
 	_overrides.clear()
+	left_handed = true
 	for command in COMMANDS:
 		var mirrored: Array = DEFAULTS[command].map(func(b): return mirror(b))
 		if JSON.stringify(mirrored) != JSON.stringify(DEFAULTS[command]):
@@ -381,9 +400,11 @@ static func describe_input(input: String) -> String:
 
 func load_file() -> void:
 	_overrides.clear()
+	left_handed = false
 	if FileAccess.file_exists(_path):
 		var data = JSON.parse_string(FileAccess.get_file_as_string(_path))
 		if typeof(data) == TYPE_DICTIONARY and data.get("kind") == KIND and typeof(data.get("bindings")) == TYPE_DICTIONARY:
+			left_handed = data.get("left_handed", false) == true
 			# Kept even for unknown commands (a newer version's), so saving
 			# from this version doesn't drop them.
 			for command in data.bindings:
@@ -397,5 +418,8 @@ func save_file() -> void:
 	if f == null:
 		push_warning("InputBindings: could not write %s" % _path)
 		return
-	f.store_string(JSON.stringify({"format_version": FORMAT_VERSION, "kind": KIND, "bindings": _overrides}, "  "))
+	var data := {"format_version": FORMAT_VERSION, "kind": KIND, "bindings": _overrides}
+	if left_handed:
+		data["left_handed"] = true
+	f.store_string(JSON.stringify(data, "  "))
 	f.close()

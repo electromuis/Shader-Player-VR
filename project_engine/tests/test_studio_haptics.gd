@@ -39,6 +39,6 @@ static func test_the_key_button_is_felt(tc: TestCase) -> void:
 	tc.assert_eq(h.count, 0, "and nothing felt")
 	tools.selected = "a"
 	tc.assert_true(tools.key_selection() != "")
-	tc.assert_eq(h.kinds_since(0), ["key:R"])
+	tc.assert_eq(h.kinds_since(0), ["key:main"], "the hand that acts (Studio maps it: right, or left when left-handed)")
 	tools.free()
 	s[2].free()

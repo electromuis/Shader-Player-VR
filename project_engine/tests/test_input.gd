@@ -238,7 +238,29 @@ static func test_left_handed(tc: TestCase) -> void:
 	_tap(r, "L.ax", 0.0)
 	tc.assert_eq(log, ["play_pause"])
 	r.free()
+	# The laser changes hands too: the main hand, the menus' click.
+	tc.assert_true(b.left_handed)
+	tc.assert_eq(b.main_hand(), "L")
+	tc.assert_eq(b.reserved("menus"), ["L.trigger"])
+	tc.assert_true(b.context_uses("menus", "L.trigger") and not b.context_uses("menus", "R.trigger"))
+	tc.assert_eq(b.bindings_for("studio_select"), [{"input": "L.trigger"}], "Studio's commands mirror too")
+	tc.assert_eq(b.bindings_for("studio_grab_left"), [{"input": "R.grip"}])
+	var again := InputBindings.new(PATH)
+	tc.assert_true(again.left_handed, "kept in the file")
+	again.reset_all()
+	tc.assert_false(again.left_handed, "Reset all ends it")
+	tc.assert_eq([again.main_hand(), again.reserved("menus")], ["R", ["R.trigger"]])
+	tc.assert_false(InputBindings.new(PATH).left_handed)
 	DirAccess.remove_absolute(PATH)
+
+
+## The rig's left-handed wrist place: the left wrist's, mirrored.
+static func test_left_handed_wrist_is_mirrored(tc: TestCase) -> void:
+	var left := Transform3D(Basis(Vector3.UP, deg_to_rad(30.0)), Vector3(0.04, 0.02, -0.08))
+	var right := XRRig.mirrored(left)
+	tc.assert_true(right.origin.is_equal_approx(Vector3(-0.04, 0.02, -0.08)))
+	tc.assert_true(right.basis.is_equal_approx(Basis(Vector3.UP, deg_to_rad(-30.0))), "turned the other way")
+	tc.assert_true(XRRig.mirrored(right).is_equal_approx(left), "twice: back")
 
 
 static func test_describe(tc: TestCase) -> void:

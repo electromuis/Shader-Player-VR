@@ -32,6 +32,12 @@ extends RefCounted
 ##                               following that same shape
 ##   // @title Light ring      — the name in pickers (title_of); without one,
 ##                               the file name
+##   // @free_time             — TIME keeps running, seconds since the app
+##                               started, instead of following the video
+##                               (MediaTime: stopped while paused, jumping
+##                               with seeks), as every other shader's does.
+##                               Not for a 3D layer (mainVR): it runs in the
+##                               screen's display shader, on the video's time
 ##   // @iChannel1 video       — what a layer's iChannelN samples (one of
 ##                               CHANNEL_SOURCES); iChannel0 is "audio" unless
 ##                               tagged otherwise. "image" makes it a texture
@@ -83,6 +89,9 @@ const BUILTIN_ROOT := "res://player/visualizer/"
 const PRELUDE := "res://player/visualizer/shadertoy_prelude.gdshaderinc"
 const MAIN := "res://player/visualizer/shadertoy_main.gdshaderinc"
 const EFFECT_PRELUDE := "res://player/visualizer/effect_prelude.gdshaderinc"
+## Makes TIME the video's (see MediaTime); the preludes include it, and
+## with_media_time puts it into every other shader.
+const MEDIA_TIME := "res://player/visualizer/media_time.gdshaderinc"
 const SHADERTOY_EXTENSIONS := ["glsl", "frag", "txt"]
 const GODOT_EXTENSIONS := ["gdshader"]
 const DEFAULT_RESOLUTION := Vector2i(960, 540)
@@ -135,6 +144,8 @@ static var _include_re := RegEx.create_from_string("#include\\s+\"([^\"]+)\"")
 static var _prepass_re := RegEx.create_from_string("(?m)^\\s*uniform\\s+sampler2D\\s+prepass_tex\\b")
 static var _title_re := RegEx.create_from_string("(?m)^\\s*//\\s*@title\\s+(.+?)\\s*$")
 static var _time_re := RegEx.create_from_string("\\bTIME\\b")
+static var _free_time_re := RegEx.create_from_string("(?m)^\\s*//\\s*@free_time\\b")
+static var _shader_type_re := RegEx.create_from_string("(?m)^\\s*shader_type\\s+\\w+\\s*;")
 # At a line's start, so a comment naming it doesn't count.
 static var _vr_re := RegEx.create_from_string("(?m)^\\s*void\\s+mainVR\\s*\\(")
 static var _vr_strip_re := RegEx.create_from_string("(?m)^\\s*(?:shader_type|render_mode)\\b[^;]*;")
@@ -264,9 +275,13 @@ static func load_shader(key: String) -> Shader:
 		var builtin := load(key) as Shader
 		if builtin == null:
 			return null
-		# Its includes may still be overridden.
+		# Its includes may still be overridden, and one without a prelude
+		# needs its time set up (with_media_time).
 		var expanded := expand_includes(builtin.code, key.get_base_dir())
-		return builtin if expanded == builtin.code else _from_code(expanded)
+		if expanded == builtin.code and not is_free_time(expanded) \
+				and (expanded.contains(PRELUDE) or expanded.contains(EFFECT_PRELUDE)):
+			return builtin
+		return _from_code(expanded)
 	if path == "":
 		path = key
 	if not FileAccess.file_exists(path):
@@ -319,8 +334,24 @@ static func expand_includes(code: String, base_dir: String, _seen: Array = []) -
 
 static func _from_code(code: String) -> Shader:
 	var shader := Shader.new()
-	shader.code = code
+	shader.code = with_media_time(code)
 	return shader
+
+
+## Whether `code` has a `// @free_time` line (see the hints above).
+static func is_free_time(code: String) -> bool:
+	return _free_time_re.search(code) != null
+
+
+## `code` with its TIME set up, on the line after its `shader_type`:
+## MEDIA_TIME included (a second include, from a prelude, does nothing), or
+## for a `@free_time` shader VJ_FREE_TIME defined, which switches it off.
+static func with_media_time(code: String) -> String:
+	var m := _shader_type_re.search(code)
+	if m == null:
+		return code
+	var line := "#define VJ_FREE_TIME" if is_free_time(code) else "#include \"%s\"" % MEDIA_TIME
+	return code.insert(m.get_end(), "\n" + line)
 
 
 ## Godot shader source around pasted Shadertoy code.

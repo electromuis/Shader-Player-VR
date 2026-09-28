@@ -26,6 +26,7 @@ var _code := ""
 var _specs: Array = []
 var _params: Dictionary = {}
 var _strength := 0.0
+var _free_time := false
 
 
 ## Put the effect on `env`'s compositor (made if it has none).
@@ -45,6 +46,7 @@ func show_effect(key: String, params: Dictionary, strength: float) -> void:
 		_key = key
 		_code = CameraFxShaders.code_for(key)
 		_specs = CameraFxShaders.params_of(_code)
+		_free_time = VisualizerShaders.is_free_time(_code)
 	_params = params
 	_strength = strength
 
@@ -69,6 +71,7 @@ func _process(_delta: float) -> void:
 	effect.code = _code
 	effect.values = CameraFxShaders.param_values(_specs, _params)
 	effect.strength = applied_strength()
+	effect.time = MediaTime.engine_seconds() if _free_time else MediaTime.seconds
 	if audio != null and audio.texture != null:
 		effect.audio = Vector4(audio.level, audio.bass, audio.mid, audio.high)
 		effect.audio_texture = RenderingServer.texture_get_rd_texture(audio.texture.get_rid())

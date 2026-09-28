@@ -27,6 +27,8 @@
 // display pass uses as the screen's transparency.
 // Uniforms with a hint_range (or bools) get controls in the Camera tab.
 
+#include "res://addons/vj_editor/visualizer/media_time.gdshaderinc"
+
 render_mode blend_disabled;
 
 uniform sampler2D input_tex : filter_linear, repeat_disable;

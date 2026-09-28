@@ -74,6 +74,13 @@ toggle_mouse_look={
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true
 
+[shader_globals]
+
+vj_time={
+"type": "float",
+"value": 0.0
+}
+
 [xr]
 
 openxr/enabled=true

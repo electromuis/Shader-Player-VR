@@ -6,8 +6,8 @@ extends CompositorEffect
 ## current effect's compute shader over it. Needs the Forward+ or Mobile
 ## renderer (RenderingDevice); on Compatibility it never runs.
 ##
-## Main-thread side (CameraFx) sets `code`, `values`, `strength`, `audio`,
-## `audio_texture` and `masks`; everything else happens on the render
+## Main-thread side (CameraFx) sets `code`, `values`, `strength`, `time`,
+## `audio`, `audio_texture` and `masks`; everything else happens on the render
 ## thread, including compiling a changed `code`. A compile error lands in
 ## `error` (read on the main thread).
 
@@ -20,6 +20,9 @@ const _COPY := &"view_copy"
 var code: String = ""
 var values: PackedFloat32Array = PackedFloat32Array()
 var strength: float = 0.0
+## The effect's iTime, in seconds (MediaTime's, or the engine's for a
+## `@free_time` effect).
+var time: float = 0.0
 ## level, bass, mid, high
 var audio: Vector4 = Vector4.ZERO
 var audio_texture: RID
@@ -36,7 +39,6 @@ var _copy_pipeline: RID
 var _sampler: RID
 var _buffer: RID
 var _blank_audio: RID
-var _time_start := Time.get_ticks_msec()
 var _mask_count := 0  # masks in the data buffer for the current view
 
 
@@ -127,7 +129,6 @@ func _render_callback(callback_type: int, render_data: RenderData) -> void:
 				RenderingDevice.TEXTURE_SAMPLES_1, size, views, 1, true, false)
 	var groups := Vector3i(ceili(size.x / 8.0), ceili(size.y / 8.0), 1)
 	var audio_rid := audio_texture if audio_texture.is_valid() else _blank_audio
-	var time := (Time.get_ticks_msec() - _time_start) / 1000.0
 	for view in views:
 		var color := buffers.get_color_layer(view)
 		var copy := buffers.get_texture_slice(_CONTEXT, _COPY, view, 0, 1, 1)

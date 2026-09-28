@@ -14,8 +14,9 @@ extends RefCounted
 ##         return view_color(uv + vec2(sin(uv.y * 30.0 + iTime) * 0.01 * amount, 0.0));
 ##     }
 ##
-## Provided: view_color(uv) (what was rendered, linear colour), iTime,
-## iResolution (the eye's pixel size), eye (0 left / mono, 1 right),
+## Provided: view_color(uv) (what was rendered, linear colour), iTime (the
+## video's time, see MediaTime; a `// @free_time` line keeps it running
+## while paused), iResolution (the eye's pixel size), eye (0 left / mono, 1 right),
 ## strength (0..1; the result is also blended by it, so an effect needn't
 ## use it), audio_level / audio_bass / audio_mid / audio_high (0..1) and
 ## audio_spectrum(x) (x 0..1 over 0–11 kHz, like a layer's iChannel0 row 0).

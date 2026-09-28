@@ -35,6 +35,8 @@
 // Over Quest passthrough, whose compositor takes the frame as
 // premultiplied, add and black transparent work the same way.
 
+#include "res://player/visualizer/media_time.gdshaderinc"
+
 uniform sampler2D frame_tex : source_color, filter_linear, repeat_disable;
 uniform sampler2D frame_tex_right : source_color, filter_linear, repeat_disable;
 uniform bool eyes_split = false;

@@ -10,8 +10,10 @@ extends SceneTree
 ##   godot --path project_engine --fixed-fps 20 --script res://tools/render_shader_gallery.gd -- \
 ##       --dir <shader folder> --out <png folder> [--input <image or frame folder>] [--time 3.0]
 ##       [--frames 1] [--fps 20] [--size 640x360]
-## For sequences, pass the same rate as Godot's --fixed-fps and --fps, so
-## shader TIME steps evenly however slow the frames are.
+## Shader TIME is set for each frame (MediaTime): `--time`, then 1 / fps
+## further per frame, however slow the frames are. A `@free_time` shader
+## keeps Godot's own TIME: for sequences, pass the same rate as Godot's
+## --fixed-fps and --fps, so it steps evenly too.
 
 const BEAT_HZ := 2.0
 
@@ -56,13 +58,17 @@ func _run() -> void:
 	var size := Vector2i(int(size_parts[0]), int(size_parts[1]))
 	DirAccess.make_dir_recursive_absolute(out)
 	var clip: Array[Image] = []
-	if DirAccess.dir_exists_absolute(input_path):
-		var names := Array(DirAccess.get_files_at(input_path))
-		names.sort()
-		for n in names:
-			clip.append(Image.load_from_file(input_path.path_join(n)))
-	elif input_path != "":
-		clip.append(Image.load_from_file(input_path))
+	# (An empty path counts as an existing folder, the current one.)
+	var input_files: Array = [input_path]
+	if input_path == "":
+		input_files = []
+	elif DirAccess.dir_exists_absolute(input_path):
+		input_files = Array(DirAccess.get_files_at(input_path)).map(func(n): return input_path.path_join(n))
+		input_files.sort()
+	for p in input_files:
+		var img := Image.load_from_file(p)
+		if img != null:
+			clip.append(img)
 	var input_tex: ImageTexture = ImageTexture.create_from_image(clip[0]) if not clip.is_empty() else null
 	var audio := ImageTexture.create_from_image(_audio_image(0.0))
 	var jobs: Array = []
@@ -94,11 +100,9 @@ func _run() -> void:
 		if frames > 1:
 			DirAccess.make_dir_recursive_absolute(out.path_join(name))
 		jobs.append({"name": name, "vp": vp, "mat": mat, "effect": effect})
-	# TIME is global: step to about `at_time` first so shaders aren't caught at t = 0.
-	for _i in int(at_time * fps):
-		await process_frame
 	for frame in frames:
 		var t := at_time + frame / fps
+		MediaTime.set_seconds(t)
 		audio.update(_audio_image(t))
 		if clip.size() > 1:
 			input_tex.update(clip[frame % clip.size()])

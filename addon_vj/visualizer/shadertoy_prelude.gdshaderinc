@@ -23,6 +23,8 @@
 // display shader with SHADERTOY_VR defined, which leaves out this
 // canvas_item render_mode and shadertoy_main's fragment().
 
+#include "res://addons/vj_editor/visualizer/media_time.gdshaderinc"
+
 #ifndef SHADERTOY_VR
 render_mode blend_disabled;
 #endif

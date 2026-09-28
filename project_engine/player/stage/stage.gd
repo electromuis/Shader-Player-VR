@@ -124,6 +124,7 @@ func setup(player_settings: PlayerSettings, bindings: InputBindings) -> void:
 
 
 func _process(delta: float) -> void:
+	MediaTime.set_seconds(shader_time())
 	_update_layer_anchor()
 	_update_camera_fx()
 	_drive_viewer()
@@ -138,6 +139,17 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if router != null and event is InputEventKey and router.handle_key(event):
 		get_viewport().set_input_as_handled()
+
+
+## What shaders' TIME reads (MediaTime): the script's playhead (which
+## follows the sound), else the video's, else, with nothing open, the
+## engine's seconds, so an idle stage's layers still move.
+func shader_time() -> float:
+	if runner.timeline != null:
+		return runner.playhead
+	if video != null and video.duration_seconds() > 0.0:
+		return video.playhead_seconds()
+	return MediaTime.engine_seconds()
 
 
 ## Controller buttons, sticks and keys all arrive as commands (InputRouter,

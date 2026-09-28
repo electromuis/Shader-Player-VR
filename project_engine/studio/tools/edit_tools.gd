@@ -286,7 +286,7 @@ func _commit(id: String, before: Dictionary, after: Dictionary) -> String:
 		label = "Key %s at %s" % [id, StudioStatus.timecode(t)]
 		model.batch(label, func():
 			for ch in changed:
-				model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, t, after[ch]))
+				model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, _key_time(id, ch, t), after[ch]))
 	else:
 		label = "Move %s" % id
 		model.batch(label, func():
@@ -294,8 +294,10 @@ func _commit(id: String, before: Dictionary, after: Dictionary) -> String:
 			var spawn_changed := false
 			for ch in changed:
 				var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, id, ch)
-				if ti >= 0 and key_animated:
-					model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, t, after[ch])
+				# A key under the playhead is edited in any mode.
+				var on_key := ti >= 0 and StudioConfigEdits.key_near(model.tracks()[ti].get("keyframes", []), t) >= 0
+				if ti >= 0 and (key_animated or on_key):
+					model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, _key_time(id, ch, t), after[ch])
 				elif ti >= 0:
 					model.set_keyframes(ti, _shifted_keys(model.tracks()[ti].get("keyframes", []), ch, before[ch], after[ch]))
 				else:
@@ -305,6 +307,17 @@ func _commit(id: String, before: Dictionary, after: Dictionary) -> String:
 				model.set_spawn_transform(id, spawn))
 	_say(label + ".")
 	return label
+
+
+## When a key on `id`'s `channel` at `t` lands: on the key already within
+## StudioConfigEdits.KEY_NEAR of it, if there is one (so it's replaced).
+func _key_time(id: String, channel: String, t: float) -> float:
+	var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, id, channel)
+	if ti < 0:
+		return t
+	var kfs: Array = model.tracks()[ti].get("keyframes", [])
+	var k := StudioConfigEdits.key_near(kfs, t)
+	return float(kfs[k].get("t", t)) if k >= 0 else t
 
 
 func _changed_channels(before: Dictionary, after: Dictionary) -> Array:

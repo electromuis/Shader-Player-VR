@@ -325,7 +325,8 @@ func commit(id: String, field: Dictionary, value, t: float, auto_key: bool, key_
 	if slot == "":
 		label = "Set %s" % what
 		done = model.set_config(id, field.config, value, label)
-	elif auto_key or field.config.is_empty() or (ti >= 0 and (field.type == "bool" or key_animated)):
+	elif auto_key or field.config.is_empty() or (ti >= 0 and (field.type == "bool" or key_animated
+			or key_near(model.tracks()[ti].get("keyframes", []), t) >= 0)):
 		var at := _key_time(ti, t)
 		label = "Key %s at %s" % [what, StudioStatus.timecode(at)]
 		done = model.batch(label, func(): model.set_key(ScriptFormat.TRACK_SHADER_PARAM, target, field.param, at, value))

@@ -73,8 +73,14 @@ static func test_keys_on_change_animated_in_the_inspector(tc: TestCase) -> void:
 	# A still field is just set.
 	var scale := _field(s, "render_scale")
 	tc.assert_eq(e.commit("scr", scale, 0.5, 8.0, false, true), "Set scr render scale")
-	# Off: the keys move by the difference, as before.
-	tc.assert_eq(e.commit("scr", opacity, 0.1, 8.0, false, false), "Move scr opacity's keys")
+	# Off, between keys: the keys move by the difference, as before.
+	tc.assert_eq(e.commit("scr", opacity, 0.1, 7.0, false, false), "Move scr opacity's keys")
+	# Off, on a key (within KEY_NEAR): that key changes, the others stay.
+	tc.assert_eq(e.commit("scr", opacity, 0.9, 8.02, false, false), "Key scr opacity at 0:08.00")
+	kfs = e.model.tracks()[e.track_of("scr", opacity)].keyframes
+	tc.assert_eq(kfs.size(), 3, "no second key next to it")
+	tc.assert_eq(kfs[2].value, 0.9)
+	tc.assert_true(not is_equal_approx(kfs[1].value, 0.9), "the other keys keep their own values")
 
 
 static func test_keys_on_change_animated_for_grabs(tc: TestCase) -> void:
@@ -91,6 +97,15 @@ static func test_keys_on_change_animated_for_grabs(tc: TestCase) -> void:
 	tc.assert_eq(pos.map(func(k): return k.t), [1.0, 4.0, 6.0], "the animated channel gets a key at 6 s")
 	tc.assert_eq(pos[0].value, [0.0, 1.0, 0.0], "its other keys stay")
 	tc.assert_eq(m.find_track("transform", "box", "rotation_deg"), -1, "a still channel gets no track")
+	# Off, on a key: that key is replaced (not a second one beside it).
+	tools.key_animated = false
+	tools.runner.playhead = 4.03
+	var lifted := {"position": [2.0, 5.0, 0.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}
+	tools._commit("box", before, lifted)
+	pos = m.tracks()[m.find_track("transform", "box", "position")].keyframes
+	tc.assert_eq(pos.map(func(k): return k.t), [1.0, 4.0, 6.0], "the key at 4 s is the one changed")
+	tc.assert_eq(pos[1].value, [2.0, 5.0, 0.0])
+	tc.assert_eq(pos[0].value, [0.0, 1.0, 0.0], "the others stay")
 	tc.assert_eq(m.tracks()[m.spawn_index("box")].transform.rotation_deg, [0.0, 45.0, 0.0], "it's set")
 	tools.runner.free()
 

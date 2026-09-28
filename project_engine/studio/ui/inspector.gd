@@ -658,7 +658,7 @@ func _refresh_values() -> void:
 		_hint.text = "Keys on change: animated settings key at %s; still ones are set.\n◆ key here   ◇ animated   • still" % StudioStatus.timecode(t)
 		_hint.add_theme_color_override("font_color", DIM)
 	else:
-		_hint.text = "Changes set the piece's values; animated ones scale as a whole.\n◆ key here   ◇ animated   • still"
+		_hint.text = "Changes set the piece's values; animated ones scale as a whole, except on a key (◆), which changes that key.\n◆ key here   ◇ animated   • still"
 		_hint.add_theme_color_override("font_color", DIM)
 	var node := _node()
 	for r in _rows:

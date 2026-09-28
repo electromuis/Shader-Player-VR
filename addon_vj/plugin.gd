@@ -14,6 +14,12 @@ extends EditorPlugin
 ##                                               (builtin_prefabs/effect_tools.gd; undoable)
 ## The Scene dock's right-click menu on a screen or layer also has
 ## "Add VJ effect ▸ <shader>".
+## The Shadertoy dock (shadertoy/shadertoy_dock.gd) lists the shaders sent
+## from shadertoy.com by the Chrome extension (tools/shadertoy_extension),
+## which posts them to the ShadertoyReceiver started here; **Add as layer**
+## puts one in the scene. Editor Settings: `vj_editor/shadertoy/library_dir`
+## (default %APPDATA%/VJ Shadertoy, shared with Studio) and
+## `vj_editor/shadertoy/port`.
 ## The preview is also a button in the 3D editor's toolbar.
 ##
 ## Preview launches the engine project with this editor's own Godot binary
@@ -46,6 +52,11 @@ const LiveSyncScript := preload("res://addons/vj_editor/live_sync/live_sync.gd")
 const BezierTracksScript := preload("res://addons/vj_editor/exporter/bezier_tracks.gd")
 const MakeVJObjectScript := preload("res://addons/vj_editor/modifiers/make_vj_object.gd")
 const EffectToolsScript := preload("res://addons/vj_editor/builtin_prefabs/effect_tools.gd")
+const ShadertoyDockScript := preload("res://addons/vj_editor/shadertoy/shadertoy_dock.gd")
+const ShadertoyLibraryScript := preload("res://addons/vj_editor/shadertoy/shadertoy_library.gd")
+const ShadertoyReceiverScript := preload("res://addons/vj_editor/shadertoy/shadertoy_receiver.gd")
+const _EDITOR_SETTING_LIBRARY := "vj_editor/shadertoy/library_dir"
+const _EDITOR_SETTING_ST_PORT := "vj_editor/shadertoy/port"
 
 var _preview_button: Button
 var _live_label: Label
@@ -53,6 +64,8 @@ var _live_sync: Node
 var _player_pid: int = -1
 var _make_object: EditorContextMenuPlugin
 var _effect_tools: EditorContextMenuPlugin
+var _shadertoy_dock: EditorDock
+var _shadertoy_receiver: Node
 
 
 func _enter_tree() -> void:
@@ -89,9 +102,17 @@ func _enter_tree() -> void:
 	add_child(_live_sync)
 	_live_sync.connection_changed.connect(_on_live_connection_changed)
 	scene_saved.connect(_on_scene_saved)
+	_start_shadertoy()
 
 
 func _exit_tree() -> void:
+	if _shadertoy_dock != null:
+		remove_dock(_shadertoy_dock)
+		_shadertoy_dock.queue_free()
+		_shadertoy_dock = null
+	if _shadertoy_receiver != null:
+		_shadertoy_receiver.queue_free()  # its _exit_tree closes the server
+		_shadertoy_receiver = null
 	remove_tool_menu_item(_MENU_EXPORT)
 	remove_tool_menu_item(_MENU_IMPORT)
 	remove_tool_menu_item(_MENU_PREVIEW)
@@ -265,6 +286,34 @@ func _is_animation_playing(root: Node) -> bool:
 		if child is AnimationPlayer and String(child.assigned_animation) != "":
 			return child.is_playing()
 	return false
+
+
+func _start_shadertoy() -> void:
+	var settings := EditorInterface.get_editor_settings()
+	for s in [[_EDITOR_SETTING_LIBRARY, ShadertoyLibraryScript.default_dir(), PROPERTY_HINT_GLOBAL_DIR],
+			[_EDITOR_SETTING_ST_PORT, ShadertoyReceiverScript.DEFAULT_PORT, PROPERTY_HINT_RANGE]]:
+		if not settings.has_setting(s[0]):
+			settings.set_setting(s[0], s[1])
+		settings.set_initial_value(s[0], s[1], false)
+		settings.add_property_info({"name": s[0], "type": typeof(s[1]), "hint": s[2],
+				"hint_string": "1024,65535" if s[2] == PROPERTY_HINT_RANGE else ""})
+	var library = ShadertoyLibraryScript.new(String(settings.get_setting(_EDITOR_SETTING_LIBRARY)))
+	_shadertoy_receiver = ShadertoyReceiverScript.new()
+	_shadertoy_receiver.name = "VJShadertoyReceiver"
+	_shadertoy_receiver.library = library
+	_shadertoy_receiver.app_name = "Godot (%s)" % ProjectSettings.get_setting("application/config/name", "editor")
+	add_child(_shadertoy_receiver)
+	_shadertoy_receiver.start(int(settings.get_setting(_EDITOR_SETTING_ST_PORT)))
+	var panel = ShadertoyDockScript.new()
+	panel.library = library
+	panel.receiver = _shadertoy_receiver
+	panel.undo_redo = get_undo_redo()
+	_shadertoy_dock = EditorDock.new()
+	_shadertoy_dock.title = "Shadertoy"
+	_shadertoy_dock.layout_key = "vj_shadertoy"
+	_shadertoy_dock.default_slot = EditorDock.DOCK_SLOT_BOTTOM
+	_shadertoy_dock.add_child(panel)
+	add_dock(_shadertoy_dock)
 
 
 func _add_setting(name: String, default: Variant, hint: int, hint_string: String) -> void:

@@ -1,0 +1,21 @@
+.vjgodot-button {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 12px; padding: 3px 10px; vertical-align: middle;
+  font: 600 13px/1.4 sans-serif; color: #fff; background: #3b6fd8;
+  border: 0; border-radius: 4px; cursor: pointer; white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.vjgodot-button:hover { background: #2f5cb8; }
+.vjgodot-button[data-state="busy"] { background: #777; cursor: wait; }
+.vjgodot-button[data-state="ok"] { background: #2f9a4a; }
+.vjgodot-button[data-state="edit"] { background: #c98a12; }
+.vjgodot-button[data-state="bad"] { background: #b8433b; }
+.vjgodot-button[data-state="offline"] { background: #777; }
+.vjgodot-floating { position: fixed; right: 16px; bottom: 16px; z-index: 100000; margin: 0; }
+.vjgodot-card { position: relative; }
+.vjgodot-card > .vjgodot-button {
+  position: absolute; right: 6px; top: 6px; margin: 0; z-index: 10;
+  font-size: 12px; padding: 2px 8px; opacity: 0; transition: opacity 0.15s;
+}
+.vjgodot-card:hover > .vjgodot-button,
+.vjgodot-card > .vjgodot-button:not([data-state="idle"]):not([data-state="offline"]) { opacity: 1; }

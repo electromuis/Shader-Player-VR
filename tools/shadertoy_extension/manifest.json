@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Shadertoy to VJ Godot",
+  "version": "0.1.0",
+  "description": "Adds a Send to Godot button to shadertoy.com: the shader lands in the VJ editor's Shadertoy dock, ready to add as a layer.",
+  "content_scripts": [
+    {
+      "matches": ["https://www.shadertoy.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {"service_worker": "background.js"},
+  "host_permissions": ["http://127.0.0.1/*"]
+}

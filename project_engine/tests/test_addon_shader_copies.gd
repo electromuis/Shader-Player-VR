@@ -2,8 +2,9 @@ extends RefCounted
 
 ## The authoring addon (<repo>/addon_vj) carries copies of the player's
 ## built-in shaders so screens and layers preview in the editor (its
-## exporter maps them back to the player's own), and of the modifiers
-## helper both sides apply objects' modifiers with. Keep them in step.
+## exporter maps them back to the player's own), of the modifiers
+## helper both sides apply objects' modifiers with, and of the Shadertoy
+## scripts (player/shadertoy/) its Shadertoy dock uses. Keep them in step.
 
 const ADDON_PREFIX := "res://addons/vj_editor/"
 ## player path -> addon path, both relative to their project / addon root.
@@ -26,6 +27,9 @@ const COPIES := {
 	"player/visualizer/shaders/laser_fan.gdshader": "visualizer/shaders/laser_fan.gdshader",
 	"player/visualizer/shaders/kaleido_pulse.gdshader": "visualizer/shaders/kaleido_pulse.gdshader",
 	"player/runtime/modifiers.gd": "modifiers/modifiers.gd",
+	"player/shadertoy/shadertoy_shader.gd": "shadertoy/shadertoy_shader.gd",
+	"player/shadertoy/shadertoy_library.gd": "shadertoy/shadertoy_library.gd",
+	"player/shadertoy/shadertoy_receiver.gd": "shadertoy/shadertoy_receiver.gd",
 }
 
 

@@ -14,6 +14,9 @@ project, and its export writes back to that JSON (see *Import* below).
   **Tools > VJ: Import script.json…**, **Tools > VJ: Preview in player**, and a **▶ Preview in player** button in
   the 3D editor toolbar
 - `preview/desktop_preview.gd` — runtime-only desktop preview (fly camera, media bar, video)
+- `shadertoy/` — the **Shadertoy** dock (`shadertoy_dock.gd`, see *Shadertoy* below)
+  and copies of the player's `player/shadertoy/` scripts it uses (the
+  converter, the collection and the receiver; a player test keeps them identical)
 - `builtin_prefabs/` — self-contained prefabs the artist drops into a scene
   - `vj_scene.gd` — `@tool` script for the scene root; holds meta/media/output-path
     and an optional `preview_image`
@@ -215,6 +218,43 @@ godot --headless --path project_script_example --script res://addons/vj_editor/t
 It imports and exports each script twice and fails if the export plays
 differently from the original (every track sampled through the player's
 own interpolation) or changes on the second pass.
+
+## Shadertoy
+
+Browse [shadertoy.com](https://www.shadertoy.com) in Chrome with the extension
+in `tools/shadertoy_extension` (see its README: `chrome://extensions` →
+Developer mode → Load unpacked). It adds **⇩ Send to Godot** to every
+shader; the shader appears in the **Shadertoy** dock (bottom panel) while the
+editor runs. **⋯** in the dock also takes a shader's JSON or `mainImage`
+code from the clipboard, or `.json` / `.zip` exports and `.glsl` files.
+
+Pick one to see it running (with made-up music, so reactive shaders move)
+and what won't work in the player:
+
+- ✕ **won't run**: it renders in several passes (buffers); a layer runs one
+- ✎ **needs editing**: it changes global variables in a way that couldn't be
+  converted; edit the saved `.gdshader`
+- notes: texture, keyboard and cubemap inputs read black, the mouse stays at
+  0, a sound pass isn't played. Music and microphone inputs read the
+  player's audio, video and webcam the playing video
+
+**Add as layer** saves it as `res://shaders/shadertoy/<name>_<id>.gdshader`
+(once: an existing file is kept, since you may have edited it) and adds a
+layer with it to the open scene, 16 × 9 m in front of the viewer, selected
+(undoable). Export bundles the shader into the piece like any custom shader.
+**Save .gdshader** only writes the file.
+
+The conversion (`ShadertoyShader`) wraps the code in the Shadertoy includes
+and fixes what GLSL allows and Godot doesn't: matrices from numbers, global
+variables (made `const`, or moved into a struct passed to every function),
+comma-joined assignments, int / float mixing in vectors, Godot's reserved
+words. The file names the author and the page; Shadertoy's default licence
+is CC BY-NC-SA 3.0.
+
+Received shaders are kept in one folder per user (Editor Settings >
+`vj_editor/shadertoy/library_dir`, default `%APPDATA%/VJ Shadertoy`), shared
+by every project; the receiver listens on `127.0.0.1`, port
+`vj_editor/shadertoy/port` (default 47811, the next free one if taken).
 
 ## Sharing between projects
 

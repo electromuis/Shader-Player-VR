@@ -51,9 +51,10 @@ func _init() -> void:
 	texture = ImageTexture.create_from_image(_image)
 
 
-## Add the analysis effects to `bus_name`. Returns false if there is no
-## such bus.
+## Add the analysis effects to `bus_name`, taking them off the bus they
+## were on. Returns false if there is no such bus.
 func attach(bus_name: String) -> bool:
+	_detach()
 	var idx := AudioServer.get_bus_index(bus_name)
 	if idx < 0:
 		return false
@@ -68,6 +69,19 @@ func attach(bus_name: String) -> bool:
 	_bus_name = bus_name
 	_instance = null
 	return true
+
+
+func _detach() -> void:
+	var idx := AudioServer.get_bus_index(_bus_name)
+	if idx >= 0:
+		for i in range(AudioServer.get_bus_effect_count(idx) - 1, -1, -1):
+			var effect := AudioServer.get_bus_effect(idx, i)
+			if effect == _spectrum or effect == _capture:
+				AudioServer.remove_bus_effect(idx, i)
+	_spectrum = null
+	_capture = null
+	_instance = null
+	_bus_name = ""
 
 
 ## Linear gain the source applies before the bus (its volume).

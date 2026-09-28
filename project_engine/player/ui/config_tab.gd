@@ -24,6 +24,9 @@ var _play_bar: CheckButton
 var _camera_fx: CheckButton
 var _camera_fx_max: HSlider
 var _camera_fx_max_value: Label
+var _decoder: OptionButton
+var _renderer: OptionButton  # null off Windows
+var _renderer_note: Label
 
 
 func _ready() -> void:
@@ -122,6 +125,32 @@ func _ready() -> void:
 		_apply_ui(func(): _settings.end_action = PlayerSettings.END_ACTIONS[idx]))
 	_row("At video end", _end_action)
 
+	_decoder = OptionButton.new()
+	for key in PlayerSettings.VIDEO_DECODERS:
+		_decoder.add_item(PlayerSettings.VIDEO_DECODER_LABELS[key])
+		# Listed anyway where it isn't loaded, so the setting never hides.
+		if not VideoBridge.BACKENDS[key].is_available():
+			_decoder.set_item_disabled(_decoder.item_count - 1, true)
+			_decoder.set_item_text(_decoder.item_count - 1,
+					PlayerSettings.VIDEO_DECODER_LABELS[key] + " (not available)")
+	_decoder.tooltip_text = "Videos the chosen decoder can't open play with the other one. Changing it reopens the current video."
+	_decoder.item_selected.connect(func(idx: int):
+		_apply_ui(func(): _settings.video_decoder = PlayerSettings.VIDEO_DECODERS[idx]))
+	_row("Video decoder", _decoder)
+
+	if RendererSetting.applies():
+		_renderer = OptionButton.new()
+		for key in RendererSetting.DRIVERS:
+			_renderer.add_item(RendererSetting.DRIVER_LABELS[key])
+		_renderer.tooltip_text = "The hardware video decoder skips the CPU only under Direct3D 12. Try Vulkan if the headset or picture misbehaves."
+		_renderer.item_selected.connect(func(idx: int):
+			if not _refreshing:
+				RendererSetting.choose(RendererSetting.DRIVERS[idx])
+				_refresh_renderer_note())
+		_renderer_note = Label.new()
+		_renderer_note.add_theme_color_override("font_color", Color(0.9, 0.75, 0.4))
+		_row("Renderer", _renderer, _renderer_note)
+
 	_live_sync = CheckButton.new()
 	_live_sync.text = "Follow the authoring editor"
 	_live_sync.tooltip_text = "When the player was started from the editor's Preview button, or DaVinci Resolve's VJ Sync script is running: scrubbing and playing there drive this player, and pausing here moves the editor's playhead"
@@ -176,7 +205,19 @@ func _refresh() -> void:
 	_camera_fx.button_pressed = _settings.camera_fx
 	_camera_fx_max.value = _settings.camera_fx_max
 	_camera_fx_max_value.text = "%d%%" % roundi(_settings.camera_fx_max * 100.0)
+	_decoder.select(PlayerSettings.VIDEO_DECODERS.find(_settings.video_decoder))
+	if _renderer != null:
+		_renderer.select(RendererSetting.DRIVERS.find(RendererSetting.chosen()))
+		_refresh_renderer_note()
 	_refreshing = false
+
+
+## Says so when the running driver isn't the chosen one: a change waiting
+## for a restart, or D3D12 that failed to start and fell back to Vulkan.
+func _refresh_renderer_note() -> void:
+	var chosen := RendererSetting.chosen()
+	var active := RendererSetting.active()
+	_renderer_note.text = "" if chosen == active else "Restart to apply (running %s)" % active
 
 
 ## Apply a UI change to settings unless we're mirroring settings into the UI.

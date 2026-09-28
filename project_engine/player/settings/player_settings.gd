@@ -33,6 +33,8 @@ extends RefCounted
 ##   camera_fx             — camera effects (full-view shaders) on at all.
 ##   camera_fx_max         — 0..1 cap on their strength; neither a preset
 ##                           nor a script goes past it.
+##   video_decoder         — preferred decoder, one of VIDEO_DECODERS (see
+##                           VideoBridge); videos it can't play use the other.
 
 signal changed
 
@@ -58,6 +60,13 @@ const END_ACTION_LABELS := {
 	"nothing": "Nothing — stay on the last frame",
 	"loop": "Loop the video",
 	"next": "Play the next video",
+}
+
+## Video decoders (VideoBridge.BACKENDS keys), in dropdown order.
+const VIDEO_DECODERS := ["gozen", "native"]
+const VIDEO_DECODER_LABELS := {
+	"gozen": "FFmpeg — every format, network streams",
+	"native": "Hardware (OS) — local MP4 / MOV",
 }
 
 ## Built-in skybox keys, in dropdown order. Anything else is a file path.
@@ -99,6 +108,7 @@ var fullscreen: bool = false: set = _set_fullscreen
 var show_play_bar: bool = true: set = _set_show_play_bar
 var camera_fx: bool = true: set = _set_camera_fx
 var camera_fx_max: float = 1.0: set = _set_camera_fx_max
+var video_decoder: String = "gozen": set = _set_video_decoder
 
 var _path: String
 var _loading: bool = false
@@ -138,6 +148,7 @@ func from_dict(d: Dictionary) -> void:
 	show_play_bar = bool(d.get("show_play_bar", true))
 	camera_fx = bool(d.get("camera_fx", true))
 	camera_fx_max = clampf(float(d.get("camera_fx_max", 1.0)), 0.0, 1.0)
+	video_decoder = String(d.get("video_decoder", "gozen"))
 	_loading = false
 	changed.emit()
 
@@ -162,6 +173,7 @@ func to_dict() -> Dictionary:
 		"show_play_bar": show_play_bar,
 		"camera_fx": camera_fx,
 		"camera_fx_max": camera_fx_max,
+		"video_decoder": video_decoder,
 	}
 
 
@@ -273,6 +285,15 @@ func _set_show_play_bar(v: bool) -> void:
 	if v == show_play_bar:
 		return
 	show_play_bar = v
+	_touch()
+
+
+func _set_video_decoder(v: String) -> void:
+	if not v in VIDEO_DECODERS:
+		v = "gozen"
+	if v == video_decoder:
+		return
+	video_decoder = v
 	_touch()
 
 

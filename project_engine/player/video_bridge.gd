@@ -1,55 +1,57 @@
 class_name VideoBridge
 extends Node
 
-## Owns a gde_gozen VideoPlayback (FFmpeg-based decoder). Exposes a small,
-## decoder-agnostic API so the Stage doesn't touch gozen internals.
+## The video frame the screens sample, decoder-agnostic, so main.gd doesn't
+## touch decoder internals. Decoding is a VideoBackend's job:
+##   gozen   GozenVideoBackend — FFmpeg (gde_gozen): every format, local
+##           files and network streams
+##   native  NativeVideoBackend — the OS's media framework (godot-native-
+##           video): hardware decode of local MP4 / MOV, Windows and macOS
+## set_decoder picks the preferred one; a video it can't play (or a platform
+## without it) goes to the other. Each backend is created on first use and
+## kept.
 ##
-## Design: VideoPlayback is a Control that renders its video with a
-## `shader_type canvas_item` YUV→RGB shader. That won't run on a 3D mesh
-## directly, so we host the VideoPlayback inside a SubViewport and expose
-## its ViewportTexture. Consumers (spawned Screen prefabs) sample that
-## texture through their own artist shader; the bridge itself no longer
-## owns any 3D geometry.
+## Design: decoders draw into Controls (gozen's VideoPlayback renders with a
+## `shader_type canvas_item` YUV→RGB shader), which won't run on a 3D mesh
+## directly, so the bridge hosts the active backend's view inside a
+## SubViewport and exposes its ViewportTexture — one texture whichever
+## backend is playing. Consumers (spawned Screen prefabs) sample that
+## texture through their own artist shader; the bridge itself owns no 3D
+## geometry.
 ##
-## Opening a video runs off the main thread too. VideoPlayback.set_video_path
-## starts the open on a worker but then waits for it on the very next frame,
-## so the app still stalled for the whole open (hundreds of ms locally, far
-## more over DLNA). Instead the bridge opens the GoZenVideo and its audio on
-## its own worker, polls for completion, and hands both to update_video().
-## Opening another video meanwhile doesn't wait: the stale result is dropped.
-## A failed open is retried once (network streams fail now and then) before
-## video_load_failed is reported.
+## Opens and slow seeks run off the main thread (see the backends).
+## `busy_changed` reports them so main.gd can hold the timeline clock, and a
+## "Seeking..." / "Loading..." card is drawn into the video frame itself
+## (once per eye for stereo layouts, see set_overlay_stereo) when one takes
+## long enough to notice. While a video opens, set_loading_thumbnail can put
+## its thumbnail in the frame (under the "Loading..." card) instead of the
+## old video's frame.
 ##
-## Seeking runs off the main thread. FFmpeg's seek (find the keyframe,
-## decode up to the target) can take a second or more — longer over the
-## network — and done inline it froze the whole app, headset included, on
-## every scrub step. A seek now runs as a WorkerThreadPool task while the
-## decoder is paused; requests arriving meanwhile collapse into one follow-up
-## seek to the latest position. `busy_changed` reports seeks and loads so
-## the Stage can hold the timeline clock, and a "Seeking..." / "Loading..."
-## card is drawn into the video frame itself (once per eye for stereo
-## layouts, see set_overlay_stereo) when one takes long enough to notice.
-## While a video opens, set_loading_thumbnail can put its thumbnail in the
-## frame (under the "Loading..." card) instead of the old video's frame.
-##
-## The frame is drawn on demand: the viewport renders once per new video
-## frame (the decoder's frame_changed) and whenever something drawn in it
-## changes (placeholder, thumbnail, overlay), not on every display frame.
-## At 90 Hz in VR that skips most of the full-resolution YUVâ†’RGB passes of
-## a 30 fps video. Each redraw bumps redraw_serial, which effect chains
-## reading the frame follow the same way (see redraw_serial_of, Screen).
+## The frame is drawn on demand where the backend says when a new frame
+## arrives (its frame_changed; gozen does): the viewport renders once per
+## new video frame and whenever something drawn in it changes (placeholder,
+## thumbnail, overlay), not on every display frame. At 90 Hz in VR that
+## skips most of the full-resolution YUV→RGB passes of a 30 fps video. Each
+## redraw bumps redraw_serial, which effect chains reading the frame follow
+## the same way (see redraw_serial_of, Screen). A backend that doesn't say
+## (native) renders every frame.
 
 signal video_loaded(duration_seconds: float, framerate: float)
 signal video_load_failed
 ## True while the frame on screen isn't the one playback should show: a
 ## video is opening or a seek is in flight.
 signal busy_changed(busy: bool)
+## The video's sound moved to another AudioServer bus (a video played by
+## another backend); see audio_bus_name.
+signal audio_bus_changed
 
-const PLAYBACK_SCRIPT_PATH := "res://addons/gde_gozen/video_playback.gd"
+## Decoder keys, in PlayerSettings.VIDEO_DECODERS order.
+const BACKENDS := {
+	"gozen": preload("res://player/video/gozen_backend.gd"),
+	"native": preload("res://player/video/native_backend.gd"),
+}
 ## Quick seeks finish without flashing the overlay.
 const OVERLAY_DELAY_MSEC := 150
-## Tries at opening a video (and its audio) before giving up.
-const OPEN_ATTEMPTS := 2
 
 var _viewport: SubViewport
 var _placeholder: Control  # shown on the screen until a video has loaded
@@ -59,25 +61,13 @@ var _overlay: Control  # "Seeking..." card over the video, see _show_overlay
 var _thumb: ColorRect  # the loading video's thumbnail on black, see set_loading_thumbnail
 var _thumb_image: TextureRect
 var _overlay_stereo: int = VideoProjection.Stereo.MONO
-var _vp: Node  # VideoPlayback (Control) — null if the gozen addon didn't load
+var _decoder: String = "gozen"  # preferred backend key
+var _backends: Dictionary = {}  # key -> VideoBackend, created on first use
+var _active: VideoBackend  # the one playing the current video, null before any
 var _loaded: bool = false
 var _loading: bool = false  # a video was asked for and isn't ready yet
 var _load_path: String = ""  # the video asked for most recently
-var _load_task: int = -1
-var _open_path: String = ""  # what _load_task is opening
-var _open_attempt: int = 0  # which try _load_task is, from 1
-var _opened: Array = []  # [GoZenVideo or null, AudioStream or null], set by the worker
-## Worker tasks whose result no longer matters (a seek on a replaced video);
-## still reaped, since every task must be waited on.
-var _stale_tasks: Array[int] = []
 var _volume: float = 1.0
-## Whether playback should run once any seek completes (the decoder itself
-## is paused while seeking).
-var _want_playing: bool = false
-var _seek_task: int = -1
-var _seek_frame: int = 0
-var _seek_error: int = OK  # written by the worker, read after it completes
-var _pending_frame: int = -1  # latest request made during a seek; -1 = none
 var _busy_reported: bool = false  # last busy_changed value
 var _busy_since_msec: int = 0
 var _overlay_text: String = ""  # what the overlay's labels say, "" = none
@@ -88,12 +78,15 @@ var redraw_serial: int = 0
 static var _by_texture: Dictionary = {}
 
 
-func _ready() -> void:
-	var script = load(PLAYBACK_SCRIPT_PATH)
-	if script == null:
-		push_warning("VideoBridge: gde_gozen not loadable; video playback disabled.")
-		return
+## Whether any decoder is loaded on this platform.
+static func is_available() -> bool:
+	for script in BACKENDS.values():
+		if script.is_available():
+			return true
+	return false
 
+
+func _ready() -> void:
 	_viewport = SubViewport.new()
 	_viewport.name = "VideoViewport"
 	_viewport.size = Vector2i(1280, 720)  # resized to actual video resolution on load
@@ -102,14 +95,6 @@ func _ready() -> void:
 	_viewport.disable_3d = true
 	add_child(_viewport)
 
-	_vp = script.new()
-	_vp.name = "VideoPlayback"
-	_vp.enable_audio = true
-	_vp.enable_auto_play = false
-	_vp.anchor_right = 1.0
-	_vp.anchor_bottom = 1.0
-	_viewport.add_child(_vp)
-	_vp.video_loaded.connect(_on_video_loaded)
 	_placeholder = _build_placeholder()
 	_viewport.add_child(_placeholder)
 	_placeholder_title = _placeholder.get_child(0).get_child(0)
@@ -133,18 +118,15 @@ func _ready() -> void:
 	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_overlay.visible = false
 	_viewport.add_child(_overlay)
-	set_volume(_volume)
-	_vp.frame_changed.connect(_redraw.unbind(1))
 	_watch(_viewport)
 	_by_texture[_viewport.get_texture()] = self
+	# The preferred backend now, so its audio bus exists for analysis.
+	_switch_to(_pick_backend(""))
 
 
 func _exit_tree() -> void:
 	if _viewport != null:
 		_by_texture.erase(_viewport.get_texture())
-	_wait_for_seek()
-	for t in _stale_tasks + ([_load_task] if _load_task != -1 else []):
-		WorkerThreadPool.wait_for_task_completion(t)
 
 
 ## Neutral "no video" card so the screen is visible against a dark skybox
@@ -185,11 +167,18 @@ func get_output_texture() -> Texture2D:
 ## it isn't one (then it may change on any frame).
 static func redraw_serial_of(tex: Texture2D) -> int:
 	var bridge: VideoBridge = _by_texture.get(tex)
-	return bridge.redraw_serial if bridge != null else -1
+	return bridge.redraw_serial if bridge != null and bridge._on_demand() else -1
+
+
+## Whether the frame is drawn only when something changes (see the top).
+func _on_demand() -> bool:
+	return _active == null or _active.draws_on_demand
 
 
 ## Render the output texture once more, this frame.
 func _redraw() -> void:
+	if not _on_demand():
+		return  # the viewport renders every frame anyway
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	redraw_serial += 1
 
@@ -218,21 +207,16 @@ func _on_child_exiting(_child: Node) -> void:
 
 
 func load_video(os_path: String) -> void:
-	if _vp == null:
-		return
-	if _seek_task != -1:
-		# The worker holds its own reference to the old decoder; let it finish.
-		_stale_tasks.append(_seek_task)
-		_seek_task = -1
-	_pending_frame = -1
 	_loaded = false
 	_loading = true
 	_load_path = os_path
 	_thumb.visible = false  # the caller sets this video's, if it has one
-	_vp.close()  # stop the old video and its sound now
-	if _load_task == -1:
-		_start_open()
-	# else: _finish_open sees the newer path and opens that instead.
+	var backend := _pick_backend(os_path)
+	_switch_to(backend)
+	if backend == null:
+		_fail_load()
+		return
+	backend.load_video(os_path)
 	if _placeholder.visible:
 		_set_placeholder_text("Loading...", os_path.get_file().uri_decode())
 		_update_busy()
@@ -240,11 +224,25 @@ func load_video(os_path: String) -> void:
 		_update_busy("Loading...")
 
 
+## Preferred decoder, a BACKENDS key. Returns true if the current video
+## would now play on another backend (reopen it to switch).
+func set_decoder(key: String) -> bool:
+	if not BACKENDS.has(key):
+		key = "gozen"
+	_decoder = key
+	return _load_path != "" and _key_of(_active) != _key_of(_pick_backend(_load_path))
+
+
+## Key of the backend playing the current video ("" before any).
+func active_decoder() -> String:
+	return _key_of(_active)
+
+
 ## Show `tex` (the thumbnail of the video now opening) in the frame until
 ## it has loaded. Ignored once the video is ready or has failed, so a
 ## thumbnail that arrives late is harmless.
 func set_loading_thumbnail(tex: Texture2D) -> void:
-	if _vp == null or tex == null or not _loading:
+	if tex == null or not _loading:
 		return
 	_thumb_image.texture = tex
 	_thumb.visible = true
@@ -265,149 +263,87 @@ func set_overlay_stereo(stereo: int) -> void:
 
 
 func play() -> void:
-	_want_playing = true
-	if _vp != null and _loaded and _seek_task == -1:
-		_vp.play()
+	if _active != null:
+		_active.play()
 
 
 func pause() -> void:
-	_want_playing = false
-	if _vp != null and _loaded and _seek_task == -1:
-		_vp.pause()
+	if _active != null:
+		_active.pause()
 
 
-## Asynchronous: the frame (and audio) jump once the decoder gets there.
+## Asynchronous on some backends: the frame (and audio) jump once the
+## decoder gets there.
 func seek_seconds(t: float) -> void:
-	if _vp == null or not _loaded:
-		return
-	var fps: float = _vp.get_video_framerate()
-	if fps <= 0.0:
-		return
-	var frame := clampi(roundi(t * fps), 0, maxi(_vp.get_video_frame_count() - 1, 0))
-	if _seek_task != -1:
-		_pending_frame = frame
-		return
-	_start_seek(frame)
+	if _active != null and _loaded:
+		_active.seek_seconds(t)
 
 
 func is_busy() -> bool:
-	return _loading or _seek_task != -1
+	return _loading or (_active != null and _active.is_seeking())
 
 
-func _start_seek(frame: int) -> void:
-	if _vp.is_playing:
-		_vp.pause()
-	_seek_frame = frame
-	_seek_task = WorkerThreadPool.add_task(_seek_worker.bind(_vp.video, frame))
-	_update_busy("Seeking...")
+## The preferred backend if it can play `path` ("" = no video in mind), else
+## any other that can; null if none.
+func _pick_backend(path: String) -> VideoBackend:
+	var keys: Array = [_decoder]
+	for key in BACKENDS:
+		if key != _decoder:
+			keys.append(key)
+	for key in keys:
+		var script: GDScript = BACKENDS[key]
+		if script.is_available() and (path == "" or script.can_play(path)):
+			return _backend(key)
+	return null
 
 
-## Worker thread: only touches the decoder, which the main thread leaves
-## alone while _seek_task is set (VideoPlayback is paused).
-func _seek_worker(video: Object, frame: int) -> void:
-	_seek_error = video.seek_frame(frame)
+func _backend(key: String) -> VideoBackend:
+	if not _backends.has(key):
+		var backend: VideoBackend = BACKENDS[key].new()
+		backend.name = key.capitalize() + "Backend"
+		add_child(backend)
+		_viewport.add_child(backend.view)
+		_viewport.move_child(backend.view, 0)  # under the placeholder and cards
+		backend.view.visible = false
+		backend.set_volume(_volume)
+		backend.loaded.connect(_on_backend_loaded.bind(backend))
+		backend.load_failed.connect(_on_backend_failed.bind(backend))
+		backend.seeking_changed.connect(_on_backend_seeking.bind(backend))
+		_backends[key] = backend
+	return _backends[key]
 
 
-func _start_open(retry: bool = false) -> void:
-	_open_attempt = _open_attempt + 1 if retry else 1
-	_open_path = _load_path
-	_opened = []
-	_load_task = WorkerThreadPool.add_task(_open_worker.bind(_open_path))
+func _key_of(backend: VideoBackend) -> String:
+	for key in _backends:
+		if _backends[key] == backend:
+			return key
+	return ""
 
 
-## Worker thread: the slow part of a load (probing the file / stream).
-func _open_worker(path: String) -> void:
-	# ClassDB and base types, never the gozen class names: exports load gozen
-	# at runtime (GoZenLoader), after GDScript has listed the classes it can
-	# compile against, so naming one fails or crashes.
-	var video: Resource = ClassDB.instantiate("GoZenVideo")
-	# Decode on the GPU where the codec allows (NVDEC, D3D11VA, ...); gozen
-	# falls back to software by itself. Older gozen builds lack the flag.
-	if video.has_method("set_prefer_hw_decoding"):
-		video.set_prefer_hw_decoding(false)
-	# open() doesn't always report failure (e.g. a missing file); is_open() does.
-	if video.open(path) or not video.is_open():
-		video = null
-	var audio: AudioStream = null
-	if video != null:
-		# A stream that dropped the audio probe would otherwise play silent;
-		# a local file without sound isn't worth a second probe.
-		var tries := OPEN_ATTEMPTS if DefaultScreen.is_url(path) else 1
-		for i in tries:
-			var stream: AudioStream = ClassDB.instantiate("AudioStreamFFmpeg")
-			if stream.open(path, -1) == OK:
-				audio = stream
-				break
-	_opened = [video, audio]
-
-
-func _finish_open() -> void:
-	if _open_path != _load_path:
-		_start_open()  # superseded while opening
+func _switch_to(backend: VideoBackend) -> void:
+	if backend == _active:
 		return
-	var video: Object = _opened[0]
-	var audio: AudioStream = _opened[1]
-	_opened = []
-	if video == null and _open_attempt < OPEN_ATTEMPTS:
-		push_warning("VideoBridge: could not open %s, retrying." % _load_path)
-		_start_open(true)
-		return
-	if video == null:
-		_loading = false
-		_thumb.visible = false
-		_set_placeholder_text("Could not open video", _load_path.get_file().uri_decode())
-		_placeholder.visible = true
-		_update_busy()
-		video_load_failed.emit()
-		return
-	if video.has_method("get_hw_device"):
-		var hw: String = video.get_hw_device()
-		print("Video decoding: %s" % (hw if hw != "" else "software"))
-	# No audio track: say so, or update_video retries the open on this thread.
-	_vp.enable_audio = audio != null
-	_vp.update_video(video, audio)  # → video_loaded → _on_video_loaded
+	if _active != null:
+		_active.close()
+		_active.view.visible = false
+	var bus := audio_bus_name()
+	_active = backend
+	if _active != null:
+		_active.view.visible = true
+		if _active.draws_on_demand and not _active.frame_changed.is_connected(_redraw):
+			_active.frame_changed.connect(_redraw)
+	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE if _on_demand() else SubViewport.UPDATE_ALWAYS
+	_redraw()
+	if audio_bus_name() != bus:
+		audio_bus_changed.emit()
 
 
 func _process(_delta: float) -> void:
-	if _vp == null:
-		return
-	for t in _stale_tasks.duplicate():
-		if WorkerThreadPool.is_task_completed(t):
-			WorkerThreadPool.wait_for_task_completion(t)
-			_stale_tasks.erase(t)
-	if _load_task != -1 and WorkerThreadPool.is_task_completed(_load_task):
-		WorkerThreadPool.wait_for_task_completion(_load_task)
-		_load_task = -1
-		_finish_open()
-	if _overlay_text != "" and not _overlay.visible \
-			and Time.get_ticks_msec() - _busy_since_msec >= OVERLAY_DELAY_MSEC:
+	if _overlay_text != "" and not _overlay.visible 			and Time.get_ticks_msec() - _busy_since_msec >= OVERLAY_DELAY_MSEC:
 		_overlay.visible = true
-	if _seek_task == -1 or not WorkerThreadPool.is_task_completed(_seek_task):
-		return
-	WorkerThreadPool.wait_for_task_completion(_seek_task)
-	_seek_task = -1
-	_vp.current_frame = _seek_frame
-	if _seek_error:
-		push_warning("VideoBridge: seek to frame %d failed." % _seek_frame)
-	else:
-		_vp._set_frame_image()
-	if _pending_frame >= 0:
-		var next := _pending_frame
-		_pending_frame = -1
-		_start_seek(next)
-		return
-	_update_busy()
-	if _want_playing:
-		_vp.play()  # also moves the audio to current_frame
 
 
-func _wait_for_seek() -> void:
-	if _seek_task != -1:
-		WorkerThreadPool.wait_for_task_completion(_seek_task)
-		_seek_task = -1
-
-
-## Call after changing _loading / _seek_task. `text` is the overlay card's;
+## Call after changing _loading or a seek starting / ending. `text` is the overlay card's;
 ## "" shows none (the placeholder card says it instead).
 func _update_busy(text: String = "") -> void:
 	var busy := is_busy()
@@ -464,34 +400,29 @@ func _set_placeholder_text(title: String, hint: String) -> void:
 	_placeholder_hint.text = hint
 
 
-## Linear 0..1 volume, applied to gozen's AudioStreamPlayer.
+## Linear 0..1 volume, applied to every backend.
 func set_volume(v: float) -> void:
 	_volume = clampf(v, 0.0, 1.0)
-	if _vp != null and _vp.audio_player != null:
-		_vp.audio_player.volume_db = linear_to_db(_volume) if _volume > 0.0 else -80.0
+	for backend in _backends.values():
+		backend.set_volume(_volume)
 
 
 ## Name of the AudioServer bus the video's sound plays on ("" if none),
-## for analysis effects.
+## for analysis effects. Changes with the backend: audio_bus_changed.
 func audio_bus_name() -> String:
-	return String(_vp.audio_player.bus) if _vp != null and _vp.audio_player != null else ""
+	return _active.audio_bus_name() if _active != null else ""
 
 
 ## Linear gain set_volume applied to the audio before it reaches the bus.
 func audio_gain() -> float:
-	return db_to_linear(_vp.audio_player.volume_db) if _vp != null and _vp.audio_player != null else 1.0
+	return _active.audio_gain() if _active != null else 1.0
 
 
 ## Media seconds of the sound being heard now (the audio player's position,
 ## plus time since its last mix, minus output latency), or -1 when it
 ## isn't playing sound (paused, seeking, no audio track).
 func audio_seconds() -> float:
-	if _vp == null or not _loaded or _seek_task != -1 or not _vp.is_playing:
-		return -1.0
-	var ap: AudioStreamPlayer = _vp.audio_player
-	if ap == null or ap.stream == null or not ap.playing or ap.stream_paused:
-		return -1.0
-	return ap.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency()
+	return _active.audio_seconds() if _loaded and _active != null else -1.0
 
 
 ## Native video resolution (the output texture's size), or ZERO before load.
@@ -500,7 +431,7 @@ func frame_size() -> Vector2i:
 
 
 func is_playing() -> bool:
-	return _vp != null and _loaded and _vp.is_playing
+	return _loaded and _active.is_playing()
 
 
 ## A video was asked for and hasn't loaded (or failed) yet.
@@ -509,24 +440,45 @@ func is_loading() -> bool:
 
 
 func duration_seconds() -> float:
-	return _vp.get_video_length_float() if (_vp != null and _loaded) else 0.0
+	return _active.duration_seconds() if _loaded else 0.0
 
 
 func playhead_seconds() -> float:
-	return _vp.get_current_playback_position_float() if (_vp != null and _loaded) else 0.0
+	return _active.playhead_seconds() if _loaded else 0.0
 
 
-func _on_video_loaded() -> void:
+func _on_backend_loaded(backend: VideoBackend) -> void:
+	if backend != _active:
+		return
 	_loaded = true
 	_loading = false
 	_placeholder.visible = false
 	_thumb.visible = false
 	# Match the SubViewport size to the video's native resolution so we
 	# don't scale up or down.
-	var w: int = _vp.video.get_resolution().x
-	var h: int = _vp.video.get_resolution().y
-	if w > 0 and h > 0:
-		_viewport.size = Vector2i(w, h)
+	var size := backend.resolution()
+	if size.x > 0 and size.y > 0:
+		_viewport.size = size
 	_redraw()
 	_update_busy()
-	video_loaded.emit(duration_seconds(), _vp.get_video_framerate())
+	print("Video decoder: %s" % _key_of(backend))
+	video_loaded.emit(duration_seconds(), backend.framerate())
+
+
+func _on_backend_failed(backend: VideoBackend) -> void:
+	if backend == _active:
+		_fail_load()
+
+
+func _on_backend_seeking(seeking: bool, backend: VideoBackend) -> void:
+	if backend == _active:
+		_update_busy("Seeking..." if seeking else "")
+
+
+func _fail_load() -> void:
+	_loading = false
+	_thumb.visible = false
+	_set_placeholder_text("Could not open video", _load_path.get_file().uri_decode())
+	_placeholder.visible = true
+	_update_busy()
+	video_load_failed.emit()

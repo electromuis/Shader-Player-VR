@@ -12,6 +12,8 @@ extends SceneTree
 ## Headless (HEADLESS=1) it prints; rendered it also saves studio_m8_*.png
 ## to OUT_DIR.
 
+const StudioScript := preload("res://studio/studio.gd")
+
 var studio: Node
 var tools: StudioEditTools
 var shelf: StudioAssetShelf
@@ -116,6 +118,45 @@ func shot(name: String) -> void:
 	put_card()
 	await frames(12)
 	root.get_texture().get_image().save_png(out.path_join("studio_m8_%s.png" % name))
+
+
+## Legibility of a headset panel: every visible label and button with text
+## under `content`, its font size as degrees of view at `dist` metres
+## (the design asks for text of about 1.2°: 2 cm at 1 m), and buttons'
+## smaller side in cm (targets of 2.5 cm).
+func legibility(name: String, panel: Node3D, content: Node, dist: float) -> void:
+	if content == null:
+		print("legibility %s: no content" % name)
+		return
+	var px_per_m: float = panel.viewport_size.x / panel.screen_size.x
+	var degs: Array = []
+	var small: Dictionary = {}  # text -> degrees, below 1.2°
+	var targets: Array = []
+	var stack: Array = [content]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		stack.append_array(n.get_children())
+		if not (n is Control) or not (n as Control).is_visible_in_tree():
+			continue
+		var text := String(n.get("text")) if (n is Label or n is Button) else ""
+		if text.strip_edges() != "":
+			var px: int = (n as Control).get_theme_font_size("font_size")
+			var deg := rad_to_deg(2.0 * atan(px / px_per_m * 0.5 / dist))
+			degs.append(deg)
+			if deg < 1.2:
+				small[text.substr(0, 24)] = snappedf(deg, 0.01)
+		if n is Button:
+			var s: Vector2 = (n as Control).size
+			targets.append([minf(s.x, s.y) / px_per_m * 100.0, "%s '%s' %s" % [n.name, text.substr(0, 12), s]])
+	degs.sort()
+	targets.sort_custom(func(x, y): return x[0] < y[0])
+	if not targets.is_empty():
+		print("   smallest button: ", targets.front()[1])
+	targets = targets.map(func(x): return x[0])
+	print("legibility %s (%.0f px/m at %.2f m): %d texts, %.2f° to %.2f° (median %.2f°), %d under 1.2°%s; %d buttons, smallest side %.1f cm (median %.1f)" % [
+			name, px_per_m, dist, degs.size(), degs.front() if not degs.is_empty() else 0.0, degs.back() if not degs.is_empty() else 0.0,
+			degs[degs.size() / 2] if not degs.is_empty() else 0.0, small.size(), (" e.g. " + str(small.keys().slice(0, 4))) if not small.is_empty() else "",
+			targets.size(), targets.front() if not targets.is_empty() else 0.0, targets[targets.size() / 2] if not targets.is_empty() else 0.0])
 
 
 func effects(id: String) -> Array:
@@ -273,6 +314,33 @@ func _initialize() -> void:
 	await frames(2)
 	print("reset all: main hand ", rig.main_hand, ", wrist on ", rig.wrist_panel.get_parent().name, " at ", rig.wrist_panel.position,
 			", pointers L ", rig._pointers.L.enabled, " R ", rig._pointers.R.enabled)
+
+	# Legibility of the headset panels (their text in degrees of view).
+	tools.select("main_screen")
+	for p in [studio.inspector_panel, studio.ribbon_panel, studio.shelf_panel, rig.wrist_panel]:
+		p.visible = true
+	shelf.show_tab("look")
+	await frames(8)
+	var vr_shelf: StudioAssetShelf = studio._vr_shelf()
+	if vr_shelf != null:
+		vr_shelf.show_tab("object")
+	await frames(6)
+	legibility("inspector", studio.inspector_panel, studio._vr_inspector(), StudioScript.INSPECTOR_DISTANCE)
+	legibility("timeline", studio.ribbon_panel, studio._vr_ribbon(), StudioScript.RIBBON_DISTANCE)
+	legibility("shelf", studio.shelf_panel, vr_shelf, StudioScript.SHELF_DISTANCE)
+	legibility("wrist", rig.wrist_panel, rig.wrist_content(), 0.4)
+	if rendered:
+		for pair in [["inspector", studio.inspector_panel], ["wrist", rig.wrist_panel], ["shelf", studio.shelf_panel]]:
+			var sub: SubViewport = pair[1].get_node("Viewport")
+			sub.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		await frames(8)
+		for pair in [["inspector", studio.inspector_panel], ["wrist", rig.wrist_panel], ["shelf", studio.shelf_panel]]:
+			(pair[1].get_node("Viewport") as SubViewport).get_texture().get_image().save_png(out.path_join("studio_m8_5_headset_%s.png" % pair[0]))
+	for p in [studio.inspector_panel, studio.ribbon_panel, studio.shelf_panel, rig.wrist_panel]:
+		p.visible = false
+	studio._show_inspector()
+	studio._show_ribbon()
+	studio._show_shelf()
 
 	await key(KEY_S, true)
 	var piece: String = m.path

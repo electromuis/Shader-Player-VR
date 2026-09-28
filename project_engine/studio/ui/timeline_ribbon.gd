@@ -625,7 +625,8 @@ func _button(text: String, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size.y = _fs * 1.7
+	# At least square: "−" and "+" are whole targets too.
+	b.custom_minimum_size = Vector2(_fs * 1.7, _fs * 1.7)
 	b.pressed.connect(on_press)
 	return b
 

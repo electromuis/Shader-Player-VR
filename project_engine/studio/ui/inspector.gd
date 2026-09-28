@@ -65,8 +65,8 @@ var _dot_w := 20
 
 func _ready() -> void:
 	vr = vr or get_viewport() != get_tree().root
-	_fs = 26 if vr else 15
-	_label_w = 230 if vr else 132
+	_fs = 28 if vr else 15
+	_label_w = 210 if vr else 132
 	_value_w = 104 if vr else 58
 	_diamond_w = 48 if vr else 26
 	_dot_w = 40 if vr else 20
@@ -95,6 +95,8 @@ func _ready() -> void:
 	_kind = _label(top, _fs, DIM)
 	var close := _button("✕", func(): close_requested.emit())
 	close.tooltip_text = "Deselect"
+	if vr:
+		close.custom_minimum_size = Vector2(_target_h(), _target_h())
 	top.add_child(close)
 	_hint = _label(rows, int(_fs * 0.9), DIM)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -103,10 +105,15 @@ func _ready() -> void:
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	rows.add_child(_scroll)
+	# Room on the right for the scrollbar, which is drawn over the list.
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_right", 16 if vr else 10)
+	_scroll.add_child(pad)
 	_list = VBoxContainer.new()
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_list.add_theme_constant_override("separation", 6 if vr else 3)
-	_scroll.add_child(_list)
+	pad.add_child(_list)
 
 
 ## Show `id` ("" for nothing).
@@ -241,7 +248,7 @@ func _add_section(key: String, title: String, fields: Array, header_extra: Calla
 	for f in fields:
 		var g := String(f.get("group", ""))
 		if g != group and g != "":
-			var gl := _label(body, int(_fs * 0.85), DIM)
+			var gl := _label(body, int(_fs * 0.9), DIM)
 			gl.text = g.capitalize()
 		group = g
 		_add_field(body, f)
@@ -254,6 +261,8 @@ func _add_section(key: String, title: String, fields: Array, header_extra: Calla
 func _add_field(parent: Control, field: Dictionary) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
+	if vr:
+		row.custom_minimum_size.y = _target_h()  # the diamond and dot are whole targets
 	parent.add_child(row)
 	var diamond := _button("", func(): _toggle_key(field))
 	diamond.flat = true
@@ -352,6 +361,8 @@ func _add_transform(s: Dictionary) -> void:
 	for ch in StudioConfigEdits.CHANNELS:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
+		if vr:
+			row.custom_minimum_size.y = _target_h()
 		body.add_child(row)
 		var diamond := _button("", func(): _toggle_transform_key(ch))
 		diamond.flat = true
@@ -366,7 +377,7 @@ func _add_transform(s: Dictionary) -> void:
 		_rows.append({"field": {"key": "transform/" + ch, "channel": ch}, "kind": "transform", "controls": [],
 			"diamond": diamond, "value": value})
 	if body.visible:
-		var tip := _label(body, int(_fs * 0.85), DIM)
+		var tip := _label(body, int(_fs * 0.9), DIM)
 		tip.text = "Grab it to move it (the grip, or drag with the mouse)."
 
 
@@ -587,7 +598,7 @@ func _arm_dot(field: Dictionary) -> Control:
 	var dot := _button("●", func(): pass)
 	dot.flat = true
 	dot.custom_minimum_size.x = _dot_w
-	dot.add_theme_font_size_override("font_size", int(_fs * 0.8))
+	dot.add_theme_font_size_override("font_size", int(_fs * 0.9))
 	dot.tooltip_text = "Arm for recording"
 	var paint := func():
 		var on := rec.is_armed(_id, field)

@@ -86,7 +86,9 @@ const VP2D3D_SCENE := preload("res://addons/godot-xr-tools/objects/viewport_2d_i
 ## this far from your head, turned right of the selection (enough to clear
 ## it as you see it, within these angles), a little below eye height. It's
 ## placed again when you're further than INSPECTOR_REPLACE from it.
-const INSPECTOR_SIZE := Vector2(0.42, 0.6)
+## (0.48 m wide: with its 28 px text, body text is about 1.4° of view and
+## nothing is under 1.1°; drive_studio_m8.gd measures it.)
+const INSPECTOR_SIZE := Vector2(0.48, 0.687)
 const INSPECTOR_PIXELS := Vector2(720, 1030)
 const INSPECTOR_DISTANCE := 0.75
 const INSPECTOR_ANGLE := 32.0

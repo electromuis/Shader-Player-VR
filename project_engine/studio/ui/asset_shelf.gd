@@ -58,7 +58,7 @@ var _card := Vector2(128, 80)
 
 func _ready() -> void:
 	vr = vr or get_viewport() != get_tree().root
-	_fs = 26 if vr else 14
+	_fs = 28 if vr else 14
 	_card = Vector2(224, 140) if vr else Vector2(128, 80)
 	var th := Theme.new()
 	th.default_font_size = _fs
@@ -90,6 +90,8 @@ func _ready() -> void:
 		b.toggle_mode = true
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(func(): show_tab(t))
+		if vr:
+			b.custom_minimum_size.y = _fs * 1.7  # about 3 cm in the headset
 		top.add_child(b)
 		_tab_buttons[t] = b
 	var fill := Control.new()
@@ -100,10 +102,12 @@ func _ready() -> void:
 	close.focus_mode = Control.FOCUS_NONE
 	close.tooltip_text = "Hide the shelf"
 	close.pressed.connect(func(): close_requested.emit())
+	if vr:
+		close.custom_minimum_size = Vector2(_fs * 1.7, _fs * 1.7)
 	top.add_child(close)
 
 	_hint = Label.new()
-	_hint.add_theme_font_size_override("font_size", int(_fs * 0.9))
+	_hint.add_theme_font_size_override("font_size", ceili(_fs * 0.9))
 	_hint.add_theme_color_override("font_color", DIM)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rows.add_child(_hint)

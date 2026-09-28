@@ -261,3 +261,52 @@ static func test_lane_ends_retime_spawns_and_despawns(tc: TestCase) -> void:
 	for i in 4:
 		m.undo()
 	tc.assert_eq([m.tracks()[0].t, m.tracks()[1].t, m.tracks()[3].t, m.tracks().size()], [2.0, 2.0, 20.0, 5], "all undone")
+
+
+const WOBBLE := """// @title Wobble
+// @hint Sways the picture.
+uniform float amount : hint_range(0.0, 1.0, 0.01) = 0.2;
+
+vec3 deform(vec3 p, vec2 uv, vec2 half_m) {
+	return p + vec3(0.0, 0.0, sin(p.x + TIME) * amount);
+}
+"""
+
+
+static func test_vertex_tab_lists_and_drops_vertex_effects(tc: TestCase) -> void:
+	var root := _setup()
+	DirAccess.make_dir_recursive_absolute(root.path_join("lib/shaders/vertex"))
+	_write(root.path_join("lib/shaders/vertex/wobble.gdshaderinc"), WOBBLE)
+	var lib := _library(root)
+	var cards := lib.of_type("vertex")
+	var builtins := ScreenGeometry.builtins(ScreenGeometry.VERTEX_DIR)
+	tc.assert_eq(cards.slice(0, builtins.size()).map(func(a): return a.label), builtins.map(func(b): return b.label), "built-ins first")
+	tc.assert_true(cards.any(func(a): return a.label == "Spin") and cards.any(func(a): return a.label == "Pulse"), "Spin and Pulse are there")
+	tc.assert_eq(cards.slice(builtins.size()).map(func(a): return [a.label, a.source]), [["Wobble", "user"]])
+	tc.assert_true(StudioAssetLibrary.TYPES.has("vertex") and StudioAssetLibrary.TYPE_LABELS.vertex == "Vertex", "a tab")
+	var m := _new_model(tc, root)
+	var edits := StudioConfigEdits.new()
+	edits.model = m
+	edits.library = lib
+	var drop := StudioAssetDrop.new()
+	drop.model = m
+	drop.edits = edits
+	var head := Vector3(0, 1.7, 4)
+	drop.drop(_asset(lib, "object", "Screen"), {"point": Vector3.ZERO, "on": "", "floor": true}, head, 0.0, false)
+	var on_screen := {"point": Vector3.ZERO, "on": "main_screen", "floor": false}
+	var spin := _asset(lib, "vertex", "Spin")
+	tc.assert_false(drop.drop(spin, {"point": Vector3.ZERO, "on": "", "floor": true}, head, 0.0, false).ok, "not on the floor")
+	var r := drop.drop(spin, on_screen, head, 0.0, false)
+	tc.assert_eq([r.ok, r.id], [true, "main_screen"])
+	tc.assert_eq(m.effects_of("main_screen", EditModel.VERTEX_EFFECTS).map(func(e): return e.shader), ["spin"], "a built-in goes by name")
+	tc.assert_eq(m.effects_of("main_screen"), [], "not a pixel effect")
+	tc.assert_eq(m.undo_label(), "Add spin to main_screen", "one undo step")
+	r = drop.drop(_asset(lib, "vertex", "Wobble"), on_screen, head, 0.0, false)
+	tc.assert_true(r.ok)
+	tc.assert_true(FileAccess.file_exists(root.path_join("piece/shaders/vertex/wobble.gdshaderinc")), "copied into shaders/vertex/")
+	tc.assert_eq(m.effects_of("main_screen", EditModel.VERTEX_EFFECTS).size(), 2)
+	tc.assert_eq(lib.of_type("vertex").filter(func(a): return a.label == "Wobble").map(func(a): return [a.source, a.in_piece]),
+			[["user", true]], "one card for it and its copy")
+	tc.assert_true(edits.effect_options(EditModel.VERTEX_EFFECTS).any(func(o): return o.label == "Wobble"), "the inspector's menu lists it")
+	tc.assert_true(m.save().ok, "saves valid")
+	tc.assert_true(ScriptFormat.load_from_file(m.path).ok)

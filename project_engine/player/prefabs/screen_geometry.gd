@@ -42,8 +42,10 @@ const DOME := "res://player/visualizer/surfaces/dome.gdshaderinc"
 const RIPPLE := "res://player/visualizer/vertex/ripple.gdshaderinc"
 const TWIST := "res://player/visualizer/vertex/twist.gdshaderinc"
 const BULGE := "res://player/visualizer/vertex/bulge.gdshaderinc"
+const SPIN := "res://player/visualizer/vertex/spin.gdshaderinc"
+const PULSE := "res://player/visualizer/vertex/pulse.gdshaderinc"
 ## Script names for the built-ins (`"surface": {"shader": "dome"}`).
-const BUILTIN_NAMES := {"pillow": PILLOW, "dome": DOME, "ripple": RIPPLE, "twist": TWIST, "bulge": BULGE}
+const BUILTIN_NAMES := {"pillow": PILLOW, "dome": DOME, "ripple": RIPPLE, "twist": TWIST, "bulge": BULGE, "spin": SPIN, "pulse": PULSE}
 
 const Code := preload("res://player/prefabs/screen_shader_code.gd")
 

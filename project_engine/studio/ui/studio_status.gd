@@ -27,7 +27,7 @@ const HINTS := [
 		["V", "key the viewer"], ["Shift+V", "cut to here"], ["Ctrl+Shift+V", "arm the ride"], ["Shift+R", "record (a take)"]]],
 	["View", [
 		["R", "reset view"], ["0", "seat"], ["M", "miniature"], ["F1", "VR"],
-		["N", "inspector"], ["T", "timeline"], ["B", "shelf"], ["H", "hide these"]]],
+		["N", "inspector"], ["T", "timeline"], ["B", "shelf"], ["F2", "menu"], ["H", "hide these"]]],
 ]
 
 ## Wrist layout: bigger text, no keyboard hints.
@@ -113,6 +113,12 @@ func _ready() -> void:
 		_hints_off = _label(rows, 14, DIM)
 		_hints_off.text = "H  keyboard shortcuts"
 		_hints_off.visible = false
+
+
+## Shows or hides the frames per second (the player's FPS setting).
+func show_fps(on: bool) -> void:
+	if _fps != null:
+		_fps.visible = on
 
 
 ## Frames per second, a few times a second.

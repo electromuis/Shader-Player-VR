@@ -9,6 +9,7 @@ extends RefCounted
 ##     a layer, it becomes that layer's shader instead
 ##   an effect — onto the screen or layer it's dropped on (the end of its
 ##     effects stack)
+##   a vertex effect — the same, at the end of its vertex effects
 ##   a look (StudioLooks) — onto an object of its kind (screen, layer,
 ##     other), which takes its setup and keeps its place and size; anywhere
 ##     else, a new object with it, at the size it was saved at
@@ -94,6 +95,12 @@ func drop(asset: Dictionary, where: Dictionary, head: Vector3, t: float, snap: b
 			if not model.add_effect(on, b.path):
 				return {"ok": false, "message": "Couldn't add %s to %s." % [asset.label, on]}
 			return {"ok": true, "id": on, "message": "Added %s to %s." % [asset.label, on]}
+		"vertex":
+			if on_kind not in ["screen", "layer"]:
+				return {"ok": false, "message": "Drop %s on a screen or a layer." % asset.label}
+			if not edits.add_effect(on, asset.path, EditModel.VERTEX_EFFECTS):
+				return {"ok": false, "message": "Couldn't add %s to %s." % [asset.label, on]}
+			return {"ok": true, "id": on, "message": "Added %s to %s's vertex effects." % [asset.label, on]}
 		"layer":
 			if on_kind == "layer":
 				var b := StudioBundle.bundle(piece_dir, asset.path)

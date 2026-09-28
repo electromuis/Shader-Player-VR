@@ -201,9 +201,12 @@ static func test_inspector_fields_for_a_screen(tc: TestCase) -> void:
 	var e := _edits(tc)
 	var sections := e.sections("scr", null, "screen")
 	var titles: Array = sections.map(func(s): return s.title)
-	tc.assert_eq(titles, ["Transform", "Display", "Padding", "Glow", "Oval mask", "Modifiers", "Reactive"])
-	var glow: Dictionary = sections[3]
+	tc.assert_eq(titles, ["Transform", "Surface", "Display", "Padding", "Glow", "Oval mask", "Modifiers"],
+			"Reactive only for objects: screens spin and pulse with vertex effects")
+	tc.assert_eq(_edits(tc).sections("box", null, "object").back().title, "Reactive")
+	var glow: Dictionary = sections[4]
 	tc.assert_eq(glow.kind, "effect")
+	tc.assert_eq(glow.list, "effects")
 	tc.assert_eq(glow.index, 1)
 	tc.assert_true(glow.enabled)
 	var tint := _field(sections, "effect1/tint")
@@ -218,7 +221,8 @@ static func test_inspector_fields_for_a_screen(tc: TestCase) -> void:
 	tc.assert_eq(e.value_of("scr", _field(sections, "effect1/radius"), 2.0), 0.64, "from the config")
 	tc.assert_eq(e.value_of("scr", _field(sections, "effect1/mirror"), 2.0), 0.5, "the shader's default")
 	tc.assert_eq(e.value_of("scr", tint, 0.0), [1.0, 1.0, 1.0])
-	tc.assert_eq(e.value_of("scr", _field(sections, "curvature"), 0.0), 0.3)
+	tc.assert_eq(e.value_of("scr", _field(sections, "shape/arc_x"), 0.0), 54.0, "an earlier curvature shows as its Pillow")
+	tc.assert_eq(sections[1].shader, ScreenGeometry.PILLOW)
 	tc.assert_eq(e.value_of("box", _field(sections, "speed"), 0.0), 2.0)
 	# Diamonds.
 	tc.assert_eq(e.key_state("scr", _field(sections, "effect1/intensity"), 4.0), "key")
@@ -229,7 +233,7 @@ static func test_inspector_fields_for_a_screen(tc: TestCase) -> void:
 	# A switched-off effect's params can't be keyed.
 	e.model.set_effect_enabled("scr", 1, false)
 	var off := e.sections("scr", null, "screen")
-	tc.assert_false(off[3].enabled)
+	tc.assert_false(off[4].enabled)
 	tc.assert_eq(_field(off, "effect1/radius").slot, "")
 	tc.assert_eq(_field(off, "effect2/size").slot, "effect1", "oval moved up a slot")
 
@@ -290,11 +294,13 @@ static func test_inspector_diamonds_toggle_keys(tc: TestCase) -> void:
 	tc.assert_eq(e.toggle_key("scr", size, 2.0), "Key scr size at 0:02.00")
 	tc.assert_eq(m.tracks()[e.track_of("scr", size)].keyframes.map(func(k): return [k.t, k.value]), [[0.0, 0.5], [2.0, 0.5]],
 			"keyed with the value it has there")
-	var curv := _field(s, "curvature")
-	tc.assert_eq(e.toggle_key("scr", curv, 1.0), "Key scr curvature at 0:01.00")
-	tc.assert_eq(m.tracks()[e.track_of("scr", curv)].keyframes[0].value, 0.3, "from the config")
-	tc.assert_eq(e.toggle_key("scr", curv, 1.0), "Delete scr curvature key at 0:01.00")
-	tc.assert_eq(e.track_of("scr", curv), -1, "the last key takes its track")
+	var arc := _field(s, "shape/arc_x")
+	tc.assert_eq(e.toggle_key("scr", arc, 1.0), "Key scr arc x at 0:01.00")
+	tc.assert_eq(m.tracks()[e.track_of("scr", arc)].target, "scr.shape")
+	tc.assert_eq(m.tracks()[e.track_of("scr", arc)].keyframes[0].value, 54.0, "from the earlier curvature")
+	tc.assert_eq(e.toggle_key("scr", arc, 1.0), "Delete scr arc x key at 0:01.00")
+	tc.assert_eq(e.track_of("scr", arc), -1, "the last key takes its track")
+
 	tc.assert_eq(e.toggle_key("scr", _field(s, "render_scale"), 1.0), "", "can't be keyed")
 	var now := {"position": [0.0, 1.0, 2.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}
 	tc.assert_eq(e.transform_state("box", "position", 3.0), "static")

@@ -122,6 +122,12 @@ func _render(asset: Dictionary) -> void:
 			screen.set_source_texture(test_card())
 			screen.set_effects([{"shader": asset.path, "params": {}}])
 			node = screen
+		"vertex":
+			var screen: Screen = SCREEN_SCENE.instantiate()
+			vp.add_child(screen)
+			screen.set_source_texture(test_card())
+			screen.set_vertex_effects([{"shader": asset.path, "params": {}}])
+			node = screen
 		_:
 			var packed := ResourceLoader.load(asset.path, "PackedScene") as PackedScene
 			node = packed.instantiate() as Node3D if packed != null else null
@@ -132,7 +138,7 @@ func _render(asset: Dictionary) -> void:
 				(node as Screen).set_source_texture(test_card())
 	for i in 2:
 		await get_tree().process_frame
-	_frame(cam, node, asset.kind in ["screen", "layer", "effect"])
+	_frame(cam, node, asset.kind in ["screen", "layer", "effect", "vertex"])
 	for i in FRAMES:
 		await get_tree().process_frame
 	var img := vp.get_texture().get_image()

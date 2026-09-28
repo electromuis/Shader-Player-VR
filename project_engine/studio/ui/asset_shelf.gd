@@ -29,6 +29,7 @@ const HINTS := {
 	"object": "Press a card and let go where it should stand: it comes on at the playhead, facing you.",
 	"layer": "A layer shows a shader on its own screen. Drop it in the space, or on a layer to change its shader.",
 	"effect": "Drop an effect on a screen or a layer: it goes at the end of its effects.",
+	"vertex": "Vertex effects bend a screen's or layer's shape (ripple, twist, spin, pulse). Drop one on a screen or a layer: it goes at the end of its vertex effects.",
 	"look": "Your saved looks (the inspector's Save look). Drop one on something of its kind to restyle it (it keeps its place and size), or in the space to add one.",
 	OPEN_TAB: "Open a piece (.json), or a video to start a new piece for it.",
 }
@@ -249,7 +250,7 @@ static func _placeholder(asset: Dictionary) -> Texture2D:
 	if _placeholders.has(kind):
 		return _placeholders[kind]
 	var colors := {"screen": Color(0.2, 0.35, 0.55), "cube": Color(0.35, 0.3, 0.5), "prefab": Color(0.3, 0.42, 0.3),
-			"layer": Color(0.45, 0.28, 0.45), "effect": Color(0.5, 0.38, 0.2)}
+			"layer": Color(0.45, 0.28, 0.45), "effect": Color(0.5, 0.38, 0.2), "vertex": Color(0.2, 0.45, 0.42)}
 	var img := Image.create(64, 40, false, Image.FORMAT_RGB8)
 	img.fill(colors.get(kind, Color(0.25, 0.25, 0.3)))
 	img.fill_rect(Rect2i(24, 12, 16, 16), Color(1, 1, 1, 1).darkened(0.3))

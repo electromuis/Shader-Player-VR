@@ -24,7 +24,9 @@ const PREFAB_EXTENSIONS := ["tscn", "scn"]
 
 
 ## {ok, path (what the piece names it), copied (a file was written), error}.
-static func bundle(piece_dir: String, src: String) -> Dictionary:
+## `sub`: the folder a copy goes in, if not prefabs/ or shaders/ (vertex
+## effects go in shaders/vertex/, where the shelf looks for them).
+static func bundle(piece_dir: String, src: String, sub := "") -> Dictionary:
 	if src.begins_with("res://") or src.begins_with("builtin:") or not src.is_absolute_path():
 		return {"ok": true, "path": src, "copied": false}  # the player's, or already the piece's
 	if piece_dir == "":
@@ -36,7 +38,8 @@ static func bundle(piece_dir: String, src: String) -> Dictionary:
 		return {"ok": true, "path": rel, "copied": false}
 	var ext := src.get_extension().to_lower()
 	var prefab := ext in PREFAB_EXTENSIONS
-	var sub := "prefabs" if prefab else "shaders"
+	if sub == "":
+		sub = "prefabs" if prefab else "shaders"
 	var embed := prefab and _needs_embedding(src)
 	var base := src.get_file().get_basename()
 	var n := 1

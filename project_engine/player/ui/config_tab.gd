@@ -28,6 +28,7 @@ var _camera_fx_max_value: Label
 var _decoder: OptionButton
 var _renderer: OptionButton  # null off Windows
 var _renderer_note: Label
+var _rows: Dictionary = {}  # label -> its row
 
 
 func _ready() -> void:
@@ -248,3 +249,12 @@ func _row(label_text: String, control: Control, trailing: Control = null) -> voi
 	if trailing != null:
 		row.add_child(trailing)
 	add_child(row)
+	_rows[label_text] = row
+
+
+## Hide the rows named (by their labels) that don't apply in an app (Studio
+## has no playlist, no walking, no editor sync).
+func hide_rows(labels: Array) -> void:
+	for l in labels:
+		if _rows.has(l):
+			(_rows[l] as Control).visible = false

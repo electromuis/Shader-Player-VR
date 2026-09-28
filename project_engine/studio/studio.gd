@@ -105,6 +105,7 @@ const RIBBON_DISTANCE := 0.6
 const RIBBON_DROP := 0.55
 const RIBBON_TILT := 40.0
 const SHELF_SCENE := preload("res://studio/ui/asset_shelf.tscn")
+const MENU_SCENE := preload("res://studio/ui/studio_menu.tscn")
 ## The headset shelf: its size in metres and pixels, and where it goes: this
 ## far from you, turned this far left of where you look, a little below
 ## your eyes, facing you. It follows you like the inspector.
@@ -134,6 +135,15 @@ var mode: Mode = Mode.EDIT
 var message: String = ""
 
 var _settings: PlayerSettings
+## Studio's own options (the menu's Studio tab).
+var studio_settings := StudioSettings.new()
+## The menu (F2, hold ≡): the player's Config and Controls tabs and a
+## Studio tab. Desktop: `menu_2d`, over the middle of the window; headset:
+## `menu` on a panel like the player's (menu_panel).
+var menu_on := false
+var menu_2d: StudioMenu
+var menu_panel: FloatingPanel
+var menu: StudioMenu
 var _cli_piece: String = ""
 var _cli_start: float = 0.0
 var _cli_vr: bool = false
@@ -199,6 +209,7 @@ func _ready() -> void:
 	_use_studio_fly_keys()
 	_settings = PlayerSettings.new()
 	_settings.load_from_disk()
+	studio_settings.load_from_disk()
 	stage.status.connect(func(msg: String): print(msg))
 	stage.setup(_settings, InputBindings.new())
 	# Studio's own commands; the player's never fire here.
@@ -255,6 +266,11 @@ func _ready() -> void:
 	for helper in [tools, _ghost, inspector_panel, ribbon_panel, shelf_panel]:
 		StudioThumbnailer.mark_helper(helper)
 	_library_signature = library.signature()
+	_make_menu()
+	studio_settings.changed.connect(_apply_studio_settings)
+	_settings.changed.connect(_apply_player_settings)
+	_apply_studio_settings()
+	_apply_player_settings()
 	get_window().files_dropped.connect(_on_files_dropped)
 	status_view.resized.connect(_fit_shelf)
 	set_mode(Mode.EDIT)
@@ -318,8 +334,10 @@ func _update_hover(delta: float) -> void:
 
 # ---------- keeping work safe ----------
 
-## Every StudioSafety.AUTOSAVE_SECONDS.
+## Every StudioSafety.AUTOSAVE_SECONDS (while the Studio tab has it on).
 func _autosave_tick(delta: float) -> void:
+	if not studio_settings.autosave:
+		return
 	_autosave_clock += delta
 	if _autosave_clock < StudioSafety.AUTOSAVE_SECONDS:
 		return
@@ -456,6 +474,7 @@ func _apply_mode() -> void:
 		_show_inspector()
 		_show_ribbon()
 		_show_shelf()
+		_show_menu()
 
 
 func save() -> bool:
@@ -513,6 +532,7 @@ func _apply_piece_beats() -> void:
 
 func _on_command(id: StringName) -> void:
 	match id:
+		&"studio_menu": toggle_menu()
 		&"studio_toggle_mode": set_mode(Mode.PLAY if mode == Mode.EDIT else Mode.EDIT)
 		&"studio_play_pause":
 			if recorder.is_active():
@@ -573,7 +593,9 @@ func _on_command(id: StringName) -> void:
 		&"studio_goto_selection": _go_to_selection()
 		&"studio_jump_back": _jump_back()
 		&"studio_deselect":
-			if recorder.is_active():
+			if menu_on:
+				_set_menu(false)  # Esc closes the menu first
+			elif recorder.is_active():
 				recorder.cancel()
 				_after_take()
 				runner.pause()
@@ -1301,6 +1323,8 @@ func _drop_hint(asset: Dictionary, where: Dictionary) -> String:
 	match String(asset.type):
 		"effect":
 			return "Let go: add %s to %s." % [asset.label, on] if kind in ["screen", "layer"] else "Point %s at a screen or a layer." % asset.label
+		"vertex":
+			return "Let go: add %s to %s's vertex effects." % [asset.label, on] if kind in ["screen", "layer"] else "Point %s at a screen or a layer." % asset.label
 		"layer":
 			if kind == "layer":
 				return "Let go: %s shows %s." % [on, asset.label]
@@ -1316,7 +1340,7 @@ func _mouse_over_ui() -> bool:
 	for panel in [shelf, inspector, ribbon, status_view]:
 		if panel != null and panel.visible and panel.get_global_rect().has_point(at):
 			return true
-	return false
+	return menu_2d != null and menu_2d.visible and menu_2d.get_global_rect().has_point(at)
 
 
 func _input(event: InputEvent) -> void:
@@ -1459,6 +1483,10 @@ func _scrub(delta: float) -> void:
 
 
 func _show_status() -> void:
+	# The timeline's switch and Shift+I change the key mode too: keep it.
+	var key_mode := StudioTimelineRibbon.key_mode_of(tools)
+	if key_mode != studio_settings.key_mode:
+		studio_settings.key_mode = key_mode
 	var args := [
 		"EDIT" if mode == Mode.EDIT else "PLAY",
 		_piece_name(),
@@ -1479,6 +1507,8 @@ func _show_status() -> void:
 		_wrist = stage.xr_rig.wrist_content() as StudioWristPalette
 		if _wrist != null:
 			_wrist.action.connect(_on_command)
+			if _wrist.status != null:
+				_wrist.status.show_fps(_settings.show_fps)
 	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
 		_wrist.status.callv("show_state", args)
 		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer, miniature_on)
@@ -1538,3 +1568,91 @@ func _parse_cli_args() -> void:
 		for a in OS.get_cmdline_args():
 			if (DefaultScreen.is_video(a) or a.get_extension().to_lower() == "json") and FileAccess.file_exists(a):
 				_cli_piece = a
+
+
+# ---------- the menu and settings ----------
+
+## The desktop's menu size (UI pixels) and the headset panel's.
+const MENU_SIZE := Vector2(900, 620)
+
+
+func _make_menu() -> void:
+	menu_2d = MENU_SCENE.instantiate()
+	menu_2d.name = "Menu"
+	menu_2d.visible = false
+	$UI.add_child(menu_2d)
+	menu_2d.custom_minimum_size = MENU_SIZE
+	menu_2d.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	_bind_menu_view(menu_2d)
+	menu_panel = FloatingPanel.new()
+	menu_panel.name = "MenuPanel"
+	menu_panel.content_scene = MENU_SCENE
+	menu_panel.viewport_px = MENU_SIZE
+	add_child(menu_panel)
+	stage.add_masked_panel(menu_panel.panel_quad())
+	StudioThumbnailer.mark_helper(menu_panel)
+	_bind_menu_panel()
+
+
+## The panel's content appears a frame or two after it's made.
+func _bind_menu_panel() -> void:
+	for i in 30:
+		menu = menu_panel.content() as StudioMenu
+		if menu != null:
+			break
+		await get_tree().process_frame
+	if menu == null:
+		push_warning("Studio's headset menu never appeared.")
+		return
+	_bind_menu_view(menu)
+
+
+func _bind_menu_view(view: StudioMenu) -> void:
+	view.bind(_settings, stage.router, studio_settings)
+	view.close_requested.connect(func(): _set_menu.call_deferred(false))
+
+
+## The menu showing now: the headset's in VR, else the desktop's.
+func menu_view() -> StudioMenu:
+	return menu if stage.xr_mode.is_in_vr() else menu_2d
+
+
+## Opens the menu (in front of you in the headset), or closes it.
+func toggle_menu() -> void:
+	_set_menu(not menu_on)
+	_say("Menu: settings shared with the player, controls, Studio's options (F2 closes it)." if menu_on else "Menu closed.")
+
+
+func _set_menu(on: bool) -> void:
+	menu_on = on
+	_show_menu()
+
+
+func _show_menu() -> void:
+	if menu_2d == null:
+		return
+	var vr := stage.xr_mode.is_in_vr()
+	menu_2d.visible = menu_on and not vr
+	if menu_on and vr and not menu_panel.visible:
+		menu_panel.show_in_front_of(get_viewport().get_camera_3d())
+	elif not (menu_on and vr) and menu_panel.visible:
+		menu_panel.hide_panel()
+
+
+func _apply_studio_settings() -> void:
+	tools.auto_key = studio_settings.key_mode == "all"
+	tools.key_animated = studio_settings.key_mode == "animated"
+	haptics.enabled = studio_settings.haptics
+
+
+## The player's settings Studio applies itself (the stage does the rest).
+func _apply_player_settings() -> void:
+	status_view.show_fps(_settings.show_fps)
+	if _wrist != null and is_instance_valid(_wrist) and _wrist.status != null:
+		_wrist.status.show_fps(_settings.show_fps)
+	if DisplayServer.get_name() == "headless" or stage.xr_mode.is_in_vr():
+		return
+	var mode_now := DisplayServer.window_get_mode()
+	var is_full := mode_now == DisplayServer.WINDOW_MODE_FULLSCREEN or mode_now == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+	if is_full != _settings.fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if _settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)

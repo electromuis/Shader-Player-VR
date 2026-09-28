@@ -16,6 +16,8 @@ const VP2D3D_SCENE := preload("res://addons/godot-xr-tools/objects/viewport_2d_i
 ## that sorts oddly never paints over them.
 const UI_RENDER_PRIORITY := 100
 
+## What the panel shows: the player's tabs, or another app's (Studio's menu).
+@export var content_scene: PackedScene = CONTENT_SCENE
 @export var distance_m: float = 1.2
 @export_range(0.5, 3.0) var world_width: float = 1.4
 @export var viewport_px: Vector2 = Vector2(900, 600)
@@ -37,7 +39,7 @@ var _drag_offset: Vector3  # panel position in the carrying controller's frame
 func _ready() -> void:
 	visible = false
 	_vp2d3d = VP2D3D_SCENE.instantiate()
-	_vp2d3d.scene = CONTENT_SCENE
+	_vp2d3d.scene = content_scene
 	_vp2d3d.viewport_size = viewport_px
 	var aspect := viewport_px.x / maxf(viewport_px.y, 1.0)
 	_vp2d3d.screen_size = Vector2(world_width, world_width / aspect)

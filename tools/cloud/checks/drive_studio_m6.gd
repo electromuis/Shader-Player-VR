@@ -142,7 +142,7 @@ func _initialize() -> void:
 	studio.inspector.set_section_open("effect1", true)
 	await frames(6)
 	var r := row()
-	var dot: Button = r.diamond.get_parent().get_child(1)
+	var dot: Button = r.dot
 	dot.pressed.emit()
 	await frames(3)
 	print("armed: '", studio.message, "' ", studio.recorder.armed.keys())

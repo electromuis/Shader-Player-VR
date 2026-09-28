@@ -1,12 +1,15 @@
 class_name StudioInspector
 extends PanelContainer
 
-## Studio's inspector: everything about the selected object besides where it
-## is, in sections (transform, display, the layer's shader, each effect,
-## modifiers, reactive), with controls generated from the shaders' hints.
-## Each property has a key diamond: ◆ a key at the playhead, ◇ animated,
-## • still (tap it to add or remove a key at the playhead). The effects stack
-## can be added to, reordered, switched off and on, and removed.
+## Studio's inspector: everything about the selected object, in sections
+## (transform, surface, display, the layer's shader, the pixel effects and
+## vertex effects, modifiers), with controls generated from the shaders'
+## hints. Each property has a key diamond: ◆ a key at the playhead, ◇
+## animated, • still (tap it to add or remove a key at the playhead), and a
+## ↺ back to its default. The transform is typed numbers (a row folds out a
+## slider per axis). Each effect list is compact: a row per effect (≡ drag
+## to reorder, on / off, its key state, ✕), the chosen one unfolded for its
+## settings, and a master switch for the whole list.
 ##
 ## It's a view of StudioConfigEdits: dragging a control shows the value live
 ## (preview), letting go writes it as one undoable step (commit), the way
@@ -24,26 +27,41 @@ const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
 const DIM := Color(0.72, 0.75, 0.8)
 const PANEL_BG := Color(0.06, 0.06, 0.09, 0.92)
+const ROW_BG := Color(0.11, 0.13, 0.18)
 ## A change made without a drag (a click, the colour wheel) is written once
 ## it has been left alone this long.
 const SETTLE := 0.6
 ## How often shown values follow the playhead (seconds).
 const REFRESH := 0.1
 ## Sections open when first shown (the rest start folded).
-const OPEN_BY_DEFAULT := ["Transform", "Display", "Layer shader"]
+const OPEN_BY_DEFAULT := ["Transform", "Surface", "Display", "Layer shader", "Pixel effects", "Vertex effects"]
+## The effect lists' sections.
+const LISTS := {EditModel.EFFECTS: {"title": "Pixel effects", "add": "+ Add effect", "menu": "add_effect", "slot": "effect"},
+	EditModel.VERTEX_EFFECTS: {"title": "Vertex effects", "add": "+ Add vertex effect", "menu": "add_vertex", "slot": "vertex"}}
+## Transform sliders' ranges (typed numbers go past them) and resets.
+const CHANNEL_RANGE := {"position": [-10.0, 10.0, 0.01], "rotation_deg": [-180.0, 180.0, 1.0], "scale": [0.0, 4.0, 0.01]}
+const CHANNEL_RESET := {"position": 0.0, "rotation_deg": 0.0, "scale": 1.0}
+const CHANNEL_LABEL := {"position": "Position", "rotation_deg": "Rotation", "scale": "Scale"}
 
 ## Headset layout: bigger text and targets.
 var vr := false
+## Scale typed into one axis scales all three by as much.
+var uniform_scale := true
 
 var edits: StudioConfigEdits
 var tools: StudioEditTools
 
 var _id := ""
-var _rows: Array = []  # [{field, kind, controls, diamond, value}]
+var _rows: Array = []  # [{field, kind, controls, diamond, value, reset}]
+var _t_rows: Array = []  # transform: [{channel, spins, sliders, diamond}]
+var _fx_rows: Array = []  # effect list rows: [{list, index, fields, glyph, switch}]
 var _open := {}  # section key -> bool
+var _open_fx := {EditModel.EFFECTS: -1, EditModel.VERTEX_EFFECTS: -1}  # the unfolded effect of each list
+var _open_channel := ""  # the transform row whose sliders are out
 var _pending := {}  # field key -> {field, value, since, dragging}
+var _t_pending := {}  # channel -> {value, since, dragging}
 var _needs_build := true
-var _menu := ""  # the inline choice list that's open ("add_effect" / "layer_shader"), "" none
+var _menu := ""  # the inline choice list that's open ("add_effect" / "add_vertex" / "layer_shader" / "surface"), "" none
 var _since_refresh := 0.0
 var _clock := 0.0
 var _keep_scroll := -1
@@ -53,6 +71,7 @@ var _viewer_state: Label  # the viewer's panel: where it is and how fast it goes
 
 var _title: Label
 var _kind: Label
+var _legend: Label
 var _hint: Label
 var _scroll: ScrollContainer
 var _list: VBoxContainer
@@ -66,7 +85,7 @@ var _dot_w := 20
 func _ready() -> void:
 	vr = vr or get_viewport() != get_tree().root
 	_fs = 28 if vr else 15
-	_label_w = 210 if vr else 132
+	_label_w = 190 if vr else 118
 	_value_w = 104 if vr else 58
 	_diamond_w = 48 if vr else 26
 	_dot_w = 40 if vr else 20
@@ -83,7 +102,7 @@ func _ready() -> void:
 	bg.set_content_margin_all(16 if vr else 10)
 	add_theme_stylebox_override("panel", bg)
 	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 8 if vr else 4)
+	rows.add_theme_constant_override("separation", 6 if vr else 3)
 	add_child(rows)
 
 	var top := HBoxContainer.new()
@@ -92,12 +111,19 @@ func _ready() -> void:
 	_title = _label(top, int(_fs * 1.3), Color.WHITE)
 	_title.clip_text = true
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_kind = _label(top, _fs, DIM)
 	var close := _button("✕", func(): close_requested.emit())
 	close.tooltip_text = "Deselect"
 	if vr:
 		close.custom_minimum_size = Vector2(_target_h(), _target_h())
 	top.add_child(close)
+	# Its kind, its group and when it's there; the key legend at the right.
+	var sub := HBoxContainer.new()
+	rows.add_child(sub)
+	_kind = _label(sub, int(_fs * 0.9), DIM)
+	_kind.clip_text = true
+	_kind.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_legend = _label(sub, int(_fs * 0.9), DIM)
+	_legend.text = "◆ key here  ◇ animated"
 	_hint = _label(rows, int(_fs * 0.9), DIM)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
@@ -124,6 +150,8 @@ func show_object(id: String) -> void:
 	_id = id
 	_menu = ""
 	_picker_open = ""
+	_open_channel = ""
+	_open_fx = {EditModel.EFFECTS: -1, EditModel.VERTEX_EFFECTS: -1}
 	_keep_scroll = 0
 	_needs_build = true
 
@@ -141,10 +169,28 @@ func reveal(key: String) -> void:
 	_needs_build = true
 
 
-## Open or fold a section by its key: its title ("Display", "Modifiers"),
-## or "effect<i>" for effect i.
+## Open or fold a section by its key: its title ("Display", "Modifiers",
+## "Pixel effects"), or "effect<i>" / "vertex<i>" to unfold effect i of a
+## list (folding the list's other one).
 func set_section_open(title: String, open: bool) -> void:
+	for list in LISTS:
+		var prefix: String = LISTS[list].slot
+		if title.begins_with(prefix) and title.substr(prefix.length()).is_valid_int():
+			var i := int(title.substr(prefix.length()))
+			if open:
+				_open_fx[list] = i
+				_open[LISTS[list].title] = true
+			elif _open_fx[list] == i:
+				_open_fx[list] = -1
+			_needs_build = true
+			return
 	_open[title] = open
+	_needs_build = true
+
+
+## Unfold transform channel `channel`'s sliders ("" folds them).
+func open_channel(channel: String) -> void:
+	_open_channel = channel
 	_needs_build = true
 
 
@@ -156,7 +202,10 @@ func _process(delta: float) -> void:
 		var p: Dictionary = _pending[key]
 		if not p.dragging and _clock - p.since >= SETTLE and key != _picker_open:
 			_commit(key)
-	if _needs_build and _pending.is_empty():
+	for ch in _t_pending.keys():
+		if not _t_pending[ch].dragging and _clock - _t_pending[ch].since >= SETTLE:
+			_commit_transform(ch)
+	if _needs_build and _pending.is_empty() and _t_pending.is_empty():
 		_needs_build = false
 		_build()
 	_since_refresh += delta
@@ -174,29 +223,37 @@ func _build() -> void:
 		_list.remove_child(c)
 		c.queue_free()
 	_rows.clear()
+	_t_rows.clear()
+	_fx_rows.clear()
 	var node := _node()
+	_legend.visible = _id != "" and _id != ScriptFormat.VIEWER
 	if _id == "" or edits.model == null:
 		_title.text = "Inspector"
 		_kind.text = ""
 		_hint.text = "Select something to see its settings: point and pull the trigger, or click it."
+		_hint.visible = true
 		return
 	if _id == ScriptFormat.VIEWER:
 		_build_viewer()
 		return
 	_title.text = _id
 	var kind := edits.kind_for(_id, node)
-	var si := edits.model.spawn_index(_id)
-	var spawn: Dictionary = edits.model.tracks()[si] if si >= 0 else {}
-	_kind.text = "%s (%s)" % [kind, spawn.get("prefab", "?")] if kind == "object" else kind
+	_kind.text = edits.describe(_id, _playhead(), _duration(), node)
 	var sections := edits.sections(_id, node, kind)
+	var lists_done := kind == "object"
 	for s in sections:
-		if s.title == "Modifiers" and kind != "object":
-			_add_effect_adder()
+		if s.kind == "effect":
+			continue  # in their lists
+		if s.title == "Modifiers" and not lists_done:
+			_add_effect_lists(sections)
+			lists_done = true
 		match s.kind:
-			"transform": _add_transform(s)
-			"effect": _add_effect(s)
+			"transform": _add_transform()
+			"surface": _add_surface(s)
 			"layer_shader": _add_layer_shader(s)
 			_: _add_section(s.title, s.title, s.fields)
+	if not lists_done:
+		_add_effect_lists(sections)
 	var save_look := _button("★ Save look (Ctrl+L): to the shelf, to put on others", func(): action.emit(&"studio_save_look"))
 	save_look.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	save_look.custom_minimum_size.y = _target_h()
@@ -208,8 +265,8 @@ func _build() -> void:
 		for r in _rows:
 			if r.field.key == _reveal:
 				target = r.controls.back() if not r.controls.is_empty() else r.diamond
-		if _reveal == "add_effect":
-			target = _list.find_child("AddEffectChoices", false, false)
+		if _reveal in ["add_effect", "add_vertex"]:
+			target = _list.find_child("AddEffectChoices" if _reveal == "add_effect" else "AddVertexChoices", true, false)
 		_reveal = ""
 		if target != null:
 			_scroll_to.call_deferred(target)
@@ -231,8 +288,10 @@ static func section_summary(fields: Array, most: int = 3) -> String:
 
 
 ## A foldable section: its header and a body with a row per field.
-func _add_section(key: String, title: String, fields: Array, header_extra: Callable = Callable(), note_empty := true) -> VBoxContainer:
-	var open: bool = _open.get(key, title in OPEN_BY_DEFAULT)
+## `summary` replaces the folded header's list of fields.
+func _add_section(key: String, title: String, fields: Array, header_extra: Callable = Callable(), note_empty := true,
+		summary := "") -> VBoxContainer:
+	var open: bool = _open.get(key, key in OPEN_BY_DEFAULT)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 6)
 	_list.add_child(head)
@@ -245,10 +304,10 @@ func _add_section(key: String, title: String, fields: Array, header_extra: Calla
 	fold.add_theme_font_size_override("font_size", int(_fs * 1.1))
 	fold.custom_minimum_size.y = _target_h()
 	head.add_child(fold)
-	if not open and not header_extra.is_valid() and not fields.is_empty():
+	if not open and (summary != "" or not fields.is_empty()):
 		# Folded: what's inside, at the right of the header.
 		var inside := _label(head, int(_fs * 0.85), DIM)
-		inside.text = section_summary(fields)
+		inside.text = summary if summary != "" else section_summary(fields)
 		inside.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if header_extra.is_valid():
 		header_extra.call(head)
@@ -256,6 +315,15 @@ func _add_section(key: String, title: String, fields: Array, header_extra: Calla
 	body.add_theme_constant_override("separation", 4 if vr else 2)
 	body.visible = open
 	_list.add_child(body)
+	_add_fields(body, fields)
+	if fields.is_empty() and open and note_empty:
+		var none := _label(body, int(_fs * 0.9), DIM)
+		none.text = "No settings."
+	return body
+
+
+## A row per field, with a group's name above its first.
+func _add_fields(body: Control, fields: Array) -> void:
 	var group := ""
 	for f in fields:
 		var g := String(f.get("group", ""))
@@ -264,32 +332,30 @@ func _add_section(key: String, title: String, fields: Array, header_extra: Calla
 			gl.text = g.capitalize()
 		group = g
 		_add_field(body, f)
-	if fields.is_empty() and open and note_empty:
-		var none := _label(body, int(_fs * 0.9), DIM)
-		none.text = "No settings."
-	return body
 
 
+## One field: [record dot] name, its control, its value, ↺, its diamond.
 func _add_field(parent: Control, field: Dictionary) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	if vr:
 		row.custom_minimum_size.y = _target_h()  # the diamond and dot are whole targets
 	parent.add_child(row)
-	var diamond := _button("", func(): _toggle_key(field))
-	diamond.flat = true
-	diamond.custom_minimum_size.x = _diamond_w
-	row.add_child(diamond)
-	row.add_child(_arm_dot(field))
+	var dot := _arm_dot(field)
+	row.add_child(dot)
 	var name := _label(row, _fs, Color.WHITE)
 	name.text = field.label
 	name.custom_minimum_size.x = _label_w - _dot_w
 	name.clip_text = true
-	var r := {"field": field, "kind": field.type, "controls": [], "diamond": diamond, "value": null}
+	var r := {"field": field, "kind": field.type, "controls": [], "diamond": null, "value": null, "reset": null,
+			"dot": dot if dot is Button else null}
 	match field.type:
 		"bool":
-			var sw := _switch(false, func(on: bool): _set_now(field, on))
-			row.add_child(sw)
+			var sw := _pill(false, func(on: bool): _set_now(field, on))
+			var holder := HBoxContainer.new()
+			holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			holder.add_child(sw)
+			row.add_child(holder)
 			r.controls = [sw]
 		"color":
 			var swatch := _button("", func():
@@ -301,6 +367,7 @@ func _add_field(parent: Control, field: Dictionary) -> void:
 					_reveal = field.key
 				_needs_build = true)
 			swatch.custom_minimum_size = Vector2(_label_w * 0.8, _fs * 1.6)
+			swatch.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(swatch)
 			r.controls = [swatch]
 			if _picker_open == field.key:
@@ -331,14 +398,14 @@ func _add_field(parent: Control, field: Dictionary) -> void:
 			box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(box)
 			for c in 3:
-				var slider := _slider(field)
+				var slider := _slider(field.min, field.max, field.step)
 				slider.value_changed.connect(func(_v): _changed(field, _vec_of(r), true))
 				slider.drag_started.connect(func(): _drag(field, true))
 				slider.drag_ended.connect(func(_c): _drag(field, false))
 				box.add_child(slider)
 				r.controls.append(slider)
 		_:
-			var slider := _slider(field)
+			var slider := _slider(field.min, field.max, field.step)
 			slider.value_changed.connect(func(v: float): _changed(field, int(v) if field.type == "int" else v, true))
 			slider.drag_started.connect(func(): _drag(field, true))
 			slider.drag_ended.connect(func(_c): _drag(field, false))
@@ -348,19 +415,29 @@ func _add_field(parent: Control, field: Dictionary) -> void:
 	value.custom_minimum_size.x = _value_w
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	r.value = value
+	var reset := _small_button("↺", func(): _set_now(field, field.default))
+	reset.flat = true
+	reset.tooltip_text = "Back to its default"
+	row.add_child(reset)
+	r.reset = reset
+	var diamond := _button("", func(): _toggle_key(field))
+	diamond.flat = true
+	diamond.custom_minimum_size.x = _diamond_w
+	row.add_child(diamond)
+	r.diamond = diamond
 	_rows.append(r)
 
 
-func _slider(field: Dictionary) -> HSlider:
+func _slider(lo: float, hi: float, step: float) -> HSlider:
 	var s := HSlider.new()
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	s.custom_minimum_size.y = _fs * 1.4
 	s.scrollable = false
 	s.focus_mode = Control.FOCUS_NONE
-	s.min_value = field.min
-	s.max_value = field.max
-	s.step = field.step
+	s.min_value = lo
+	s.max_value = hi
+	s.step = step
 	return s
 
 
@@ -368,68 +445,220 @@ static func _vec_of(r: Dictionary) -> Array:
 	return r.controls.map(func(s: HSlider): return s.value)
 
 
-func _add_transform(s: Dictionary) -> void:
-	var body := _add_section("Transform", "Transform", [], Callable(), false)
+# ---------- the transform ----------
+
+## A row per channel: its name (click it for a slider per axis), x / y / z
+## numbers to type in (or drag), its diamond; Uniform under scale.
+func _add_transform() -> void:
+	var body := _add_section("Transform", "Transform", [], Callable(), false, "position · rotation · scale")
+	if not body.visible:
+		return
 	for ch in StudioConfigEdits.CHANNELS:
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		if vr:
-			row.custom_minimum_size.y = _target_h()
+		row.add_theme_constant_override("separation", 6)
+		row.custom_minimum_size.y = _target_h()
 		body.add_child(row)
+		var open: bool = _open_channel == ch
+		var name := _button(CHANNEL_LABEL[ch], func():
+			_open_channel = "" if _open_channel == ch else ch
+			_needs_build = true)
+		name.flat = true
+		name.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name.custom_minimum_size.x = _label_w
+		name.add_theme_color_override("font_color", ACCENT if open else Color.WHITE)
+		name.tooltip_text = "Sliders for each axis"
+		row.add_child(name)
+		var t := {"channel": ch, "spins": [], "sliders": [], "diamond": null}
+		for c in 3:
+			var spin := _number(ch)
+			spin.prefix = "xyz"[c]
+			spin.value_changed.connect(func(v: float): _typed_axis(ch, c, v))
+			row.add_child(spin)
+			t.spins.append(spin)
 		var diamond := _button("", func(): _toggle_transform_key(ch))
 		diamond.flat = true
 		diamond.custom_minimum_size.x = _diamond_w
 		row.add_child(diamond)
-		row.add_child(_arm_dot({}))  # a gap: grabbing records transforms
-		var name := _label(row, _fs, Color.WHITE)
-		name.text = {"position": "Position", "rotation_deg": "Rotation °", "scale": "Scale"}[ch]
-		name.custom_minimum_size.x = _label_w - _dot_w
-		var value := _label(row, _fs, DIM)
-		value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_rows.append({"field": {"key": "transform/" + ch, "channel": ch}, "kind": "transform", "controls": [],
-			"diamond": diamond, "value": value})
-	if body.visible:
-		var tip := _label(body, int(_fs * 0.9), DIM)
-		tip.text = "Grab it to move it (the grip, or drag with the mouse)."
+		t.diamond = diamond
+		if open:
+			var box := VBoxContainer.new()
+			var frame := _framed(box)
+			body.add_child(frame)
+			var range_: Array = CHANNEL_RANGE[ch]
+			for c in 3:
+				var srow := HBoxContainer.new()
+				srow.add_theme_constant_override("separation", 8)
+				box.add_child(srow)
+				var axis := _label(srow, _fs, DIM)
+				axis.text = "xyz"[c]
+				axis.custom_minimum_size.x = _dot_w
+				var slider := _slider(range_[0], range_[1], range_[2])
+				slider.allow_greater = true
+				slider.allow_lesser = ch != "scale"
+				slider.value_changed.connect(func(v: float): _slid_axis(ch, c, v))
+				slider.drag_started.connect(func(): _t_drag(ch, true))
+				slider.drag_ended.connect(func(_x): _t_drag(ch, false))
+				srow.add_child(slider)
+				var shown := _label(srow, int(_fs * 0.9), DIM)
+				shown.custom_minimum_size.x = _value_w
+				shown.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+				slider.set_meta("shown", shown)
+				var reset := _small_button("↺", func(): _typed_axis(ch, c, CHANNEL_RESET[ch]))
+
+				reset.flat = true
+				reset.tooltip_text = "Back to %s" % str(CHANNEL_RESET[ch])
+				srow.add_child(reset)
+				slider.set_meta("reset", reset)
+				t.sliders.append(slider)
+		_t_rows.append(t)
+		if ch == "scale":
+			var uni := CheckBox.new()
+			uni.text = "Uniform (one value for x, y and z)"
+			uni.focus_mode = Control.FOCUS_NONE
+			uni.button_pressed = uniform_scale
+			uni.toggled.connect(func(on: bool): uniform_scale = on)
+			var urow := HBoxContainer.new()
+			var gap := Control.new()
+			gap.custom_minimum_size.x = _label_w
+			urow.add_child(gap)
+			urow.add_child(uni)
+			body.add_child(urow)
+	var tip := _label(body, int(_fs * 0.85), DIM)
+	tip.text = "Click a row for its sliders · type a number · grab to move"
 
 
-func _add_effect(s: Dictionary) -> void:
-	var i: int = s.index
-	var count := edits.model.effects_of(_id).size()
-	var body := _add_section("effect%d" % i, s.title + ("" if s.enabled else "  (off)"), s.fields, func(head: HBoxContainer):
-		head.set_meta("effect", i)
-		var on := _switch(s.enabled, func(v: bool): _effect_op(func(): return edits.model.set_effect_enabled(_id, i, v)))
-		on.tooltip_text = "On / off"
-		head.add_child(on)
-		var up := _small_button("↑", func(): _effect_op(func(): return edits.model.move_effect(_id, i, i - 1)))
-		up.disabled = i == 0
-		head.add_child(up)
-		var down := _small_button("↓", func(): _effect_op(func(): return edits.model.move_effect(_id, i, i + 1)))
-		down.disabled = i >= count - 1
-		head.add_child(down)
-		var remove := _small_button("✕", func(): _effect_op(func(): return edits.model.remove_effect(_id, i)))
-		remove.tooltip_text = "Remove"
-		head.add_child(remove))
-	if not s.enabled:
-		body.modulate = Color(1, 1, 1, 0.55)
+## A number field for a transform axis (type, or drag its arrows).
+func _number(ch: String) -> SpinBox:
+	var s := SpinBox.new()
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	s.custom_minimum_size.x = _value_w
+	s.min_value = -100000.0
+	s.max_value = 100000.0
+	s.step = 1.0 if ch == "rotation_deg" else 0.01
+	s.custom_arrow_step = 5.0 if ch == "rotation_deg" else 0.05 if ch == "position" else 0.01
+	s.select_all_on_focus = true
+	s.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	s.get_line_edit().add_theme_font_size_override("font_size", int(_fs * 0.95))
+	if vr:
+		s.custom_minimum_size.y = _target_h()
+	return s
 
 
-func _add_effect_adder() -> void:
-	var add := _button("+ Add effect", func():
-		_menu = "" if _menu == "add_effect" else "add_effect"
-		if _menu != "":
-			_reveal = "add_effect"
+## The channel as it is now: pending, else the node's ([x, y, z]).
+func _channel_now(ch: String) -> Array:
+	if _t_pending.has(ch):
+		return (_t_pending[ch].value as Array).duplicate()
+	var node := _node()
+	return GrabMath.to_dict(node.transform)[ch] if node != null else [0.0, 0.0, 0.0]
+
+
+## Axis `c` of `ch` set to `v` (Uniform scale takes the others along).
+func _with_axis(ch: String, c: int, v: float) -> Array:
+	var now := _channel_now(ch)
+	if ch == "scale" and uniform_scale:
+		var was := float(now[c])
+		if absf(was) < 1e-6:
+			return [v, v, v]
+		return now.map(func(x): return float(x) * v / was)
+	now[c] = v
+	return now
+
+
+## A typed number (or a ↺): written straight away.
+func _typed_axis(ch: String, c: int, v: float) -> void:
+	if _id == "":
+		return
+	var value := _with_axis(ch, c, v)
+	tools.preview_channel(_id, ch, value)
+	_t_pending[ch] = {"value": value, "since": _clock, "dragging": false}
+	_commit_transform(ch)
+
+
+func _slid_axis(ch: String, c: int, v: float) -> void:
+	if _id == "":
+		return
+	var value := _with_axis(ch, c, v)
+	tools.preview_channel(_id, ch, value)
+	var p: Dictionary = _t_pending.get(ch, {"dragging": false})
+	p.value = value
+	p.since = _clock
+	_t_pending[ch] = p
+	_show_transform(value, ch)
+
+
+func _t_drag(ch: String, on: bool) -> void:
+	if on:
+		var p: Dictionary = _t_pending.get(ch, {"value": _channel_now(ch), "since": _clock})
+		p.dragging = true
+		_t_pending[ch] = p
+	elif _t_pending.has(ch):
+		_commit_transform(ch)
+
+
+func _commit_transform(ch: String) -> void:
+	if not _t_pending.has(ch):
+		return
+	var value: Array = _t_pending[ch].value
+	_t_pending.erase(ch)
+	tools.set_channel(_id, ch, value)  # it says what it did
+
+
+# ---------- the surface, the layer's shader ----------
+
+## The surface's picker ("Pillow ▾"), its placements as buttons, its hint,
+## then its params.
+func _add_surface(s: Dictionary) -> void:
+	var body := _add_section("Surface", "Surface · %s" % s.label, s.fields)
+	if not body.visible:
+		return
+	var at := 0
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	body.add_child(row)
+	body.move_child(row, at)
+	at += 1
+	var name := _label(row, _fs, Color.WHITE)
+	name.text = "Shape"
+	name.custom_minimum_size.x = _label_w
+	var pick := _button(String(s.label) + "  ▾", func():
+		_menu = "" if _menu == "surface" else "surface"
 		_needs_build = true)
-	add.name = "AddEffect"
-	add.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	add.custom_minimum_size.y = _target_h()
-	_list.add_child(add)
-	if _menu == "add_effect":
-		var grid := _add_choices(edits.effect_options(), func(key: String):
-			var n := edits.model.effects_of(_id).size()
-			if _effect_op(func(): return edits.add_effect(_id, key)):
-				_open["effect%d" % n] = true)
-		grid.name = "AddEffectChoices"
+	pick.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pick.custom_minimum_size.y = _target_h()
+	row.add_child(pick)
+	if _menu == "surface":
+		var grid := _add_choices(s.options, func(key: String):
+			_label_op(func(): return edits.set_surface_shader(_id, key)))
+		_list.remove_child(grid)
+		body.add_child(grid)
+		body.move_child(grid, at)
+		at += 1
+	if s.placements.size() > 1:
+		var prow := HBoxContainer.new()
+		prow.add_theme_constant_override("separation", 6)
+		body.add_child(prow)
+		body.move_child(prow, at)
+		at += 1
+		var pname := _label(prow, _fs, Color.WHITE)
+		pname.text = "Placement"
+		pname.custom_minimum_size.x = _label_w
+		for p in s.placements:
+			var b := _button(String(ScreenGeometry.PLACEMENT_LABELS.get(p, p)), func():
+				_label_op(func(): return edits.set_surface_placement(_id, p)))
+			b.toggle_mode = true
+			b.set_pressed_no_signal(p == s.placement)
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			b.custom_minimum_size.y = _target_h()
+			if p == s.placement:
+				b.add_theme_color_override("font_color", ACCENT)
+				b.add_theme_color_override("font_pressed_color", ACCENT)
+			prow.add_child(b)
+	if String(s.hint) != "":
+		var hint := _label(body, int(_fs * 0.85), DIM)
+		hint.text = s.hint
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.move_child(hint, at)
 
 
 func _add_layer_shader(s: Dictionary) -> void:
@@ -458,6 +687,156 @@ func _add_layer_shader(s: Dictionary) -> void:
 		body.move_child(grid, at)
 
 
+# ---------- the effect lists ----------
+
+func _add_effect_lists(sections: Array) -> void:
+	for list in LISTS:
+		_add_effect_list(list, sections.filter(func(s): return s.kind == "effect" and s.get("list", EditModel.EFFECTS) == list))
+
+
+## A list's section: its master switch on the header, a row per effect (the
+## chosen one unfolded), then "+ Add".
+func _add_effect_list(list: String, effects: Array) -> void:
+	var info: Dictionary = LISTS[list]
+	var summary := " · ".join(effects.map(func(s): return String(s.title).to_lower())) if not effects.is_empty() else "none"
+	var master := func(head: HBoxContainer):
+		if effects.is_empty():
+			return
+		var all := _label(head, int(_fs * 0.85), DIM)
+		all.text = "all"
+		var on := effects.any(func(s): return s.enabled)
+		var sw := _pill(on, func(v: bool): _effect_op(func(): return edits.model.set_all_effects_enabled(_id, v, list)))
+		sw.tooltip_text = "Every %s on / off" % info.title.to_lower().trim_suffix("s")
+		head.add_child(sw)
+	var body := _add_section(info.title, info.title, [], master, false, summary)
+	if not body.visible:
+		return
+	var open: int = _open_fx[list]
+	for s in effects:
+		_add_effect_row(body, list, s, s.index == open, effects.size())
+	var add := _button(info.add, func():
+		_menu = "" if _menu == info.menu else info.menu
+		if _menu != "":
+			_reveal = info.menu
+		_needs_build = true)
+	add.name = "AddEffect" if list == EditModel.EFFECTS else "AddVertex"
+	add.custom_minimum_size.y = _target_h()
+	add.add_theme_color_override("font_color", ACCENT)
+	var dashed := StyleBoxFlat.new()
+	dashed.bg_color = Color(0, 0, 0, 0)
+	dashed.border_color = Color(ACCENT, 0.7)
+	dashed.set_border_width_all(2)
+	dashed.set_corner_radius_all(6)
+	dashed.set_content_margin_all(4)
+	add.add_theme_stylebox_override("normal", dashed)
+	var hover := dashed.duplicate()
+	hover.bg_color = Color(ACCENT, 0.12)
+	add.add_theme_stylebox_override("hover", hover)
+	add.add_theme_stylebox_override("pressed", hover)
+	var add_row := HBoxContainer.new()
+	add_row.add_child(add)
+	body.add_child(add_row)
+	if _menu == info.menu:
+		var grid := _add_choices(edits.effect_options(list), func(key: String):
+			var n := edits.model.effects_of(_id, list).size()
+			if _effect_op(func(): return edits.add_effect(_id, key, list)):
+				_open_fx[list] = n)
+		grid.name = "AddEffectChoices" if list == EditModel.EFFECTS else "AddVertexChoices"
+		_list.remove_child(grid)
+		body.add_child(grid)
+
+
+## One effect's row: ≡ (drag it onto another row to move it there), its
+## name (unfolds it), on / off, its key state, ✕; unfolded, its settings.
+func _add_effect_row(body: VBoxContainer, list: String, s: Dictionary, open: bool, count: int) -> void:
+	var i: int = s.index
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4 if vr else 2)
+	var frame := _framed(box, open)
+	body.add_child(frame)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = _target_h()
+	box.add_child(row)
+	var handle := _label(row, _fs, DIM)
+	handle.text = "≡"
+	handle.custom_minimum_size.x = _dot_w
+	handle.mouse_filter = Control.MOUSE_FILTER_STOP
+	handle.mouse_default_cursor_shape = Control.CURSOR_DRAG
+	handle.tooltip_text = "Drag onto another effect to move it there"
+	var drag := func(_at: Vector2):
+		if count < 2:
+			return null
+		var preview := Label.new()
+		preview.text = "≡ " + String(s.title)
+		preview.add_theme_font_size_override("font_size", _fs)
+		handle.set_drag_preview(preview)
+		return {"fx_list": list, "from": i}
+	handle.set_drag_forwarding(drag, Callable(), Callable())
+	# The whole frame takes a drop.
+	var can_drop := func(_at: Vector2, data) -> bool:
+		return typeof(data) == TYPE_DICTIONARY and data.get("fx_list") == list and data.get("from") != i
+	var drop := func(_at: Vector2, data) -> void:
+		drop_effect(list, int(data.from), i)
+	frame.set_drag_forwarding(Callable(), can_drop, drop)
+	var name := _button(String(s.title), func():
+		_open_fx[list] = -1 if _open_fx[list] == i else i
+		_needs_build = true)
+	name.flat = true
+	name.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name.clip_text = true
+	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name.add_theme_color_override("font_color", Color.WHITE if s.enabled else DIM)
+	row.add_child(name)
+	var on := _pill(s.enabled, func(v: bool): _effect_op(func(): return edits.model.set_effect_enabled(_id, i, v, list)))
+	on.tooltip_text = "On / off (off keeps its place and settings)"
+	row.add_child(on)
+	var glyph := _label(row, _fs, DIM)
+	glyph.custom_minimum_size.x = _diamond_w
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var remove := _small_button("✕", func(): _effect_op(func(): return edits.model.remove_effect(_id, i, list)))
+	remove.flat = true
+	remove.tooltip_text = "Remove"
+	row.add_child(remove)
+	_fx_rows.append({"list": list, "index": i, "fields": s.fields, "glyph": glyph, "switch": on})
+	if open:
+		if s.fields.is_empty():
+			var none := _label(box, int(_fs * 0.9), DIM)
+			none.text = "No settings."
+		_add_fields(box, s.fields)
+		if not s.enabled:
+			box.modulate = Color(1, 1, 1, 0.55)
+
+
+## Move effect `from` of `list` to where effect `to` is (a drop on its row).
+func drop_effect(list: String, from: int, to: int) -> bool:
+	var moved := _effect_op(func(): return edits.model.move_effect(_id, from, to, list))
+	# The unfolded one stays unfolded, wherever the move put it.
+	var open: int = _open_fx[list]
+	if moved and open >= 0:
+		if open == from:
+			_open_fx[list] = to
+		elif from < open and open <= to:
+			_open_fx[list] = open - 1
+		elif to <= open and open < from:
+			_open_fx[list] = open + 1
+	return moved
+
+
+## `inner` in a rounded box; `lit`: the accent border of the chosen one.
+func _framed(inner: Control, lit := false) -> PanelContainer:
+	var frame := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = ROW_BG if lit else Color(ROW_BG, 0.6)
+	sb.border_color = ACCENT if lit else Color(1, 1, 1, 0.08)
+	sb.set_border_width_all(2 if lit else 1)
+	sb.set_corner_radius_all(8)
+	sb.set_content_margin_all(8 if vr else 4)
+	frame.add_theme_stylebox_override("panel", sb)
+	frame.add_child(inner)
+	return frame
+
+
 ## A grid of buttons, one per option ({key, label}); picking one closes it.
 func _add_choices(options: Array, on_pick: Callable) -> GridContainer:
 	var grid := GridContainer.new()
@@ -471,6 +850,7 @@ func _add_choices(options: Array, on_pick: Callable) -> GridContainer:
 			on_pick.call(o.key))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size.y = _target_h()
+		b.clip_text = true
 		grid.add_child(b)
 	_list.add_child(grid)
 	return grid
@@ -487,6 +867,13 @@ func _node() -> Node3D:
 
 func _playhead() -> float:
 	return tools.runner.playhead if tools != null and tools.runner != null else 0.0
+
+
+## The piece's length as far as the runner knows (for the header's span).
+func _duration() -> float:
+	if tools == null or tools.runner == null:
+		return 1.0
+	return maxf(tools.runner.effective_duration(), _playhead())
 
 
 ## A control moved: show it live; it's written when the drag ends (or, with
@@ -515,7 +902,7 @@ func _drag(field: Dictionary, on: bool) -> void:
 		_commit(field.key)
 
 
-## A switch: written straight away.
+## A switch (or ↺): written straight away.
 func _set_now(field: Dictionary, value) -> void:
 	_pending[field.key] = {"field": field, "value": value, "since": _clock, "dragging": false}
 	_commit(field.key)
@@ -538,6 +925,7 @@ func _build_viewer() -> void:
 	_title.text = "Viewer"
 	_kind.text = "the audience's eye"
 	_hint.text = "Where the audience is taken. Its keys are on the timeline's Viewer lane: retime them, pick how they move on (Step before a key makes it a cut)."
+	_hint.visible = true
 	_hint.remove_theme_color_override("font_color")
 	_viewer_state = _label(_list, _fs, Color.WHITE)
 	_viewer_state.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -583,11 +971,14 @@ func _refresh_viewer(t: float) -> void:
 ## wrote them already).
 func drop_pending() -> void:
 	_pending.clear()
+	_t_pending.clear()
 
 
 func _commit_all() -> void:
 	for key in _pending.keys():
 		_commit(key)
+	for ch in _t_pending.keys():
+		_commit_transform(ch)
 
 
 func _toggle_key(field: Dictionary) -> void:
@@ -596,7 +987,7 @@ func _toggle_key(field: Dictionary) -> void:
 	if label != "":
 		said.emit(label + ".")
 	elif String(field.slot) == "":
-		said.emit("%s can't be animated%s." % [field.label, " while the effect is off" if String(field.key).begins_with("effect") else ""])
+		said.emit("%s can't be animated%s." % [field.label, " while the effect is off" if String(field.key).begins_with("effect") or String(field.key).begins_with("vertex") else ""])
 
 
 ## The record dot before a field's name: red while it's armed (a take
@@ -629,6 +1020,7 @@ func _toggle_transform_key(channel: String) -> void:
 	var node := _node()
 	if node == null:
 		return
+	_commit_all()
 	var label := edits.toggle_transform_key(_id, channel, _playhead(), GrabMath.to_dict(node.transform))
 	if label != "":
 		said.emit(label + ".")
@@ -642,6 +1034,14 @@ func _effect_op(op: Callable) -> bool:
 	return done
 
 
+## An op that returns its undo label ("" if nothing changed).
+func _label_op(op: Callable) -> void:
+	_commit_all()
+	var label: String = op.call()
+	if label != "":
+		said.emit(label + ".")
+
+
 # ---------- showing values ----------
 
 func _refresh_values() -> void:
@@ -651,32 +1051,27 @@ func _refresh_values() -> void:
 	if _id == ScriptFormat.VIEWER:
 		_refresh_viewer(t)
 		return
+	_hint.visible = tools.auto_key or tools.key_animated
 	if tools.auto_key:
 		_hint.text = "● Auto-key: changes key at %s." % StudioStatus.timecode(t)
 		_hint.add_theme_color_override("font_color", RECORD)
 	elif tools.key_animated:
-		_hint.text = "Keys on change: animated settings key at %s; still ones are set.\n◆ key here   ◇ animated   • still" % StudioStatus.timecode(t)
-		_hint.add_theme_color_override("font_color", DIM)
-	else:
-		_hint.text = "Changes set the piece's values; animated ones scale as a whole, except on a key (◆), which changes that key.\n◆ key here   ◇ animated   • still"
+		_hint.text = "Keys on change: animated settings key at %s; still ones are set." % StudioStatus.timecode(t)
 		_hint.add_theme_color_override("font_color", DIM)
 	var node := _node()
+	for tr in _t_rows:
+		var ch: String = tr.channel
+		_show_diamond(tr.diamond, edits.transform_state(_id, ch, t))
+		if node != null and not _t_pending.has(ch):
+			_show_transform(GrabMath.to_dict(node.transform)[ch], ch)
 	for r in _rows:
-		if r.kind == "transform":
-			var ch: String = r.field.channel
-			_show_diamond(r.diamond, edits.transform_state(_id, ch, t))
-			if node != null:
-				var v: Array = GrabMath.to_dict(node.transform)[ch]
-				var fmt := "%.0f" if ch == "rotation_deg" else "%.2f"
-				r.value.text = ", ".join(v.map(func(x): return (fmt % x).trim_prefix("-") if absf(x) < (0.5 if ch == "rotation_deg" else 0.005) else fmt % x))
-			continue
 		_show_diamond(r.diamond, edits.key_state(_id, r.field, t))
 		if _pending.has(r.field.key):
 			continue
 		var value = edits.value_of(_id, r.field, t)
 		match r.kind:
 			"bool":
-				_show_switch(r.controls[0], bool(value))
+				_show_pill(r.controls[0], bool(value))
 			"float", "int":
 				(r.controls[0] as HSlider).set_value_no_signal(float(value))
 			"vec3":
@@ -686,9 +1081,46 @@ func _refresh_values() -> void:
 				if r.controls.size() > 1 and _picker_open != r.field.key:
 					(r.controls[1] as ColorPicker).color = _color(value)
 		_show_value(r, value)
+	for fx in _fx_rows:
+		fx.glyph.text = {"key": "◆", "animated": "◇", "static": "•"}.get(_effects_state(fx.fields, t), "")
+		fx.glyph.add_theme_color_override("font_color", DIM if fx.glyph.text == "•" else RECORD)
+
+
+## An effect's key state from its fields': a key at `t` on any, else
+## animated if any is, else still ("none" when it can't be keyed).
+func _effects_state(fields: Array, t: float) -> String:
+	var out := "none"
+	for f in fields:
+		var s := edits.key_state(_id, f, t)
+		if s == "key":
+			return "key"
+		if s == "animated" or (s == "static" and out == "none"):
+			out = s
+	return out
+
+
+## A transform channel's numbers (and sliders, if they're out).
+func _show_transform(v: Array, ch: String) -> void:
+	for tr in _t_rows:
+		if tr.channel != ch:
+			continue
+		for c in 3:
+			var x := float(v[c])
+			if absf(x) < (0.5 if ch == "rotation_deg" else 0.005):
+				x = 0.0
+			var spin: SpinBox = tr.spins[c]
+			if not spin.get_line_edit().has_focus():
+				spin.set_value_no_signal(x)
+			if c < tr.sliders.size():
+				var slider: HSlider = tr.sliders[c]
+				slider.set_value_no_signal(x)
+				(slider.get_meta("shown") as Label).text = ("%.0f°" if ch == "rotation_deg" else "%.2f") % x
+				(slider.get_meta("reset") as Button).disabled = absf(x - float(CHANNEL_RESET[ch])) < 0.001
 
 
 func _show_value(r: Dictionary, value) -> void:
+	if r.get("reset") != null:
+		(r.reset as Button).disabled = _at_default(r.field, value)
 	match r.kind:
 		"bool":
 			r.value.text = ""
@@ -711,6 +1143,32 @@ func _show_value(r: Dictionary, value) -> void:
 			var swatch: Button = r.controls[0]
 			for state in ["normal", "hover", "pressed"]:
 				swatch.add_theme_stylebox_override(state, sb)
+
+
+## Whether `value` is the field's default (↺ has nothing to do).
+static func _at_default(field: Dictionary, value) -> bool:
+	var d = field.get("default")
+	if d == null:
+		return true
+	match field.type:
+		"float", "int":
+			return absf(float(value) - float(d)) < maxf(float(field.get("step", 0.01)) * 0.5, 1e-6)
+		"bool":
+			return bool(value) == bool(d)
+		"color", "vec3":
+			var a: Array = _color_array(value)
+			var b: Array = _color_array(d)
+			for c in mini(a.size(), b.size()):
+				if absf(float(a[c]) - float(b[c])) > 0.002:
+					return false
+			return true
+	return value == d
+
+
+static func _color_array(v) -> Array:
+	if v is Color:
+		return [v.r, v.g, v.b, v.a]
+	return v if typeof(v) == TYPE_ARRAY else []
 
 
 static func _color(value) -> Color:
@@ -750,34 +1208,39 @@ func _small_button(text: String, on_press: Callable) -> Button:
 	return b
 
 
-## An On / Off toggle (bigger and clearer than a checkbox on the headset).
-func _switch(on: bool, on_toggle: Callable) -> Button:
+## An on / off switch: a pill with its knob at the right (lit) when on.
+func _pill(on: bool, on_toggle: Callable) -> Button:
 	var b := Button.new()
 	b.toggle_mode = true
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(_fs * 3.4, _target_h())
+	var h := _target_h() if vr else _fs * 1.3
+	b.custom_minimum_size = Vector2(h * 1.9, h)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	for state in ["normal", "hover", "pressed", "hover_pressed"]:
 		var sb := StyleBoxFlat.new()
-		sb.set_corner_radius_all(8)
-		sb.set_content_margin_all(4)
+		sb.set_corner_radius_all(int(h / 2.0))
+		sb.content_margin_left = h * 0.15
+		sb.content_margin_right = h * 0.15
 		var lit: bool = state in ["pressed", "hover_pressed"]
-		sb.bg_color = Color(ACCENT, 0.3) if lit else Color(0.17, 0.2, 0.27)
+		sb.bg_color = ACCENT if lit else Color(0.3, 0.33, 0.4)
 		if state.begins_with("hover"):
-			sb.bg_color = sb.bg_color.lightened(0.1)
-		if lit:
-			sb.border_color = ACCENT
-			sb.set_border_width_all(2)
+			sb.bg_color = sb.bg_color.lightened(0.12)
 		b.add_theme_stylebox_override(state, sb)
-	_show_switch(b, on)
+	b.add_theme_font_size_override("font_size", int(h * 0.8))
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
+		b.add_theme_color_override(c, Color.WHITE)
+	_show_pill(b, on)
 	b.toggled.connect(func(v: bool):
-		_show_switch(b, v)
+		_show_pill(b, v)
 		on_toggle.call(v))
 	return b
 
 
-static func _show_switch(b: Button, on: bool) -> void:
+static func _show_pill(b: Button, on: bool) -> void:
 	b.set_pressed_no_signal(on)
-	b.text = "On" if on else "Off"
+	b.text = "●"
+	b.alignment = HORIZONTAL_ALIGNMENT_RIGHT if on else HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = b.tooltip_text if b.tooltip_text != "" else "On / off"
 
 
 ## Slider grabbers and track `factor` times the default size.
@@ -800,6 +1263,14 @@ static func _scale_sliders(th: Theme, factor: float) -> void:
 		sb.content_margin_top = maxf(sb.content_margin_top, 0.0) * factor
 		sb.content_margin_bottom = maxf(sb.content_margin_bottom, 0.0) * factor
 		th.set_stylebox(box, "HSlider", sb)
+	# The number fields' arrows too.
+	for icon in ["up", "down", "updown"]:
+		var tex := base.get_icon(icon, "SpinBox")
+		if tex == null or tex.get_image() == null:
+			continue
+		var img := tex.get_image()
+		img.resize(int(img.get_width() * factor), int(img.get_height() * factor), Image.INTERPOLATE_BILINEAR)
+		th.set_icon(icon, "SpinBox", ImageTexture.create_from_image(img))
 
 func _button(text: String, on_press: Callable) -> Button:
 	var b := Button.new()

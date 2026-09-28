@@ -69,11 +69,12 @@ func click(text: String, from: Node = null) -> void:
 	await frames(3)
 
 
-## Effect `index`'s section header (fold button, on / off, ↑, ↓, ✕).
-func effect_header(index: int) -> HBoxContainer:
-	var heads: Array = view._list.get_children().filter(
-			func(c): return c is HBoxContainer and c.has_meta("effect"))
-	return heads[index] if index < heads.size() else null
+## Effect `index`'s row in the pixel effects list ({list, index, switch, ...}).
+func effect_row(index: int) -> Dictionary:
+	for r in view._fx_rows:
+		if r.list == EditModel.EFFECTS and r.index == index:
+			return r
+	return {}
 
 
 func settings() -> Dictionary:
@@ -225,19 +226,17 @@ func _initialize() -> void:
 	await shot("2_add_effect")
 	await click("Rounded corners")
 	print("added: '", studio.message, "' stack ", stack())
-	var header := effect_header(4)
-	print("new effect's header: ", header.get_child(0).text if header != null else "?")
-	await click("↑", header)
-	print("moved up: '", studio.message, "' stack ", stack(), " tracks ", param_tracks("main_screen"))
+	# ↑ / ↓ are gone: its ≡ dropped on the row above.
+	print("moved up: ", view.drop_effect(EditModel.EFFECTS, 4, 3), " '", studio.message, "' stack ", stack(), " tracks ", param_tracks("main_screen"))
 
 	# Switch the oval mask off: its size keys go with it; back on, they return.
-	(effect_header(2).get_child(1) as Button).toggled.emit(false)
+	(effect_row(2).switch as Button).toggled.emit(false)
 	await frames(4)
 	print("oval off: '", studio.message, "' stack ", stack(), " tracks ", param_tracks("main_screen"),
 			" parked ", settings().effects[2].get("tracks", []).map(func(t): return t.param))
 	print("the screen runs ", now_screen._effect_keys.map(func(k): return k.get_file().get_basename()) if is_instance_valid(now_screen) else
 			reg.get_node_by_id("main_screen")._effect_keys.map(func(k): return k.get_file().get_basename()))
-	(effect_header(2).get_child(1) as Button).toggled.emit(true)
+	(effect_row(2).switch as Button).toggled.emit(true)
 	await frames(4)
 	print("oval on: '", studio.message, "' tracks ", param_tracks("main_screen"))
 

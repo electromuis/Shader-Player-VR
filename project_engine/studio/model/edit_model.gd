@@ -25,6 +25,11 @@ signal changed(structural: bool)
 
 ## Keys closer than this in time are the same key (set_key replaces it).
 const SAME_TIME := 0.0005
+## The two effect lists in a config, and their tracks' slot prefixes.
+const EFFECTS := "effects"
+const VERTEX_EFFECTS := "vertex_effects"
+const SLOT_PREFIX := {EFFECTS: ".effect", VERTEX_EFFECTS: ".vertex"}
+
 
 ## The file this came from and saves to.
 var path: String = ""
@@ -314,9 +319,10 @@ func config_of(id: String) -> Dictionary:
 	return cfg if typeof(cfg) == TYPE_DICTIONARY else {}
 
 
-## `id`'s effect list (switched-off effects included), to read.
-func effects_of(id: String) -> Array:
-	var effects = config_of(id).get("effects")
+## `id`'s effect list (switched-off effects included), to read: its pixel
+## effects, or `list` VERTEX_EFFECTS for its vertex effects.
+func effects_of(id: String, list: String = EFFECTS) -> Array:
+	var effects = config_of(id).get(list)
 	return effects if typeof(effects) == TYPE_ARRAY else []
 
 
@@ -455,6 +461,9 @@ func _config_change(i: int, keys: Array, value):
 
 
 # ---------- the effects stack ----------
+# Two lists work the same way: `effects` (pixel effects, EFFECTS) and
+# `vertex_effects` (VERTEX_EFFECTS, tracks on `<id>.vertex<N>`); each
+# command takes the list, pixel effects by default.
 # Effects are addressed by their place in the list (switched-off ones
 # included). Tracks address the switched-on ones by `<id>.effect<N>`, so
 # every change here renumbers them to follow their effect. A switched-off
@@ -464,53 +473,80 @@ func _config_change(i: int, keys: Array, value):
 # with the same effect list as the first changes with it.
 
 ## Add the effect at `shader_path` to `id`'s list (at `at`, else the end),
-## naming it in `shaders` if nothing does yet.
-func add_effect(id: String, shader_path: String, params: Dictionary = {}, at: int = -1) -> bool:
+## naming it in `shaders` if nothing does yet (a built-in vertex effect goes
+## by its name, "ripple", and needs none).
+func add_effect(id: String, shader_path: String, params: Dictionary = {}, at: int = -1, list: String = EFFECTS) -> bool:
 	if shader_path == "" or spawn_index(id) < 0:
 		return false
 	var extra: Array = []
-	var key := _shader_key_for(shader_path, extra)
-	var entries := _effect_entries(id)
+	var key := geometry_name(shader_path)
+	if key == "":
+		key = _shader_key_for(shader_path, extra)
+	var entries := _effect_entries(id, list)
 	if at < 0 or at > entries.size():
 		at = entries.size()
 	entries.insert(at, [-1, {"shader": key, "params": params}])
-	return _rework_effects(id, "Add %s to %s" % [key, id], entries, extra)
+	return _rework_effects(id, "Add %s to %s" % [key, id], entries, extra, list)
 
 
 ## Move effect `from` to place `to` in the list.
-func move_effect(id: String, from: int, to: int) -> bool:
-	var entries := _effect_entries(id)
+func move_effect(id: String, from: int, to: int, list: String = EFFECTS) -> bool:
+	var entries := _effect_entries(id, list)
 	if from < 0 or from >= entries.size() or to < 0 or to >= entries.size() or from == to:
 		return false
 	var e = entries.pop_at(from)
 	entries.insert(to, e)
-	return _rework_effects(id, "Move %s's %s %s" % [id, e[1].get("shader", "effect"), "up" if to < from else "down"], entries)
+	return _rework_effects(id, "Move %s's %s %s" % [id, e[1].get("shader", "effect"), "up" if to < from else "down"], entries, [], list)
 
 
-func set_effect_enabled(id: String, i: int, on: bool) -> bool:
-	var entries := _effect_entries(id)
+func set_effect_enabled(id: String, i: int, on: bool, list: String = EFFECTS) -> bool:
+	var entries := _effect_entries(id, list)
 	if i < 0 or i >= entries.size() or _effect_on(entries[i][1]) == on:
 		return false
+	_set_on(entries[i][1], on)
+	return _rework_effects(id, "Turn %s's %s %s" % [id, entries[i][1].get("shader", "effect"), "on" if on else "off"], entries, [], list)
+
+
+## The master switch: every effect of the list on, or off, as one step.
+func set_all_effects_enabled(id: String, on: bool, list: String = EFFECTS) -> bool:
+	var entries := _effect_entries(id, list)
+	if entries.all(func(e): return _effect_on(e[1]) == on):
+		return false
+	for e in entries:
+		_set_on(e[1], on)
+	return _rework_effects(id, "Turn %s's %s %s" % [id, "vertex effects" if list == VERTEX_EFFECTS else "effects",
+			"on" if on else "off"], entries, [], list)
+
+
+static func _set_on(entry: Dictionary, on: bool) -> void:
 	if on:
-		entries[i][1].erase("enabled")
+		entry.erase("enabled")
 	else:
-		entries[i][1]["enabled"] = false
-	return _rework_effects(id, "Turn %s's %s %s" % [id, entries[i][1].get("shader", "effect"), "on" if on else "off"], entries)
+		entry["enabled"] = false
 
 
 ## Remove effect `i` (and its tracks).
-func remove_effect(id: String, i: int) -> bool:
-	var entries := _effect_entries(id)
+func remove_effect(id: String, i: int, list: String = EFFECTS) -> bool:
+	var entries := _effect_entries(id, list)
 	if i < 0 or i >= entries.size():
 		return false
 	var e = entries.pop_at(i)
-	return _rework_effects(id, "Remove %s's %s" % [id, e[1].get("shader", "effect")], entries)
+	return _rework_effects(id, "Remove %s's %s" % [id, e[1].get("shader", "effect")], entries, [], list)
+
+
+## A built-in surface's or vertex effect's script name ("ripple") for its
+## path, "" for anything else.
+static func geometry_name(shader_path: String) -> String:
+	for n in ScreenGeometry.BUILTIN_NAMES:
+		if ScreenGeometry.BUILTIN_NAMES[n] == shader_path:
+			return n
+	return ""
 
 
 ## [[index in the current list, a copy of the entry]] for `id`'s effects.
-func _effect_entries(id: String) -> Array:
+func _effect_entries(id: String, list: String = EFFECTS) -> Array:
 	var out: Array = []
-	var effects := effects_of(id)
+	var effects := effects_of(id, list)
 	for i in effects.size():
 		out.append([i, effects[i].duplicate(true) if typeof(effects[i]) == TYPE_DICTIONARY else {}])
 	return out
@@ -519,11 +555,11 @@ func _effect_entries(id: String) -> Array:
 ## One command: `id`'s effect list becomes `entries` ([[old index or -1
 ## for a new effect, entry]]), its effect tracks renumbered, parked or
 ## unparked to match, plus `extra` changes.
-func _rework_effects(id: String, label: String, entries: Array, extra: Array = []) -> bool:
+func _rework_effects(id: String, label: String, entries: Array, extra: Array = [], list: String = EFFECTS) -> bool:
 	var spawns := spawn_indices(id)
 	if spawns.is_empty():
 		return false
-	var old := effects_of(id)
+	var old := effects_of(id, list)
 	var old_json := JSON.stringify(old)
 	var new_list: Array = entries.map(func(e): return e[1])
 	var index_of_slot := {}  # old slot N -> old index
@@ -535,7 +571,7 @@ func _rework_effects(id: String, label: String, entries: Array, extra: Array = [
 	for j in entries.size():
 		if entries[j][0] >= 0:
 			new_of_old[entries[j][0]] = j
-	var prefix := id + ".effect"
+	var prefix: String = id + SLOT_PREFIX[list]
 	var out: Array = []
 	for t in tracks():
 		var target := String(t.get("target", ""))
@@ -570,21 +606,21 @@ func _rework_effects(id: String, label: String, entries: Array, extra: Array = [
 	for k in out.size():
 		var t: Dictionary = out[k]
 		if t.get("type") == "event" and t.get("action") == "spawn" and t.get("id") == id \
-				and (is_same(t, first) or JSON.stringify(_effects_in(t)) == old_json):
+				and (is_same(t, first) or JSON.stringify(_effects_in(t, list)) == old_json):
 			var ev: Dictionary = t.duplicate(true)
 			var cfg: Dictionary = ev.get("config", {}) if typeof(ev.get("config")) == TYPE_DICTIONARY else {}
 			if new_list.is_empty():
-				cfg.erase("effects")
+				cfg.erase(list)
 			else:
-				cfg["effects"] = new_list.duplicate(true)
+				cfg[list] = new_list.duplicate(true)
 			ev["config"] = cfg
 			out[k] = ev
 	return _do(label, true, extra + [_change(["tracks"], out)])
 
 
-static func _effects_in(spawn: Dictionary) -> Array:
+static func _effects_in(spawn: Dictionary, list: String = EFFECTS) -> Array:
 	var cfg = spawn.get("config")
-	var effects = cfg.get("effects") if typeof(cfg) == TYPE_DICTIONARY else null
+	var effects = cfg.get(list) if typeof(cfg) == TYPE_DICTIONARY else null
 	return effects if typeof(effects) == TYPE_ARRAY else []
 
 

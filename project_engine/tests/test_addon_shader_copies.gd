@@ -81,6 +81,8 @@ const COPIES := {
 	"player/visualizer/surfaces/dome.gdshaderinc": "visualizer/surfaces/dome.gdshaderinc",
 	"player/visualizer/vertex/ripple.gdshaderinc": "visualizer/vertex/ripple.gdshaderinc",
 	"player/visualizer/vertex/twist.gdshaderinc": "visualizer/vertex/twist.gdshaderinc",
+	"player/visualizer/vertex/spin.gdshaderinc": "visualizer/vertex/spin.gdshaderinc",
+	"player/visualizer/vertex/pulse.gdshaderinc": "visualizer/vertex/pulse.gdshaderinc",
 	"player/visualizer/vertex/bulge.gdshaderinc": "visualizer/vertex/bulge.gdshaderinc",
 }
 

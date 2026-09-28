@@ -69,6 +69,8 @@ var _hover_bounds: Dictionary = {}  # node instance id -> AABB (one)
 ## The drag in progress: {id, node, primary, hands {name: Transform3D},
 ## offset, start (node-style dict), two ({} or {a0, b0, obj0})}.
 var _grab: Dictionary = {}
+## Where objects set by typed numbers were before (preview_channel).
+var _typed_start: Dictionary = {}  # id -> node-style dict
 var _lines: ImmediateMesh
 var _lines_mesh: MeshInstance3D
 var _bounds_cache: Dictionary = {}  # node instance id -> AABB
@@ -272,6 +274,36 @@ func key_selection() -> String:
 	_say(label + ".")
 	felt.emit("key", "main")  # the key button: the hand that acts
 	return label
+
+
+## Show `id` with transform channel `channel` at `value` ([x, y, z]; the
+## inspector's typed numbers and sliders) while it's being set, holding the
+## runner off it. set_channel writes it.
+func preview_channel(id: String, channel: String, value: Array) -> void:
+	var node := runner.registry().get_node_by_id(id) if runner != null else null
+	if node == null or is_grabbing():
+		return
+	if not runner.held.has(id):
+		runner.held[id] = true
+		_typed_start[id] = GrabMath.to_dict(node.transform)
+	var d := GrabMath.to_dict(node.transform)
+	d[channel] = value
+	node.transform = GrabMath.from_dict(d)
+
+
+## Write transform channel `channel` of `id` as `value`, the way a grab
+## writes a move (auto-key, keys on change, or the spawn / the whole path).
+## Returns the undo label ("" if nothing changed).
+func set_channel(id: String, channel: String, value: Array) -> String:
+	var node := runner.registry().get_node_by_id(id) if runner != null else null
+	if node == null or is_grabbing():
+		return ""
+	var before: Dictionary = _typed_start.get(id, GrabMath.to_dict(node.transform))
+	_typed_start.erase(id)
+	runner.held.erase(id)
+	var after := before.duplicate(true)
+	after[channel] = value
+	return _commit(id, before, after)
 
 
 ## Write a move from `before` to `after` (node-style dicts, local).

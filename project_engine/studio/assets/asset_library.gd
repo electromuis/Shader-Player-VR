@@ -5,11 +5,12 @@ extends RefCounted
 ## Assets). Pure: it only lists files, so tests drive it headless.
 ##
 ## An asset: {id (unique: type + path), type ("object" / "layer" /
-##   "effect" / "look"), kind ("screen" / "cube" / "prefab" / "layer" /
-##   "effect"; a look's: "screen" / "layer" / "object"), label, path (the
-##   prefab for objects, the shader for layers and effects, the file for
-##   looks), source ("builtin", "user" or "piece"), in_piece (a user
-##   asset the piece has a copy of), scale (the size it's dropped at)}.
+##   "effect" / "vertex" / "look"), kind ("screen" / "cube" / "prefab" /
+##   "layer" / "effect" / "vertex"; a look's: "screen" / "layer" /
+##   "object"), label, path (the prefab for objects, the shader for layers
+##   and effects, the snippet for vertex effects, the file for looks),
+##   source ("builtin", "user" or "piece"), in_piece (a user asset the
+##   piece has a copy of), scale (the size it's dropped at)}.
 ## A user asset the piece already has a copy of (the same file name and
 ## bytes, as bundling makes) is one card: the user's, marked in_piece.
 ##
@@ -28,8 +29,8 @@ extends RefCounted
 ## signature() changes when any of those folders' files do, so the shelf can
 ## watch them.
 
-const TYPES := ["object", "layer", "effect", "look"]
-const TYPE_LABELS := {"object": "Objects", "layer": "Layers", "effect": "Effects", "look": "Looks"}
+const TYPES := ["object", "layer", "effect", "vertex", "look"]
+const TYPE_LABELS := {"object": "Objects", "layer": "Layers", "effect": "Effects", "vertex": "Vertex", "look": "Looks"}
 const PREFAB_EXTENSIONS := ["tscn", "scn"]
 const LAYER_PREFAB := "res://player/prefabs/layer.tscn"
 ## Built-in screens and layers are 32 × 18 m at scale 1: dropped at this
@@ -72,6 +73,9 @@ func assets() -> Array:
 			var path := String(o.key)
 			_add(out, seen, "effect" if effects else "layer", "effect" if effects else "layer", String(o.label),
 					path, _source_of(path), SCREEN_SCALE)
+	for o in ScreenGeometry.list_options(ScreenGeometry.VERTEX_DIR, vertex_dirs()):
+		var path := String(o.key)
+		_add(out, seen, "vertex", "vertex", String(o.label), path, _source_of(path), SCREEN_SCALE)
 	for dir in _prefab_scan_dirs():
 		for f in _sorted_files(dir):
 			if f.get_extension().to_lower() in PREFAB_EXTENSIONS:
@@ -123,7 +127,8 @@ func of_type(type: String) -> Array:
 func signature() -> String:
 	var parts: Array = []
 	var shader_exts: Array = VisualizerShaders.GODOT_EXTENSIONS + VisualizerShaders.SHADERTOY_EXTENSIONS
-	for pair in [[_shader_scan_dirs(), shader_exts], [_prefab_scan_dirs(), PREFAB_EXTENSIONS], [_look_dirs(), ["json"]]]:
+	for pair in [[_shader_scan_dirs(), shader_exts], [vertex_dirs(), [ScreenGeometry.EXTENSION]],
+			[_prefab_scan_dirs(), PREFAB_EXTENSIONS], [_look_dirs(), ["json"]]]:
 		for dir in pair[0]:
 			for f in _sorted_files(dir):
 				if String(f).get_extension().to_lower() in pair[1]:
@@ -156,6 +161,19 @@ func _shader_scan_dirs() -> Array[String]:
 		# Not the piece's folder itself: a readme .txt there would read as
 		# Shadertoy code.
 		_push_dir(out, piece_dir.path_join("shaders"))
+	return out
+
+
+## Vertex effect snippets: the player's `shaders/vertex/` folders, and
+## `shaders/vertex/` in the library folders and the piece's.
+func vertex_dirs() -> Array[String]:
+	var out: Array[String] = []
+	for d in shader_dirs:  # the player's: ScreenGeometry.search_dirs
+		_push_dir(out, d.path_join(ScreenGeometry.VERTEX_DIR))
+	for d in library_dirs:
+		_push_dir(out, d.path_join("shaders").path_join(ScreenGeometry.VERTEX_DIR))
+	if piece_dir != "":
+		_push_dir(out, piece_dir.path_join("shaders").path_join(ScreenGeometry.VERTEX_DIR))
 	return out
 
 

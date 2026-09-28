@@ -12,8 +12,10 @@ extends RefCounted
 ##   config (its path in the spawn config, [] if it has none),
 ##   slot ("display", "effect1", "modifiers", ...: the `shader_param` track
 ##   target is "<id>.<slot>"; "" = it can't be keyed), param}.
-## A section: {title, kind ("fields" / "effect" / "transform"), fields};
-##   effects also have index (in the list), shader (key), label, enabled.
+## A section: {title, kind ("fields" / "effect" / "transform" / "surface" /
+##   "layer_shader"), fields}; effects also have list (EditModel.EFFECTS or
+##   VERTEX_EFFECTS), index (in the list), shader (key), enabled; the
+##   surface has shader (a path), placement, placements, options, hint.
 ##
 ## What a change writes (commit):
 ##   auto-key on  — a key at the playhead on the field's track (made if
@@ -67,6 +69,30 @@ func kind_for(id: String, node: Node = null) -> String:
 	return {"res://player/prefabs/screen.tscn": "screen", "res://player/prefabs/layer.tscn": "layer"}.get(path, "object")
 
 
+## The inspector's line under the name: its kind, its group, and when it's
+## there ("Screen · in screen_split · 0:00.00 → 0:55.00"); the span is the
+## one at `t`, else the first. `until` is the piece's length.
+func describe(id: String, t: float, until: float, node: Node = null) -> String:
+	var kind := kind_for(id, node)
+	var parts: Array = [kind.capitalize()]
+	if kind == "object":
+		var i := model.spawn_index(id)
+		parts[0] = String(model.tracks()[i].get("prefab", "object")).capitalize() if i >= 0 else "Object"
+	for lane in StudioTimeline.lanes(model, until):
+		if lane.id != id:
+			continue
+		if lane.parent != "":
+			parts.append("in " + String(lane.parent))
+		var spans: Array = lane.spans
+		if not spans.is_empty():
+			var span: Array = spans[0]
+			for s in spans:
+				if t >= s[0] and t <= s[1]:
+					span = s
+			parts.append("%s → %s" % [StudioStatus.timecode(span[0]), StudioStatus.timecode(span[1])])
+	return " · ".join(parts)
+
+
 ## The inspector's sections for `id` (see the top). `node` is its spawned
 ## node, for what only the node knows (a custom prefab's material); null is
 ## fine. `kind` "" works it out (kind_for).
@@ -77,24 +103,22 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 	var out: Array = [{"title": "Transform", "kind": "transform", "fields": []}]
 	match kind:
 		"screen":
-			var shader := String(cfg.get("shader", ""))
-			if shader != "":
-				out.append(_shader_section("Surface · %s" % shader.capitalize(), _resolve(shader), ["shader_params"], "surface"))
+			out.append(surface_section(id))
 			out.append({"title": "Display", "kind": "fields", "fields": [
-				_float("curvature", "Curvature", 0.0, 1.0, 0.01, 0.0, ["curvature"], "display"),
-				_float("vertical_curvature", "V. curvature", 0.0, 1.0, 0.01, 0.0, ["vertical_curvature"], "display"),
 				_float("opacity", "Opacity", 0.0, 1.0, 0.01, 1.0, ["opacity"], "display"),
 				_float("render_scale", "Render scale", 0.1, 2.0, 0.05, 1.0, ["render_scale"], ""),
 			]})
+			var shader := String(cfg.get("shader", ""))
+			if shader != "":
+				out.append(_shader_section("Shader · %s" % shader.capitalize(), _resolve(shader), ["shader_params"], "surface"))
 		"layer":
 			var shader := String(cfg.get("shader", ""))
 			var section := _shader_section("Layer shader", _resolve(shader), ["params"], "layer")
 			section["shader"] = shader
 			section["kind"] = "layer_shader"
 			out.append(section)
+			out.append(surface_section(id))
 			out.append({"title": "Display", "kind": "fields", "fields": [
-				_float("curvature", "Curvature", 0.0, 1.0, 0.01, 0.0, ["curvature"], "display"),
-				_float("vertical_curvature", "V. curvature", 0.0, 1.0, 0.01, 0.0, ["vertical_curvature"], "display"),
 				_float("opacity", "Opacity", 0.0, 1.0, 0.01, 1.0, ["opacity"], "display"),
 				_float("resolution", "Resolution", 0.1, 2.0, 0.05, 1.0, ["resolution"], ""),
 			]})
@@ -102,13 +126,14 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 			var mat := ScriptRunner.surface_material(node) if node != null else null
 			if mat != null and mat.shader != null:
 				var hints := VisualizerShaders.parse_hints(mat.shader.code)
-				var section := _hint_section("Surface", hints, [], "surface")
+				var section := _hint_section("Material", hints, [], "surface")
 				if not section.fields.is_empty():
 					out.append(section)
 	if kind != "object":
-		var effects := model.effects_of(id)
-		for i in effects.size():
-			out.append(_effect_section(effects, i))
+		for list in [EditModel.EFFECTS, EditModel.VERTEX_EFFECTS]:
+			var effects := model.effects_of(id, list)
+			for i in effects.size():
+				out.append(_effect_section(effects, i, list))
 	var mods: Array = []
 	if kind == "object":  # a screen's or layer's fade is its display opacity
 		mods.append(_float("mod_opacity", "Opacity", 0.0, 1.0, 0.01, 1.0, ["modifiers", "opacity"], "modifiers", "opacity"))
@@ -117,26 +142,123 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 	mods.append(_float("speed", "Speed", 0.0, 4.0, 0.05, 1.0, ["modifiers", "speed"], "modifiers"))
 	mods.append(_float("sort_offset", "Sort offset", -50.0, 50.0, 0.5, 0.0, ["modifiers", "sort_offset"], "modifiers"))
 	out.append({"title": "Modifiers", "kind": "fields", "fields": mods})
-	out.append({"title": "Reactive", "kind": "fields", "fields": [
-		{"key": "spin", "label": "Spin °/s", "type": "vec3", "min": -360.0, "max": 360.0, "step": 1.0,
-			"default": [0.0, 0.0, 0.0], "config": ["reactive", "spin"], "slot": "reactive", "param": "spin"},
-		_float("pulse", "Pulse", 0.0, 1.0, 0.01, 0.0, ["reactive", "pulse"], "reactive"),
-	]})
+	# Screens and layers spin and pulse with vertex effects (Spin, Pulse);
+	# Reactive stays for other objects, and for a piece that already has it.
+	if kind == "object" or cfg.has("reactive"):
+		out.append({"title": "Reactive", "kind": "fields", "fields": [
+			{"key": "spin", "label": "Spin °/s", "type": "vec3", "min": -360.0, "max": 360.0, "step": 1.0,
+				"default": [0.0, 0.0, 0.0], "config": ["reactive", "spin"], "slot": "reactive", "param": "spin"},
+			_float("pulse", "Pulse", 0.0, 1.0, 0.01, 0.0, ["reactive", "pulse"], "reactive"),
+		]})
 	return out
 
 
-## Effect `i`'s section: its hinted params, keyed on its slot while it's on.
-func _effect_section(effects: Array, i: int) -> Dictionary:
+## Effect `i` of `list`'s section: its hinted params, keyed on its slot
+## (`effect<N>` / `vertex<N>`) while it's on.
+func _effect_section(effects: Array, i: int, list: String = EditModel.EFFECTS) -> Dictionary:
 	var e: Dictionary = effects[i] if typeof(effects[i]) == TYPE_DICTIONARY else {}
 	var key := String(e.get("shader", ""))
-	var path := _resolve(key)
+	var vertex := list == EditModel.VERTEX_EFFECTS
+	var path := _resolve_geometry(key) if vertex else _resolve(key)
 	var slot := EditModel.effect_slot(effects, i)
-	var section := _hint_section(effect_label(key, path), VisualizerShaders.hints_for(path) if path != "" else {},
-			["effects", i, "params"], "effect%d" % slot if slot >= 0 else "")
-	section.merge({"kind": "effect", "index": i, "shader": key, "enabled": slot >= 0}, true)
+	var name := "vertex" if vertex else "effect"
+	var hints := {}
+	if path != "":
+		hints = {"params": ScreenGeometry.hints_for(path).params} if vertex else VisualizerShaders.hints_for(path)
+	var section := _hint_section(geometry_label(path, key) if vertex else effect_label(key, path), hints,
+			[list, i, "params"], "%s%d" % [name, slot] if slot >= 0 else "")
+	section.merge({"kind": "effect", "list": list, "index": i, "shader": key, "enabled": slot >= 0}, true)
 	for f in section.fields:
-		f.key = "effect%d/%s" % [i, f.param]
+		f.key = "%s%d/%s" % [name, i, f.param]
 	return section
+
+
+# ---------- the surface ----------
+
+## Where the picture sits as the piece says: {shader (a path), params,
+## placement} (ScreenGeometry.normalized_surface). A piece from before
+## surfaces, with `curvature` / `vertical_curvature`, shows the Pillow they
+## make (as the player plays it).
+func surface_of(id: String) -> Dictionary:
+	var cfg := model.config_of(id)
+	if typeof(cfg.get("surface")) == TYPE_DICTIONARY:
+		var s: Dictionary = cfg.surface.duplicate(true)
+		s["shader"] = _resolve_geometry(String(s.get("shader", "")))
+		return ScreenGeometry.normalized_surface(s)
+	var out := ScreenGeometry.default_surface()
+	for pair in [["curvature", "arc_x"], ["vertical_curvature", "arc_y"]]:
+		if cfg.has(pair[0]):
+			out.params[pair[1]] = clampf(float(cfg[pair[0]]), 0.0, 1.0) * 180.0
+	return out
+
+
+## The Surface section: the surface picker, its placement and its params
+## (on `<id>.shape`; the ones its placement ignores left out).
+func surface_section(id: String) -> Dictionary:
+	var s := surface_of(id)
+	var hints := ScreenGeometry.hints_for(s.shader)
+	var unused: Array = hints.unused.get(s.placement, [])
+	var section := _hint_section("Surface", {"params": hints.params.filter(func(p): return not p.name in unused)},
+			["surface", "params"], "shape")
+	for f in section.fields:
+		f.key = "shape/" + String(f.param)
+	section.merge({"kind": "surface", "shader": s.shader, "placement": s.placement,
+		"placements": ScreenGeometry.placements_for(s.shader), "hint": hints.hint,
+		"label": geometry_label(s.shader, ""), "options": ScreenGeometry.list_options(ScreenGeometry.SURFACES_DIR)}, true)
+	return section
+
+
+## Give `id` the surface at `path` (an option's key), at its default
+## placement, its params starting from their defaults. One undo step.
+func set_surface_shader(id: String, path: String) -> String:
+	if path == "" or path == surface_of(id).shader:
+		return ""
+	var s := {"shader": path, "params": {}, "placement": ScreenGeometry.default_placement(path)}
+	var label := "Set %s's surface to %s" % [id, geometry_label(path, "")]
+	return label if _write_surface(id, s, label) else ""
+
+
+func set_surface_placement(id: String, placement: String) -> String:
+	var s := surface_of(id)
+	if placement == s.placement or not placement in ScreenGeometry.placements_for(s.shader):
+		return ""
+	s.placement = placement
+	var label := "Place %s's surface %s" % [id, String(ScreenGeometry.PLACEMENT_LABELS.get(placement, placement)).to_lower()]
+	return label if _write_surface(id, s, label) else ""
+
+
+## Write surface `s` ({shader: a path, ...}) into `id`'s config, naming
+## the shader (a built-in by name, else a `shaders` key), and drop an
+## earlier piece's curvature, which would bend it back.
+func _write_surface(id: String, s: Dictionary, label: String) -> bool:
+	return model.batch(label, func():
+		var key := EditModel.geometry_name(s.shader)
+		if key == "":
+			var b := StudioBundle.bundle(model.path.get_base_dir(), s.shader)
+			key = model.name_shader(b.path if b.ok else s.shader)
+		# One change of the whole config, so undo puts it back as it was.
+		var cfg := model.config_of(id).duplicate(true)
+		cfg["surface"] = {"shader": key, "params": s.params, "placement": s.placement}
+		cfg.erase("curvature")
+		cfg.erase("vertical_curvature")
+		model.replace_config(id, cfg, label))
+
+
+
+## A surface's or vertex effect's name for people: its @title (a built-in's
+## label), else `key`'s or the file's.
+static func geometry_label(path: String, key: String) -> String:
+	if path != "":
+		return VisualizerShaders.title_of(ScreenGeometry.read_code(path), path)
+	return key.capitalize() if key != "" else "None"
+
+
+## A surface's or vertex effect's config name to its path: a built-in's
+## name ("ripple"), else a `shaders` key.
+func _resolve_geometry(key: String) -> String:
+	if ScreenGeometry.is_builtin_name(key) and not model.document().get("shaders", {}).has(key):
+		return ScreenGeometry.resolve_builtin(key)
+	return _resolve(key)
 
 
 func _shader_section(title: String, path: String, config: Array, slot: String) -> Dictionary:
@@ -217,6 +339,8 @@ func value_of(id: String, field: Dictionary, t: float):
 		var v = Interpolation.evaluate(model.tracks()[ti].get("keyframes", []), t)
 		if v != null:
 			return _typed(field, v)
+	if field.config.size() == 3 and field.config[0] == "surface":
+		return _typed(field, surface_of(id).params.get(field.param, field.default))
 	if not field.config.is_empty():
 		var at = _config_value(id, field.config)
 		if at != null:
@@ -324,7 +448,7 @@ func commit(id: String, field: Dictionary, value, t: float, auto_key: bool, key_
 	var done := false
 	if slot == "":
 		label = "Set %s" % what
-		done = model.set_config(id, field.config, value, label)
+		done = _set_config(id, field.config, value, label)
 	elif auto_key or field.config.is_empty() or (ti >= 0 and (field.type == "bool" or key_animated
 			or key_near(model.tracks()[ti].get("keyframes", []), t) >= 0)):
 		var at := _key_time(ti, t)
@@ -336,8 +460,18 @@ func commit(id: String, field: Dictionary, value, t: float, auto_key: bool, key_
 		done = model.set_keyframes(ti, _shifted(model.tracks()[ti].get("keyframes", []), now, value), label)
 	else:
 		label = "Set %s" % what
-		done = model.set_config(id, field.config, value, label)
+		done = _set_config(id, field.config, value, label)
 	return label if done else ""
+
+
+## set_config, and for a surface param first the surface as it plays (an
+## earlier piece's curvature becomes its Pillow), all one step.
+func _set_config(id: String, path: Array, value, label: String) -> bool:
+	if path.is_empty() or path[0] != "surface" or typeof(model.config_of(id).get("surface")) == TYPE_DICTIONARY:
+		return model.set_config(id, path, value, label)
+	return model.batch(label, func():
+		_write_surface(id, surface_of(id), label)
+		model.set_config(id, path, value, label))
 
 
 ## Tap on a field's diamond: remove the key at the playhead, or add one
@@ -436,7 +570,12 @@ func _as_value(field: Dictionary, value):
 
 ## Effects that can be added: [{key (a shader path), label}]: the built-ins,
 ## the piece's own effect shaders, and the user's (from the library).
-func effect_options() -> Array:
+## `list` VERTEX_EFFECTS: the vertex effects (built-ins and the user's
+## `shaders/vertex/` snippets).
+func effect_options(list: String = EditModel.EFFECTS) -> Array:
+	if list == EditModel.VERTEX_EFFECTS:
+		var dirs := library.vertex_dirs() if library != null else ScreenGeometry.search_dirs(ScreenGeometry.VERTEX_DIR)
+		return ScreenGeometry.list_options(ScreenGeometry.VERTEX_DIR, dirs).map(func(o): return {"key": o.key, "label": o.label})
 	return _shader_options(VisualizerShaders.builtins(true), true)
 
 
@@ -468,11 +607,16 @@ func _shader_options(builtins: Array, effects: bool) -> Array:
 	return out
 
 
-## Add the effect at `path` (an option's key) to `id`, bundling a user
-## shader into the piece first. One undo step.
-func add_effect(id: String, path: String) -> bool:
-	var b := StudioBundle.bundle(model.path.get_base_dir(), path)
-	return b.ok and model.add_effect(id, b.path)
+## Add the effect at `path` (an option's key) to `id`'s `list`, bundling a
+## user shader into the piece first (built-in vertex effects go by name).
+## One undo step.
+func add_effect(id: String, path: String, list: String = EditModel.EFFECTS) -> bool:
+	if EditModel.geometry_name(path) != "":
+		return model.add_effect(id, path, {}, -1, list)
+	var vertex_dir := "shaders/" + ScreenGeometry.VERTEX_DIR if list == EditModel.VERTEX_EFFECTS else ""
+	var b := StudioBundle.bundle(model.path.get_base_dir(), path, vertex_dir)
+	return b.ok and model.add_effect(id, b.path, {}, -1, list)
+
 
 
 ## Give layer `id` the shader at `path`, bundling a user shader first.

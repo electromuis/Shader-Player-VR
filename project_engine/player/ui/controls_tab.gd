@@ -24,6 +24,8 @@ const BUTTON_SIZE := Vector2(44, 36)
 const _GESTURE_IDS := {"press": 0, "hold": 1, "double": 2}
 const _REMOVE_ID := 10
 
+## The sections this app lists (Studio lists its own).
+var sections: Array = SECTIONS
 var _router: InputRouter
 var _bindings: InputBindings
 var _list: VBoxContainer
@@ -87,7 +89,7 @@ func _rebuild() -> void:
 	for c in _bindings.conflicts():
 		conflicted[c[0]] = c[1]
 		conflicted[c[1]] = c[0]
-	for section in SECTIONS:
+	for section in sections:
 		var title := Label.new()
 		title.text = section[1]
 		title.add_theme_color_override("font_color", ACCENT)

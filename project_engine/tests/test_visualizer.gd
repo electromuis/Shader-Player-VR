@@ -311,6 +311,44 @@ static func test_parse_hints_channels_and_height_only(t: TestCase) -> void:
 	t.assert_eq(VisualizerShaders.parse_hints("").channels, {0: "audio"})
 
 
+static func test_parse_hints_textures(t: TestCase) -> void:
+	var h := VisualizerShaders.parse_hints("""
+// @iChannel2 image
+uniform sampler2D input_tex : filter_linear;
+uniform sampler2D video_tex : hint_default_transparent;
+uniform float amount : hint_range(0.0, 1.0) = 0.5;
+uniform sampler2D logo : source_color, hint_default_transparent;
+""")
+	t.assert_eq(h.channels, {0: "audio", 2: "image"})
+	t.assert_eq(h.params.map(func(p): return p.name), ["iChannel2", "amount", "logo"],
+			"image channel first, bound inputs skipped")
+	t.assert_eq(h.params[0].type, "texture")
+	t.assert_eq(h.params[0].default, "")
+	t.assert_eq(h.params[2].type, "texture")
+
+
+static func test_image_library(t: TestCase) -> void:
+	var dir := _fresh_dir()
+	var img := Image.create(4, 2, false, Image.FORMAT_RGBA8)
+	img.fill(Color.RED)
+	img.save_png(dir.path_join("logo.png"))
+	_write(dir.path_join("notes.txt"), "not an image")
+	var dirs: Array[String] = [ProjectSettings.globalize_path(dir)]
+	var opts := ImageLibrary.list_options(dirs)
+	t.assert_eq(opts.map(func(o): return o.label), ["logo"], "only images listed")
+	var tex: Texture2D = ImageLibrary.value(opts[0].key)
+	t.assert_true(tex != null, "path loads")
+	t.assert_eq(tex.get_size(), Vector2(4, 2))
+	t.assert_true(ImageLibrary.value(opts[0].key) == tex, "cached")
+	t.assert_eq(ImageLibrary.value(""), null, "none")
+	t.assert_eq(ImageLibrary.value(0.5), 0.5, "numbers pass through")
+	ImageLibrary.clear()
+	var again: Texture2D = ImageLibrary.reloaded(tex)
+	t.assert_true(again != null and again != tex, "reloaded from the file")
+	ImageLibrary.clear()
+	_wipe()
+
+
 static func test_builtin_effects(t: TestCase) -> void:
 	for b in VisualizerShaders.builtins(true):
 		var shader := VisualizerShaders.load_shader(b.key)

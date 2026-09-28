@@ -14,6 +14,8 @@
 // vec2(uv.x, 1.0 - uv.y) with uv = fragCoord / iResolution.xy. Clamp to
 // one eye's half to keep a blur from crossing into the other (channels
 // 1–3 repeat).
+// A `// @iChannelN image` line binds it to an image instead, picked in the
+// layer's controls (files in an `images/` folder; see ImageLibrary).
 // There is no mouse, keyboard or multipass buffer support.
 //
 // A shader that also defines mainVR renders in 3D instead (see

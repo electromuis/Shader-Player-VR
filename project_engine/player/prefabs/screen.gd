@@ -428,7 +428,7 @@ func set_material_param(slot: String, param: String, value: Variant) -> void:
 		return
 	var mat := get_shader_material()
 	if mat != null:
-		mat.set_shader_parameter(param, value)
+		mat.set_shader_parameter(param, ImageLibrary.value(value))
 
 
 ## Called by the runner with the object's `config` block.
@@ -651,7 +651,7 @@ func _apply_effect_params() -> void:
 		var mat: ShaderMaterial = p.material
 		var params: Dictionary = _effect_params[i] if i < _effect_params.size() else {}
 		for k in params:
-			mat.set_shader_parameter(k, params[k])
+			mat.set_shader_parameter(k, ImageLibrary.value(params[k]))
 		var key: String = _effect_keys[i] if i < _effect_keys.size() else ""
 		mat.set_shader_parameter("display_aspect", w / h)
 		mat.set_shader_parameter("picture_rect", picture_rect(base, w, h))

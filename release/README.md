@@ -67,7 +67,7 @@ The shipped shaders are in `shaders/sources/` and `shaders/effects/`. Change a n
 
 To **add** a shader, put a new file in `shaders/sources/` (layers) or `shaders/effects/` (effects), or a `.gdshaderinc` in `shaders/surfaces/` (surfaces) or `shaders/vertex/` (vertex effects). Its file name becomes its name in the list.
 
-- **Shadertoy code** works as-is: save the `mainImage` function as a `.glsl` file in `shaders/sources/`. `iTime`, `iResolution` and `iChannel0` are supported. `iChannel0` is the music, as Shadertoy's 512×2 spectrum and waveform texture. Mouse, keyboard, texture channels and multipass buffers aren't.
+- **Shadertoy code** works as-is: save the `mainImage` function as a `.glsl` file in `shaders/sources/`. `iTime`, `iResolution` and `iChannel0` are supported. `iChannel0` is the music, as Shadertoy's 512×2 spectrum and waveform texture. Texture channels work through `// @iChannel1 image` (see below). Mouse, keyboard and multipass buffers aren't supported.
 - **3D shaders:** add Shadertoy's VR function, `mainVR(out vec4 fragColor, in vec2 fragCoord, in vec3 fragRayOri, in vec3 fragRayDir)`, and the shader renders in 3D: per eye, with depth and parallax when you move your head, as if the screen were a window. The ray is in metres, with the screen's centre at 0 and you on +z. Add `out float fragDepth` after `fragColor` (metres along the ray) so other things can sit in front of or inside it. Effects don't apply to 3D shaders. See the Gyroid tunnel for an example.
 - **Godot shaders** (`.gdshader`, `shader_type canvas_item;`) work too. Include `../shadertoy_prelude.gdshaderinc` for the same inputs plus `audio_bass`, `audio_mid`, `audio_high` and `audio_level`. Copy one of the built-ins as a starting point.
 - **Effects** are `.gdshader` files that include `../effect_prelude.gdshaderinc` and sample `input_tex` at `UV`. `display_aspect` is the screen's width divided by its height. The built-in effects are good examples.
@@ -78,6 +78,11 @@ To **add** a shader, put a new file in `shaders/sources/` (layers) or `shaders/e
 - Every `uniform float` or `uniform int` with a `hint_range(min, max[, step])` gets a slider, and every `uniform bool` gets a checkbox. They're saved in presets.
 - `// @resolution 1024x1024` sets the size a layer renders at, and the layer takes that shape. The default is 960×540. `// @resolution 270` gives only the height; the width follows the video's shape.
 - `// @iChannel1 video` (any of iChannel0–3) feeds that channel the playing video's frame. The layer then takes the video's shape and 3D layout.
+- `// @iChannel1 image` gives that channel an image picker instead. In a `.gdshader` (layer or effect), every extra `uniform sampler2D` gets one too; add `hint_default_transparent` so the shader can tell when no image is picked. The picked image is saved in presets.
+
+## Images
+
+Put `.png`, `.jpg` or `.webp` files in an `images` folder next to `Player.exe`, and they show up in the image pickers of shaders that take a texture (see above). **Image pulse** (a layer) moves a picture with the music: the bass punches it in, the mids ripple it and the highs split its colours. **Image overlay** (an effect) puts a picture over a layer or the video, as a logo, a frame or a mask. After you edit an image file, press **Reload shaders** to read it again.
 
 ## Skyboxes
 
@@ -87,4 +92,4 @@ The background is black by default. Other options are in **F2 → Config**, incl
 
 Because of `portable.ini`, the player keeps everything it saves in this folder: settings in `save/` and presets in `presets/`. Copy the whole folder to a USB stick or another PC and it comes along. Delete `save/` to reset your settings.
 
-If you'd rather have your saves in your user profile, delete `portable.ini`. The player then uses `%APPDATA%\Godot\app_userdata\Scripted VJ Video Player\` for settings and its `presets` subfolder for presets, and ignores `save/` and `presets/` here. Move your preset files over first if you want to keep them. With `portable.ini` removed, extra shaders and skyboxes can also go in the `shaders` and `skyboxes` subfolders there.
+If you'd rather have your saves in your user profile, delete `portable.ini`. The player then uses `%APPDATA%\Godot\app_userdata\Scripted VJ Video Player\` for settings and its `presets` subfolder for presets, and ignores `save/` and `presets/` here. Move your preset files over first if you want to keep them. With `portable.ini` removed, extra shaders, skyboxes and images can also go in the `shaders`, `skyboxes` and `images` subfolders there.

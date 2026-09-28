@@ -21,6 +21,8 @@ const COPIES := {
 	"player/visualizer/effects/crop.gdshader": "visualizer/effects/crop.gdshader",
 	"player/visualizer/effects/rounded_corners.gdshader": "visualizer/effects/rounded_corners.gdshader",
 	"player/visualizer/effects/keep_center.gdshader": "visualizer/effects/keep_center.gdshader",
+	"player/visualizer/effects/image_overlay.gdshader": "visualizer/effects/image_overlay.gdshader",
+	"player/visualizer/shaders/image_pulse.gdshader": "visualizer/shaders/image_pulse.gdshader",
 	"player/visualizer/shaders/light_ring.gdshader": "visualizer/shaders/light_ring.gdshader",
 	"player/visualizer/shaders/spectrum_bars.gdshader": "visualizer/shaders/spectrum_bars.gdshader",
 	"player/visualizer/shaders/apollonian.gdshader": "visualizer/shaders/apollonian.gdshader",

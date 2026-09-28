@@ -433,8 +433,9 @@ func _reactive_end() -> void:
 
 ## `cfg` with shader keys swapped for the files they name (what Screen /
 ## Visualizer.set_effects and Visualizer.set_shader take; a layer's "video"
-## source stays, unless `shaders` maps that name), and JSON arrays in
-## effect params turned into vectors.
+## source stays, unless `shaders` maps that name), JSON arrays in
+## effect params turned into vectors and strings (image paths, see
+## ImageLibrary) resolved against the script's folder.
 func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 	var out := cfg.duplicate(true)
 	if is_layer:
@@ -443,7 +444,7 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 			out["shader"] = _shader_path(source)
 		var params = cfg.get("params", {})
 		if typeof(params) == TYPE_DICTIONARY:
-			out["params"] = _shader_values(params)
+			out["params"] = _param_values(params)
 	for list_key in ["effects", "vertex_effects"]:
 		var effects = cfg.get(list_key)
 		if typeof(effects) != TYPE_ARRAY:
@@ -455,7 +456,7 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 			var params = e.get("params", {})
 			list.append({
 				"shader": _shader_path(String(e.get("shader", ""))),
-				"params": _shader_values(params) if typeof(params) == TYPE_DICTIONARY else {},
+				"params": _param_values(params) if typeof(params) == TYPE_DICTIONARY else {},
 				"enabled": bool(e.get("enabled", true)),
 			})
 		out[list_key] = list
@@ -483,6 +484,16 @@ func _shader_path(key: String) -> String:
 	return path
 
 
+## _shader_values with string values (image paths) resolved against the
+## script's folder.
+func _param_values(params: Dictionary) -> Dictionary:
+	var out := _shader_values(params)
+	for k in out:
+		if typeof(out[k]) == TYPE_STRING and out[k] != "":
+			out[k] = timeline.resolve(out[k])
+	return out
+
+
 static func _shader_values(params: Dictionary) -> Dictionary:
 	var out := {}
 	for k in params:
@@ -501,8 +512,9 @@ func _build_shader_material(shader_key: String, params) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	if typeof(params) == TYPE_DICTIONARY:
-		for k in params.keys():
-			mat.set_shader_parameter(String(k), shader_value(params[k]))
+		var values := _param_values(params)
+		for k in values:
+			mat.set_shader_parameter(String(k), ImageLibrary.value(values[k]))
 	return mat
 
 
@@ -585,6 +597,9 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 		if _reactive.has(parts[0]) and param == "pulse":
 			_reactive[parts[0]].pulse = float(value)
 		return  # spin is integrated from its keyframes in _reactive_end
+	# A string for a shader's texture param is an image path.
+	if typeof(value) == TYPE_STRING and value != "" and parts[1] != "display":
+		value = timeline.resolve(value)
 	# Prefabs with several materials (e.g. Screen: artist shader + display
 	# pass) route by slot name. Otherwise prefer a get_shader_material()
 	# hook, then fall back to GeometryInstance3D's active material.
@@ -599,7 +614,7 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 		if active is ShaderMaterial:
 			mat = active
 	if mat != null:
-		mat.set_shader_parameter(param, value)
+		mat.set_shader_parameter(param, ImageLibrary.value(value))
 
 
 func _read_transform(t: Dictionary) -> Transform3D:

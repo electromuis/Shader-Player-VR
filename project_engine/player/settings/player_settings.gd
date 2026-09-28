@@ -59,6 +59,7 @@ const SKYBOX_BUILTINS := [
 	"black", "dark_grey", "light_grey", "navy", "purple", "teal",
 	"night", "dusk", "day",
 	"forest", "clouds", "space",
+	"passthrough",
 ]
 const SKYBOX_LABELS := {
 	"black": "Black",
@@ -73,6 +74,7 @@ const SKYBOX_LABELS := {
 	"forest": "Forest",
 	"clouds": "Above the clouds",
 	"space": "Space",
+	"passthrough": "Passthrough (Quest)",
 }
 
 var locomotion: int = Locomotion.LOCKED: set = _set_locomotion

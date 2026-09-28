@@ -1,6 +1,6 @@
-# 3D shader layers (design note, not built yet)
+# 3D shader layers (design note)
 
-Layer shaders are flat today: `mainImage` renders into a texture that a screen shows, so both eyes see the same picture. This note collects the plan for making them 3D, per eye. Nothing here is implemented yet.
+Layer shaders are flat today: `mainImage` renders into a texture that a screen shows, so both eyes see the same picture. This note collects the plan for making them 3D, per eye. **`mainVR` (true 3D) is built**; the depth map (`depthImage`) is not yet. Where the build settled an open question, it's noted below.
 
 ## Three entry points; the function is the flag
 
@@ -49,7 +49,8 @@ Plain Shadertoy code with only `mainImage` keeps working unchanged.
 - **Costs:**
   - It renders at the headset's per-eye resolution, not the layer's `@resolution`, so heavy raymarchers get more expensive. A quality or march-steps slider can compensate.
   - The effect chain works on a texture, so texture effects (Kaleidoscope and the like) don't apply to a `mainVR` layer. Alpha, opacity and vertex effects still do.
-- **Open question: ray space.** The suggestion is metres in the screen's own frame (screen at z = 0, viewer on +z), matching the vertex effects, so "the tunnel is 3 m deep" means what it says.
+- **Ray space (settled):** metres in the screen's own frame (screen at z = 0, viewer on +z, scale left out), matching the vertex effects, so "the tunnel is 3 m deep" means what it says. At infinity the frame is centred on the camera. The ray starts at the eye, as on Shadertoy; a shader that wants the screen as a window starts marching where the ray crosses z = 0 (the gyroid tunnel does).
+- **As built:** `VisualizerShaders.is_vr_code` spots `mainVR`; its code goes into the display shader (`screen_shader_code.gd`'s `build`, with `SHADERTOY_VR` defined, and `SHADERTOY_VR_DEPTH` when it has `fragDepth`), and the layer's uniforms go on the display material. Shadertoy's own four-argument `mainVR` works too (no depth written). The picture is opaque, times the layer's opacity.
 
 ## Other options considered
 
@@ -59,4 +60,4 @@ Plain Shadertoy code with only `mainImage` keeps working unchanged.
 ## Suggested order
 
 1. `depthImage` + the Depth vertex effect, tried on the gyroid tunnel (exact depth from the march) and the plasma (invented depth). It's smaller, reuses the prepass mechanism, and also covers video through effects.
-2. `mainVR` in the screen's 3D pass, starting with the gyroid tunnel.
+2. `mainVR` in the screen's 3D pass, starting with the gyroid tunnel. (Built first after all.)

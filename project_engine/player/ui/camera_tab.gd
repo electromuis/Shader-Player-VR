@@ -77,6 +77,7 @@ var _vertex_options: Array[Dictionary] = []  # [{key, label}] for vertex effect 
 var _layout_row: HBoxContainer  # under the source row: the video layout pickers, for layer 0
 var _stereo_option: OptionButton  # next to projection_option (the field of view)
 var _swap_check: CheckBox
+var _blend_option: OptionButton  # after the opacity slider: Screen.BLENDS
 var _watched: Array[Callable] = []  # per watched layer, its bound structure_changed handler
 var _refreshing: bool = false
 ## Effects whose params are expanded, by identity (move_effect keeps the
@@ -91,6 +92,7 @@ func _ready() -> void:
 	height_slider.value_changed.connect(_on_edit.bind("height"))
 	tilt_slider.value_changed.connect(_on_edit.bind("tilt"))
 	opacity_slider.value_changed.connect(_on_edit.bind("opacity"))
+	_build_blend_picker()
 	resolution_slider.value_changed.connect(_on_edit.bind("resolution"))
 	lock_check.toggled.connect(_on_layer_edit.bind("lock_to_screen"))
 	enabled_check.toggled.connect(func(v: bool):
@@ -115,6 +117,16 @@ func _ready() -> void:
 	shader_option.item_selected.connect(_on_shader_selected)
 	_refresh_target_list()
 	_update_value_labels()
+
+
+## How the screen or layer goes over what's behind it, next to its opacity.
+func _build_blend_picker() -> void:
+	_blend_option = OptionButton.new()
+	_blend_option.tooltip_text = "How it goes over what's behind it: Add adds its light (black adds nothing), Black transparent makes black see-through and keeps colours solid"
+	for mode in Screen.BLENDS:
+		_blend_option.add_item(Screen.BLEND_LABELS[mode])
+	_blend_option.item_selected.connect(func(idx: int): _on_edit(Screen.BLENDS[idx], "blend"))
+	opacity_value.add_sibling(_blend_option)
 
 
 ## The field of view picker is projection_option, moved to its own row
@@ -616,6 +628,7 @@ func _refresh_sliders_from_settings() -> void:
 	height_slider.set_value_no_signal(edited.height)
 	tilt_slider.set_value_no_signal(edited.tilt)
 	opacity_slider.set_value_no_signal(edited.opacity)
+	_blend_option.select(maxi(Screen.BLENDS.find(edited.blend), 0))
 	resolution_slider.set_value_no_signal(edited.resolution)
 	# Locked, a layer sits on the screen: height and tilt are unused
 	# (distance moves it in front of / behind the screen).

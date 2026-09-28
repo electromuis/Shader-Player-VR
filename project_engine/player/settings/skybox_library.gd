@@ -7,10 +7,15 @@ extends RefCounted
 ## `skyboxes/` in AppPaths.save_dir() and a `skyboxes/` folder next to the
 ## executable.
 ##
+## "passthrough" is the headset's cameras (see XRMode.set_passthrough):
+## here only a transparent background for them to show through, black on
+## the desktop or a headset without it.
+##
 ## Ambient light is left alone so script-spawned lit objects look the same
 ## whichever background is chosen.
 
 const IMAGE_EXTENSIONS := ["png", "jpg", "jpeg", "webp", "hdr"]
+const PASSTHROUGH := "passthrough"
 
 const _SOLID := {
 	"black": Color.BLACK,
@@ -66,7 +71,9 @@ static func list_options() -> Array[Dictionary]:
 func apply(env: Environment, key: String) -> void:
 	if env == null:
 		return
-	if _SOLID.has(key):
+	if key == PASSTHROUGH:
+		_solid(env, Color(0.0, 0.0, 0.0, 0.0))
+	elif _SOLID.has(key):
 		_solid(env, _SOLID[key])
 	elif _PROCEDURAL.has(key):
 		_procedural(env, _PROCEDURAL[key])

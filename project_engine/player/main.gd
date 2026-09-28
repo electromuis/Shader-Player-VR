@@ -381,6 +381,7 @@ func _on_entered_vr() -> void:
 	xr_rig.xr_camera.current = true
 	_update_mode_label()
 	vr_button.text = "Exit VR"
+	_apply_passthrough()
 	# The runtime's own recenter (e.g. holding the Oculus/SteamVR button)
 	# should land on our home pose too.
 	var xr := XRServer.find_interface("OpenXR")
@@ -406,6 +407,15 @@ func _on_exited_vr() -> void:
 		floating_panel.show_in_front_of(desktop_camera)
 	_update_mode_label()
 	vr_button.text = "Enter VR"
+
+
+## The Passthrough skybox in VR: the headset's cameras behind everything.
+func _apply_passthrough() -> void:
+	var want := _player_settings.skybox == SkyboxLibrary.PASSTHROUGH and xr_mode.is_in_vr()
+	if want == xr_mode.is_passthrough():
+		return
+	if not xr_mode.set_passthrough(want) and want:
+		_set_status("Passthrough isn't available on this headset or runtime")
 
 
 func _on_vr_init_failed(reason: String) -> void:
@@ -489,7 +499,7 @@ static func _screen_pivot() -> Vector3:
 	return Vector3(DefaultScreen.POSITION[0], DefaultScreen.POSITION[1], DefaultScreen.POSITION[2])
 
 
-## Opacity, surface, effects and vertex effects apply to every screen under
+## Opacity, blend, surface, effects and vertex effects apply to every screen under
 ## the mount (main and split-off).
 func _apply_screen_display() -> void:
 	if _screen_settings == null or screen_mount == null:
@@ -520,6 +530,8 @@ func _apply_display_to(screen: Node) -> void:
 	screen.set_resolution_scale(_screen_settings.resolution)
 	if not screen.is_scripted("opacity"):
 		screen.set_opacity(_screen_settings.opacity)
+	if not screen.is_scripted("blend"):
+		screen.set_blend(_screen_settings.blend)
 	if not screen.is_scripted("surface"):
 		screen.set_surface(_screen_settings.surface)
 	if not screen.is_scripted("effects"):
@@ -566,6 +578,7 @@ func _apply_layer(settings: LayerSettings, node: Visualizer) -> void:
 	node.set_surface(settings.surface)
 	node.set_vertex_effects(settings.vertex_effects)
 	node.set_opacity(settings.opacity)
+	node.set_blend(settings.blend)
 	node.set_resolution_scale(settings.resolution)
 	# Off: no source, so the layer hides and its render viewport stops.
 	node.set_shader(settings.shader if settings.enabled else "")
@@ -652,6 +665,7 @@ func _apply_player_settings() -> void:
 	floor_mesh.visible = _player_settings.show_floor
 	_apply_window_settings()
 	_skyboxes.apply(world_env.environment, _player_settings.skybox)
+	_apply_passthrough()
 	if _video != null:
 		_video.set_volume(_player_settings.volume)
 		if _audio != null:

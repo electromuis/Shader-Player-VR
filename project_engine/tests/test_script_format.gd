@@ -213,3 +213,9 @@ static func test_resolve_relative_and_absolute(tc: TestCase) -> void:
 	data.base_dir = "res://examples/minimal"
 	tc.assert_eq(data.resolve("video.mp4"), "res://examples/minimal/video.mp4")
 	tc.assert_eq(data.resolve("res://foo.mp4"), "res://foo.mp4")
+
+
+static func test_spawn_config_blend(tc: TestCase) -> void:
+	var s := '{"format_version":1,"media":{"video":"x.mp4"},"tracks":[{"type":"event","t":1.0,"action":"spawn","id":"a","prefab":"screen","config":{"blend":"%s"}}]}'
+	tc.assert_ok(ScriptFormat.load_from_string(s % "add"))
+	tc.assert_err(ScriptFormat.load_from_string(s % "multiply"), "blend")

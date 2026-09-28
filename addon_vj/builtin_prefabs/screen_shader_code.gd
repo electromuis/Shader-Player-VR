@@ -18,6 +18,9 @@ static var _decl_re := RegEx.create_from_string(
 static var _uniform_re := RegEx.create_from_string(
 		"(?m)^\\s*uniform\\s+(float|int|bool)\\s+(\\w+)\\s*(?::\\s*([^=;]*))?(?:=\\s*([^;]+))?;")
 static var _range_re := RegEx.create_from_string("hint_range\\s*\\(([^)]*)\\)")
+## A mainVR with `out float fragDepth` after its colour (see build).
+static var _vr_depth_re := RegEx.create_from_string(
+		"(?m)^\\s*void\\s+mainVR\\s*\\(\\s*out\\s+vec4\\s+\\w+\\s*,\\s*out\\s+float\\b")
 
 
 static func vertex_prefix(index: int) -> String:
@@ -40,8 +43,18 @@ static func prefixed(code: String, prefix: String) -> String:
 ## Display shader source: `include` (the display pass's include), the
 ## vertex effects' sources in order (ones without a `deform(` skipped), the
 ## surface's (none without a `surface(`), and a vertex() running them.
-static func build(include: String, vertex_sources: Array, surface_source: String) -> String:
-	var code := "shader_type spatial;\nrender_mode unshaded, cull_disabled, shadows_disabled, fog_disabled;\n"
+## `vr_source`, a 3D layer shader's code (its mainVR; no shader_type or
+## render_mode), goes before the include with SHADERTOY_VR defined, and
+## SHADERTOY_VR_DEPTH when its mainVR has a fragDepth: the include's
+## fragment() then calls it, and the screen writes depth.
+static func build(include: String, vertex_sources: Array, surface_source: String, vr_source: String = "") -> String:
+	var code := "shader_type spatial;\nrender_mode unshaded, cull_disabled, shadows_disabled, fog_disabled, blend_premul_alpha%s;\n" \
+			% (", depth_draw_always" if vr_source != "" else "")
+	if vr_source != "":
+		code += "#define SHADERTOY_VR\n"
+		if _vr_depth_re.search(vr_source) != null:
+			code += "#define SHADERTOY_VR_DEPTH\n"
+		code += "\n%s\n\n" % vr_source
 	code += "#include \"%s\"\n\n" % include
 	var calls := ""
 	for i in vertex_sources.size():

@@ -54,6 +54,11 @@ extends Node3D
 ## centred on the camera, taking only this node's rotation (so tilt and yaw
 ## still orient the video, but mount size/distance can't shrink it around
 ## the viewer).
+##
+## A 3D layer shader (one with mainVR, set_vr_source) skips all of that:
+## its code runs in the display shader itself, per eye on the mesh (see
+## screen_display.gdshaderinc), with no artist pass or effect chain. Its
+## uniforms are then the display material's (get_display_material).
 
 const _SOURCE_TEX_UNIFORM := "screen_tex"
 const _BASE_RENDER_RES := Vector2i(1920, 1080)
@@ -65,6 +70,10 @@ const _CURVED_CULL_MARGIN := 16384.0  # curved or moving: can reach far past the
 ## _passes' `effect` for the chain_copy passes.
 const _SOURCE_COPY := -1
 const _MARGIN_COPY := -2
+## How the picture goes over what's behind it (see set_blend and
+## screen_display.gdshaderinc's display_blend), in its order.
+const BLENDS := ["normal", "add", "black"]
+const BLEND_LABELS := {"normal": "Normal", "add": "Add (light)", "black": "Black transparent"}
 ## After the decoder, the bridge and the script runner (see _update_chain_redraw).
 const PROCESS_PRIORITY := 100
 
@@ -77,6 +86,7 @@ static var viewer_eye := Vector3(0.0, 2.0, 8.0)
 @onready var canvas: ColorRect = $RenderViewport/Canvas
 
 var _display_material: ShaderMaterial
+var _vr_source: String = ""  # a 3D layer shader's code in the display shader (set_vr_source)
 var _source_texture: Texture2D  # last-received source; re-applied whenever the material or texture changes
 var _video_texture: Texture2D  # the playing video, for effects' `video_tex` (see set_video_texture)
 var _projection: String = "flat"  # the source layout
@@ -165,6 +175,21 @@ func set_shader_material(mat: ShaderMaterial) -> void:
 
 func get_shader_material() -> ShaderMaterial:
 	return canvas.material as ShaderMaterial
+
+
+## Run a 3D layer shader's code (VisualizerShaders.vr_source; "" = none) in
+## the display shader, per eye on the mesh. Its uniforms are set on
+## get_display_material(); leave the artist material null alongside it.
+func set_vr_source(code: String) -> void:
+	if code == _vr_source:
+		return
+	_vr_source = code
+	_rebuild_display_shader()
+
+
+## The mesh's material: a 3D layer shader's uniforms go here.
+func get_display_material() -> ShaderMaterial:
+	return _display_material
 
 
 ## Wire the source video texture into the artist shader (or straight into
@@ -372,8 +397,15 @@ func set_opacity(amount: float) -> void:
 	_set_display_param("opacity", clampf(amount, 0.0, 1.0))
 
 
+## How the picture goes over what's behind it: one of BLENDS (unknown ones
+## are normal). "add" adds its light (black adds nothing), "black" makes
+## black see-through by alpha = the brightest channel.
+func set_blend(mode: String) -> void:
+	_set_display_param("display_blend", maxi(BLENDS.find(mode), 0))
+
+
 ## Target for `shader_param` tracks (`<id>.<slot>`). Slot "display" drives
-## the display pass (`opacity`, and earlier scripts' `curvature` /
+## the display pass (`opacity`, `blend` (a BLENDS name), and earlier scripts' `curvature` /
 ## `vertical_curvature`), "shape" the surface's params, "effect<N>" the
 ## Nth effect and "vertex<N>" the Nth vertex effect (from 0); any other
 ## slot is the artist shader.
@@ -389,6 +421,7 @@ func set_material_param(slot: String, param: String, value: Variant) -> void:
 			"curvature": set_curvature(float(value))
 			"vertical_curvature": set_vertical_curvature(float(value))
 			"opacity": set_opacity(float(value))
+			"blend": set_blend(String(value))
 		return
 	if slot.begins_with("effect") and slot.substr(6).is_valid_int():
 		set_effect_param(int(slot.substr(6)), param, value)
@@ -400,7 +433,7 @@ func set_material_param(slot: String, param: String, value: Variant) -> void:
 
 ## Called by the runner with the object's `config` block.
 ## Recognised keys: render_scale (float), fit_aspect (bool), opacity
-## (float), surface ({shader, params, placement}, see set_surface),
+## (float), blend (a BLENDS name), surface ({shader, params, placement}, see set_surface),
 ## effects and vertex_effects ([{shader: path, params}], see set_effects /
 ## set_vertex_effects), and earlier scripts' curvature / vertical_curvature
 ## (a Pillow's arcs). Shader is supplied via `mat`, with its shader_params
@@ -428,6 +461,9 @@ func configure(cfg: Dictionary, mat: ShaderMaterial) -> void:
 	if cfg.has("opacity"):
 		set_opacity(float(cfg["opacity"]))
 		_scripted["opacity"] = true
+	if cfg.has("blend"):
+		set_blend(String(cfg["blend"]))
+		_scripted["blend"] = true
 	if typeof(cfg.get("effects")) == TYPE_ARRAY:
 		set_effects(cfg["effects"])
 		_scripted["effects"] = true
@@ -784,7 +820,7 @@ func _rebuild_display_shader() -> void:
 		keys.append(e.shader)
 		_uses_audio = _uses_audio or bool(ScreenGeometry.hints_for(e.shader).audio)
 	var infinity := _placement() == ScreenGeometry.Placement.INFINITY
-	_display_material.shader = ScreenGeometry.build_shader(keys, _surface.shader)
+	_display_material.shader = ScreenGeometry.build_shader(keys, _surface.shader, _vr_source)
 	_display_material.render_priority = Material.RENDER_PRIORITY_MIN if infinity else 0
 	_apply_geometry_params()
 	_apply_effect_params()  # padding is off at infinity

@@ -55,6 +55,8 @@ In **F2 → Camera**, set the screen's size, distance, height and tilt, and its 
 
 **Layers** adds sound-reactive shader layers in front of or behind the video. Pick a layer under **Adjust**, choose its shader, and position it the same way as the screen. **Lock to screen** keeps a layer centred on the video.
 
+Next to **Opacity**, **Blend** sets how the screen or a layer goes over what's behind it. **Add (light)** adds its light, so black disappears and it glows. **Black transparent** makes black see-through and keeps bright colours solid. Both work for any shader, 3D ones too.
+
 The screen and every layer have an **effect list**: **+ Effect** adds one, **−** removes it, and effects run top to bottom. Built in: Key black, Oval mask, Edge blur, Padding, Glow, Crop, Rounded corners and Keep center.
 
 **Save** stores everything (screen, layers, effects and their settings) as a preset in `presets/`. Preset 0, *Script (defaults)*, is locked. Scripted videos use it so they look the way they were made.
@@ -66,6 +68,7 @@ The shipped shaders are in `shaders/sources/` and `shaders/effects/`. Change a n
 To **add** a shader, put a new file in `shaders/sources/` (layers) or `shaders/effects/` (effects), or a `.gdshaderinc` in `shaders/surfaces/` (surfaces) or `shaders/vertex/` (vertex effects). Its file name becomes its name in the list.
 
 - **Shadertoy code** works as-is: save the `mainImage` function as a `.glsl` file in `shaders/sources/`. `iTime`, `iResolution` and `iChannel0` are supported. `iChannel0` is the music, as Shadertoy's 512×2 spectrum and waveform texture. Mouse, keyboard, texture channels and multipass buffers aren't.
+- **3D shaders:** add Shadertoy's VR function, `mainVR(out vec4 fragColor, in vec2 fragCoord, in vec3 fragRayOri, in vec3 fragRayDir)`, and the shader renders in 3D: per eye, with depth and parallax when you move your head, as if the screen were a window. The ray is in metres, with the screen's centre at 0 and you on +z. Add `out float fragDepth` after `fragColor` (metres along the ray) so other things can sit in front of or inside it. Effects don't apply to 3D shaders. See the Gyroid tunnel for an example.
 - **Godot shaders** (`.gdshader`, `shader_type canvas_item;`) work too. Include `../shadertoy_prelude.gdshaderinc` for the same inputs plus `audio_bass`, `audio_mid`, `audio_high` and `audio_level`. Copy one of the built-ins as a starting point.
 - **Effects** are `.gdshader` files that include `../effect_prelude.gdshaderinc` and sample `input_tex` at `UV`. `display_aspect` is the screen's width divided by its height. The built-in effects are good examples.
 - The built-ins include `res://player/visualizer/…` paths. These point at the files in this `shaders/` folder, so editing a prelude here changes every shader that uses it.
@@ -78,7 +81,7 @@ To **add** a shader, put a new file in `shaders/sources/` (layers) or `shaders/e
 
 ## Skyboxes
 
-The background is black by default. Other options are in **F2 → Config**, including any panorama images you put in a `skyboxes` folder next to `Player.exe`.
+The background is black by default. Other options are in **F2 → Config**, including any panorama images you put in a `skyboxes` folder next to `Player.exe`. On Quest, **Passthrough** shows your room behind everything; set a layer's **Blend** to Add or Black transparent to draw shaders over it.
 
 ## Settings
 

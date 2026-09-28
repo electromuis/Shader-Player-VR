@@ -11,6 +11,7 @@ signal vr_init_failed(reason: String)
 
 var _xr_interface: XRInterface
 var _in_vr: bool = false
+var _passthrough: bool = false
 
 
 func is_in_vr() -> bool:
@@ -85,5 +86,37 @@ func _on_session_stopping() -> void:
 func _leave_xr_viewport() -> void:
 	var vp := get_viewport()
 	vp.use_xr = false
+	vp.transparent_bg = false
+	_passthrough = false
 	var win := get_window()
 	win.size = win.size
+
+
+## Show the headset's cameras behind everything (passthrough, e.g. on Quest),
+## or stop. The viewport then clears to transparent and the runtime blends
+## the frame over the camera view, taking it as premultiplied, so the
+## environment's background must be transparent too (SkyboxLibrary's
+## "passthrough"). Only in VR, on a runtime that offers it: the alpha-blend
+## environment mode, else the older passthrough call. Returns whether it's on.
+func set_passthrough(on: bool) -> bool:
+	if not _in_vr or _xr_interface == null:
+		on = false
+	elif on and not _passthrough:
+		if XRInterface.XR_ENV_BLEND_MODE_ALPHA_BLEND in _xr_interface.get_supported_environment_blend_modes():
+			on = _xr_interface.set_environment_blend_mode(XRInterface.XR_ENV_BLEND_MODE_ALPHA_BLEND)
+		elif _xr_interface.has_method("is_passthrough_supported") and _xr_interface.call("is_passthrough_supported"):
+			on = _xr_interface.call("start_passthrough")
+		else:
+			on = false
+	if not on and _passthrough and _xr_interface != null:
+		if _xr_interface.get_environment_blend_mode() == XRInterface.XR_ENV_BLEND_MODE_ALPHA_BLEND:
+			_xr_interface.set_environment_blend_mode(XRInterface.XR_ENV_BLEND_MODE_OPAQUE)
+		if _xr_interface.has_method("is_passthrough_enabled") and _xr_interface.call("is_passthrough_enabled"):
+			_xr_interface.call("stop_passthrough")
+	_passthrough = on
+	get_viewport().transparent_bg = on
+	return on
+
+
+func is_passthrough() -> bool:
+	return _passthrough

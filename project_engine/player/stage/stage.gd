@@ -66,7 +66,7 @@ var _skyboxes := SkyboxLibrary.new()
 ## Where "reset view" puts the viewer: the desktop camera's start pose.
 var _home_pos: Vector3
 var _home_yaw_deg: float
-## A vr_cut/vr_teleport moved the viewer; the next script load returns home
+## The script moved the viewer (a cut or a ride); the next script load returns home
 ## so position stays stable across videos.
 var _script_moved_view: bool = false
 ## File name projection detection reads: the file's own, or a DLNA item's
@@ -80,9 +80,6 @@ var _last_curvature: float = -1.0
 ## switched to the locked Script preset; restored for the next plain video.
 ## Empty while not playing a script.
 var _look_before_script: Dictionary = {}
-## The cut event the viewer was last put at ({} for none): a seek that
-## lands under a different cut moves them there (or home).
-var _current_cut: Dictionary = {}
 
 
 func _ready() -> void:
@@ -99,7 +96,6 @@ func _ready() -> void:
 	runner.script_load_failed.connect(_on_script_load_failed)
 	runner.seeked.connect(_on_runner_seeked)
 	runner.play_state_changed.connect(_on_runner_play_state_changed)
-	runner.event_fired.connect(_on_event_fired)
 	xr_rig.movement.scroll_step.connect(xr_rig.scroll_pointed_panel)
 
 
@@ -118,6 +114,7 @@ func setup(player_settings: PlayerSettings, bindings: InputBindings) -> void:
 func _process(delta: float) -> void:
 	_update_layer_anchor()
 	_update_camera_fx()
+	_drive_viewer()
 	# `pulse` reactive objects follow the bass.
 	runner.audio_bass = audio.bass if audio != null else 0.0
 	if beats != null:
@@ -157,14 +154,12 @@ func reset_view() -> void:
 
 
 ## Seek now, and again once the video has opened if it is still opening.
-## Where the audience sits at the playhead: the cut in effect, else home.
-## {position: Vector3, yaw_deg: float}.
+## Where the audience sits at the playhead: where the script's viewer
+## track has them, else home. {position: Vector3, yaw_deg: float}.
 func seat_pose() -> Dictionary:
-	var cut := runner.cut_at_playhead()
-	if not cut.is_empty():
-		var to: Dictionary = cut.get("to", {})
-		return {"position": Interpolation.to_vec3(to.get("position", [0, 0, 0])),
-				"yaw_deg": Interpolation.to_vec3(to.get("rotation_deg", [0, 0, 0])).y}
+	var pose := runner.viewer.pose_at(runner.playhead)
+	if not pose.is_empty():
+		return {"position": pose.position, "yaw_deg": (pose.rotation_deg as Vector3).y}
 	return {"position": _home_pos, "yaw_deg": _home_yaw_deg}
 
 
@@ -577,7 +572,8 @@ func _on_script_loaded(data: TimelineData) -> void:
 	if _script_moved_view:
 		_script_moved_view = false
 		reset_view()
-	_current_cut = {}
+	_viewer_pose = {}
+	_viewer_t = -0.001
 	_projection_override = "auto"
 	_apply_look_for(data)
 	# Spawn what the timeline starts with (the screen) now: the clock is
@@ -656,27 +652,7 @@ func _on_video_load_failed() -> void:
 func _on_runner_seeked(t: float) -> void:
 	if video != null:
 		video.seek_seconds(t)
-	_restore_cut()
-
-
-## Seeking skips the cuts in between, so put the viewer where the cut in
-## effect at the new playhead left them: back past a cut (or to the
-## t=0 start pose), or forward over one. Nothing moves while the seek
-## stays under the same cut, so a viewer who walked off isn't pulled back.
-func _restore_cut() -> void:
-	if not settings.allow_script_camera:
-		return
-	var cut := runner.cut_at_playhead()
-	if cut == _current_cut:
-		return
-	_current_cut = cut
-	if cut.is_empty():
-		_script_moved_view = false
-		reset_view()
-		return
-	var to_dict = cut.get("to", {})
-	if typeof(to_dict) == TYPE_DICTIONARY:
-		_snap_camera(_cut_position(to_dict), _cut_rotation(to_dict))
+	_follow_viewer_seek(t)
 
 
 func _on_runner_play_state_changed(is_playing: bool) -> void:
@@ -688,24 +664,80 @@ func _on_runner_play_state_changed(is_playing: bool) -> void:
 		video.pause()
 
 
-func _on_event_fired(ev: Dictionary) -> void:
-	match String(ev.get("action", "")):
-		"vr_cut", "vr_teleport":
-			_apply_camera_cut(ev)
+# ---------- the script's viewer ----------
+# A script moves the viewer along its viewer track (ViewerTrack: "$viewer"
+# keys and cut events). At a cut the viewer jumps (through a fade when the
+# key asks for one; with "cuts only", at every key, faded). Along a smooth
+# move the room glides: the rig in the headset, the desktop camera on the
+# desktop, moved each frame by how much the track's pose changed, so the
+# viewer can still look and lean around (and walk, in free mode) while
+# riding. In the headset only the turn is taken (no pitch or roll), and
+# the room is raised by how far the key is above the home eye height.
+# Seeking lands where the track says, but moves the viewer only if the pose
+# there differs from the one they were given, so a viewer who walked off
+# while it holds isn't pulled back by a seek.
+
+## Whether the stage follows the script's viewer track at all (the app can
+## turn it off; the viewer's own setting also has to allow it).
+var drive_viewer := true
+## The track's pose the viewer was last given ({} = home), and the playhead
+## it was for.
+var _viewer_pose: Dictionary = {}
+var _viewer_t := -0.001
 
 
-func _apply_camera_cut(ev: Dictionary) -> void:
-	if not settings.allow_script_camera:
+func _script_camera_on() -> bool:
+	return drive_viewer and settings != null and settings.allow_script_camera
+
+
+## Every frame while playing: jumps at cuts passed, glides along moves.
+func _drive_viewer() -> void:
+	var t := runner.playhead
+	if not _script_camera_on() or runner.timeline == null or not runner.playing:
+		_viewer_t = t
 		return
-	var to_dict = ev.get("to", {})
-	if typeof(to_dict) != TYPE_DICTIONARY:
+	var cuts_only := settings.script_camera_cuts_only
+	var crossed := runner.viewer.cuts_between(_viewer_t, t, cuts_only)
+	_viewer_t = t
+	var pose := runner.viewer.pose_at(t, cuts_only)
+	if pose.is_empty():
 		return
-	_current_cut = ev
-	var pos := _cut_position(to_dict)
-	var rot := _cut_rotation(to_dict)
-	var tr = ev.get("transition")
-	if typeof(tr) == TYPE_DICTIONARY and String(tr.get("type", "")) == "fade_to_black":
-		var dur := float(tr.get("duration", 0.5))
+	if not crossed.is_empty():
+		_jump_viewer(pose, crossed.back().get("transition", {}))
+	elif not _viewer_pose.is_empty():
+		_glide_viewer(_viewer_pose, pose)
+	_viewer_pose = pose
+
+
+## After a seek: where the track has the viewer there (home before its
+## first key), if that's not where they were put last.
+func _follow_viewer_seek(t: float) -> void:
+	_viewer_t = t
+	if not _script_camera_on():
+		return
+	var pose := runner.viewer.pose_at(t, settings.script_camera_cuts_only)
+	if pose.is_empty():
+		if not _viewer_pose.is_empty():
+			_viewer_pose = {}
+			_script_moved_view = false
+			reset_view()
+		return
+	if _viewer_pose.is_empty() or not _same_pose(pose, _viewer_pose):
+		_snap_camera(pose.position, pose.rotation_deg)
+	_viewer_pose = pose
+
+
+static func _same_pose(a: Dictionary, b: Dictionary) -> bool:
+	return (a.position as Vector3).distance_to(b.position) < 0.001 \
+			and absf(wrapf((a.rotation_deg as Vector3).y - (b.rotation_deg as Vector3).y, -180.0, 180.0)) < 0.01
+
+
+## A cut: to `pose`, through `transition` ({} = at once).
+func _jump_viewer(pose: Dictionary, transition: Dictionary) -> void:
+	var pos: Vector3 = pose.position
+	var rot: Vector3 = pose.rotation_deg
+	if String(transition.get("type", "")) == "fade_to_black":
+		var dur := float(transition.get("duration", 0.5))
 		# In VR, fade the in-headset quad so the transition is visible in the
 		# headset; also fade the CanvasLayer overlay so the desktop mirror
 		# matches. Desktop-only: just the overlay.
@@ -718,19 +750,33 @@ func _apply_camera_cut(ev: Dictionary) -> void:
 		_snap_camera(pos, rot)
 
 
-static func _cut_position(to_dict: Dictionary) -> Vector3:
-	return Interpolation.to_vec3(to_dict.get("position", [0, 0, 0]))
+## Along a move: the room goes where the track went from `from` to `to`.
+func _glide_viewer(from: Dictionary, to: Dictionary) -> void:
+	var d := _pose_xf(to) * _pose_xf(from).affine_inverse()
+	if d.is_equal_approx(Transform3D.IDENTITY):
+		return
+	_script_moved_view = true
+	if xr_mode.is_in_vr():
+		xr_rig.global_transform = d * xr_rig.global_transform
+	else:
+		var turn := wrapf((to.rotation_deg as Vector3).y - (from.rotation_deg as Vector3).y, -180.0, 180.0)
+		var rot := desktop_camera.rotation_degrees
+		desktop_camera.set_view(d * desktop_camera.global_position, Vector3(rot.x, rot.y + turn, 0.0))
 
 
-static func _cut_rotation(to_dict: Dictionary) -> Vector3:
-	var rot_arr = to_dict.get("rotation_deg", [0, 0, 0])
-	return Interpolation.to_vec3(rot_arr) if typeof(rot_arr) == TYPE_ARRAY else Vector3.ZERO
+## A pose as a level transform (position, turn about the vertical).
+static func _pose_xf(pose: Dictionary) -> Transform3D:
+	return Transform3D(Basis(Vector3.UP, deg_to_rad((pose.rotation_deg as Vector3).y)), pose.position)
 
 
+## Put the viewer's eye at `pos`, facing `rot_deg` (in the headset: the
+## turn only, and the room raised by the key's height above the home eye
+## height, so a cut at eye height leaves the floor where it is).
 func _snap_camera(pos: Vector3, rot_deg: Vector3) -> void:
 	_script_moved_view = true
 	if xr_mode.is_in_vr():
 		xr_rig.recenter(pos, rot_deg.y)
+		xr_rig.global_position.y += pos.y - _home_pos.y
 	else:
 		desktop_camera.set_view(pos, rot_deg)
 

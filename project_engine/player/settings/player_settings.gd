@@ -7,7 +7,10 @@ extends RefCounted
 ##
 ##   locomotion            — LOCKED: sticks seek/volume, viewer never walks.
 ##                           FREE: left stick moves, right stick snap-turns.
-##   allow_script_camera   — honour a script's vr_cut / vr_teleport events.
+##   allow_script_camera   — let a script move the viewer (its cuts and
+##                           rides: ViewerTrack).
+##   script_camera_cuts_only — comfort: a script's smooth moves become fades
+##                           from key to key (only with allow_script_camera).
 ##   skybox                — built-in key (see SKYBOX_BUILTINS) or an absolute
 ##                           path to a panorama image.
 ##   show_floor            — the grey ground plane.
@@ -79,6 +82,7 @@ const SKYBOX_LABELS := {
 
 var locomotion: int = Locomotion.LOCKED: set = _set_locomotion
 var allow_script_camera: bool = true: set = _set_allow_script_camera
+var script_camera_cuts_only: bool = false: set = _set_script_camera_cuts_only
 var skybox: String = "black": set = _set_skybox
 var show_floor: bool = false: set = _set_show_floor
 var show_fps: bool = false: set = _set_show_fps
@@ -116,6 +120,7 @@ func from_dict(d: Dictionary) -> void:
 	_loading = true
 	locomotion = Locomotion.FREE if String(d.get("locomotion", "locked")) == "free" else Locomotion.LOCKED
 	allow_script_camera = bool(d.get("allow_script_camera", true))
+	script_camera_cuts_only = bool(d.get("script_camera_cuts_only", false))
 	skybox = String(d.get("skybox", "black"))
 	show_floor = bool(d.get("show_floor", false))
 	show_fps = bool(d.get("show_fps", false))
@@ -139,6 +144,7 @@ func to_dict() -> Dictionary:
 		"kind": KIND,
 		"locomotion": "free" if locomotion == Locomotion.FREE else "locked",
 		"allow_script_camera": allow_script_camera,
+		"script_camera_cuts_only": script_camera_cuts_only,
 		"skybox": skybox,
 		"show_floor": show_floor,
 		"show_fps": show_fps,
@@ -181,6 +187,13 @@ func _set_allow_script_camera(v: bool) -> void:
 	if v == allow_script_camera:
 		return
 	allow_script_camera = v
+	_touch()
+
+
+func _set_script_camera_cuts_only(v: bool) -> void:
+	if v == script_camera_cuts_only:
+		return
+	script_camera_cuts_only = v
 	_touch()
 
 

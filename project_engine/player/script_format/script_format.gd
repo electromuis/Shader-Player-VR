@@ -22,6 +22,11 @@ const EVENT_ACTIONS := ["spawn", "despawn", "vr_cut", "vr_teleport"]
 
 const INTERP_MODES := ["linear", "cubic", "step", "ease", "bezier"]
 
+## The viewer's transform tracks' target (ViewerTrack). Ids starting with
+## "$" are reserved for such things ("$camera" is the camera block's).
+const VIEWER := "$viewer"
+const TRANSITIONS := ["fade_to_black"]
+
 
 static func load_from_file(path: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
@@ -174,11 +179,21 @@ static func _validate_tracks(tracks, errors: Array) -> void:
 
 
 static func _validate_transform_track(t: Dictionary, loc: String, errors: Array) -> void:
-	if typeof(t.get("target")) != TYPE_STRING:
+	var target = t.get("target")
+	if typeof(target) != TYPE_STRING:
 		errors.append("%s.target must be a string (an object id)" % loc)
+	elif String(target).begins_with("$") and target != VIEWER:
+		errors.append("%s.target '%s': ids starting with $ are reserved (%s is the viewer)" % [loc, target, VIEWER])
 	var ch = t.get("channel")
 	if typeof(ch) != TYPE_STRING or not TRANSFORM_CHANNELS.has(ch):
 		errors.append("%s.channel must be one of %s" % [loc, TRANSFORM_CHANNELS])
+	elif target == VIEWER and ch == "scale":
+		errors.append("%s: the viewer has position and rotation_deg, not scale" % loc)
+	if typeof(t.get("keyframes")) == TYPE_ARRAY:
+		for i in t.keyframes.size():
+			var kf = t.keyframes[i]
+			if typeof(kf) == TYPE_DICTIONARY and kf.has("transition"):
+				_validate_transition(kf.transition, "%s.keyframes[%d].transition" % [loc, i], errors)
 	_validate_keyframes(t.get("keyframes"), loc, 3, errors)
 
 
@@ -265,6 +280,8 @@ static func _validate_event(e: Dictionary, loc: String, errors: Array) -> void:
 		"spawn":
 			if typeof(e.get("id")) != TYPE_STRING:
 				errors.append("%s.id required for spawn" % loc)
+			elif String(e.id).begins_with("$"):
+				errors.append("%s.id '%s': ids starting with $ are reserved" % [loc, e.id])
 			if typeof(e.get("prefab")) != TYPE_STRING:
 				errors.append("%s.prefab required for spawn" % loc)
 			if e.has("parent") and (typeof(e["parent"]) != TYPE_STRING or e["parent"] == e.get("id")):
@@ -277,6 +294,16 @@ static func _validate_event(e: Dictionary, loc: String, errors: Array) -> void:
 		"vr_cut", "vr_teleport":
 			if typeof(e.get("to")) != TYPE_DICTIONARY:
 				errors.append("%s.to must be an object with position/rotation_deg" % loc)
+			if e.has("transition"):
+				_validate_transition(e.transition, loc + ".transition", errors)
+
+
+## A cut's transition: {"type": "fade_to_black", "duration": seconds}.
+static func _validate_transition(tr, loc: String, errors: Array) -> void:
+	if typeof(tr) != TYPE_DICTIONARY or not TRANSITIONS.has(tr.get("type")):
+		errors.append("%s must be {\"type\": one of %s, \"duration\": seconds}" % [loc, TRANSITIONS])
+	elif tr.has("duration") and (typeof(tr.duration) not in [TYPE_INT, TYPE_FLOAT] or float(tr.duration) < 0.0):
+		errors.append("%s.duration must be a number of seconds" % loc)
 
 
 static func _validate_config(cfg, loc: String, errors: Array) -> void:

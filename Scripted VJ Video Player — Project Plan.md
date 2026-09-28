@@ -212,6 +212,7 @@ Two track kinds:
 Special references:
 
 - `$video` — the video texture (a `ViewportTexture` from the video's `SubViewport`).
+- `$viewer` — the viewer, as the target of `transform` tracks (`position`: the eye; `rotation_deg`: of which the headset takes only the turn, `y`). The viewer glides along it, and jumps at a *cut*: a key reached by a `step` segment, the track's first key (from the home seat), and every `vr_cut` / `vr_teleport` event, which joins the same track. A key may carry `"transition": {"type": "fade_to_black", "duration": 1}` for its cut. Added in format 2 (older players ignore it and keep the cut events). Ids starting with `$` are reserved.
 - `<object_id>.<material_slot>` — targets a named material on a spawned object (used by `shader_param` tracks). Prefabs with more than one material route by slot via `set_material_param(slot, param, value)`: the Screen prefab uses `surface` (or any other name) for the artist shader, `display` for its display pass (`curvature`, `vertical_curvature`, `opacity`) and `effect<N>` for its Nth effect (from 0); a layer uses `layer` for its shader and the same `display` / `effect<N>` slots. Otherwise the slot name is ignored and the prefab's shader material is used.
 - Shader param values that are numeric arrays of length 2/3/4 are passed to shaders as `Vector2/3/4` (a raw JSON array would read as zero in a `vecN` uniform).
 

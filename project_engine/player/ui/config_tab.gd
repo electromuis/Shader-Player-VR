@@ -11,7 +11,7 @@ var _refreshing: bool = false
 var _skybox_keys: Array[String] = []
 
 var _locomotion: OptionButton
-var _script_camera: CheckButton
+var _script_camera: OptionButton
 var _skybox: OptionButton
 var _floor: CheckButton
 var _fps: CheckButton
@@ -36,10 +36,16 @@ func _ready() -> void:
 		_apply_ui(func(): _settings.locomotion = _locomotion.get_item_id(idx)))
 	_row("Movement", _locomotion)
 
-	_script_camera = CheckButton.new()
-	_script_camera.text = "Scripts may move the viewer"
-	_script_camera.toggled.connect(func(on: bool):
-		_apply_ui(func(): _settings.allow_script_camera = on))
+	# Scripts may move the viewer: smoothly (rides), only in cuts (a fade
+	# at each key, for viewers who get motion sick), or not at all.
+	_script_camera = OptionButton.new()
+	_script_camera.add_item("Follow the script (smooth moves too)", 0)
+	_script_camera.add_item("Cuts only: fade from place to place", 1)
+	_script_camera.add_item("Off: scripts don't move me", 2)
+	_script_camera.item_selected.connect(func(idx: int):
+		_apply_ui(func():
+			_settings.allow_script_camera = idx != 2
+			_settings.script_camera_cuts_only = idx == 1))
 	_row("Script camera", _script_camera)
 
 	_skybox = OptionButton.new()
@@ -157,7 +163,7 @@ func _refresh() -> void:
 		return
 	_refreshing = true
 	_locomotion.select(_locomotion.get_item_index(_settings.locomotion))
-	_script_camera.button_pressed = _settings.allow_script_camera
+	_script_camera.select(2 if not _settings.allow_script_camera else (1 if _settings.script_camera_cuts_only else 0))
 	_skybox.select(_skybox_keys.find(_settings.skybox))
 	_floor.button_pressed = _settings.show_floor
 	_fps.button_pressed = _settings.show_fps

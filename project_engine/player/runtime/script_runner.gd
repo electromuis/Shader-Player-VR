@@ -64,6 +64,9 @@ var held: Dictionary = {}
 ## "<id>.<slot>:<param>" an editor is dragging a control for: its
 ## shader_param track isn't applied (see preview_param).
 var held_params: Dictionary = {}
+## Where the script puts the viewer over time ("$viewer" tracks and cut
+## events), for the Stage.
+var viewer := ViewerTrack.new()
 ## slot ("effect0") -> {param: value} from `$camera` tracks at the playhead.
 var _camera_params: Dictionary = {}
 var _mods_lookup := func(n: Node) -> Dictionary: return n.get_meta(_MODS_META, {})
@@ -205,6 +208,7 @@ func _apply_timeline(data: TimelineData, preserve_playhead: bool) -> void:
 	timeline = data
 	_camera_params = {}
 	_events_sorted = data.events_sorted()
+	viewer = ViewerTrack.from_timeline(data)
 	if preserve_playhead:
 		_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	else:
@@ -230,6 +234,7 @@ func _reconcile_swap(new_timeline: TimelineData) -> void:
 	var old_timeline := timeline
 	timeline = new_timeline
 	_events_sorted = new_events
+	viewer = ViewerTrack.from_timeline(new_timeline)
 	_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	_sync_owned(expected)
 	_update_watched_files()
@@ -252,6 +257,7 @@ func apply_edit(data: TimelineData, structural: bool) -> void:
 			DefaultScreen.inject(data)
 		timeline = data
 		_events_sorted = data.events_sorted()
+		viewer = ViewerTrack.from_timeline(data)
 		_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	_reactive_begin()
 	_evaluate_continuous_tracks()

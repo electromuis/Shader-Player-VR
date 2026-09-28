@@ -92,7 +92,7 @@ func _initialize() -> void:
 	print("screen at 5 s: ", v(screen.global_position))
 	# Seeking lands the viewer at the cut in effect there (no fade), home
 	# before the first; walking off within a cut isn't undone by a seek.
-	if core().has_method("_restore_cut"):
+	if core().has_method("_restore_cut") or core().has_method("_follow_viewer_seek"):
 		main.runner.seek(2.0)
 		await frames(2)
 		print("seek back to 2 s: camera ", cam())

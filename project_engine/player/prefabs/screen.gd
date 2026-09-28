@@ -16,48 +16,77 @@ extends Node3D
 ##          v  ViewportTexture
 ##   Effect chain (set_effects): one SubViewport pass per effect shader,
 ##   each reading the previous output as `input_tex`; for stereo
-##   projections, one chain per eye behind an eye_crop pass
+##   projections, one chain per eye. A chain starts with a chain_copy pass
+##   (the eye, averaged down to the render size)
 ##          |
 ##          v
-##   Mesh / Sphere (screen_display / screen_sphere shaders: projection + stereo eye split)
+##   Mesh (display shader: stereo eye split, and in its vertex() the
+##   vertex effects and the surface; see ScreenGeometry)
 ##
 ## Without an artist shader (the player's default screen for plain videos)
 ## the RenderViewport is skipped and the display (or the first effect)
 ## samples the video texture directly. Effect passes run at the
-## RenderViewport's size, except after a Padding effect
-## (VisualizerShaders.PADDING): that pass and the ones after it grow by its
-## margin, and so does the flat quad (_pad_scale), so the picture keeps its
-## size and later effects can spread past its edge. Each pass is told where
+## RenderViewport's size, except from the first effect that draws past the
+## picture's edge (a `@reach`, see VisualizerShaders.reach_of): a
+## chain_copy pass before it puts the picture in a transparent margin as
+## wide as that effect and the ones after it reach (summed, at their
+## current params; none at infinity, where the picture fills its arc), and
+## the passes from there and the flat quad (_pad_scale) grow by it, so the
+## picture keeps its size and nothing is cut off. Each pass is told where
 ## the unpadded picture sits in it (`picture_rect`), and past a Rounded
-## corners effect how round its corners are (`picture_corners`).
+## corners effect its outline's shape (`picture_shape`).
+##
+## Passes that read only a VideoBridge's frame (no artist shader, and no
+## effect that animates by itself, VisualizerShaders.is_animated) render on
+## demand like the bridge: when it redraws the frame (its redraw_serial) or
+## the chain changes, not on every display frame. Otherwise they render
+## every frame. Screens process after other nodes (PROCESS_PRIORITY), so a
+## frame the decoder or a script track changed this frame renders now.
 ##
 ## An effect that declares `prepass_tex` (VisualizerShaders.has_prepass) gets
 ## a prepass: the same shader with `prepass` on, at `prepass_scale` of the
 ## pass's size, whose output it reads as `prepass_tex`. Heavy, soft work
 ## (a glow's halo) goes there, so only the sharp parts run at full size.
 ##
-## Projection: flat keys draw on the quad; 180°/360° keys draw on a
-## camera-centred sphere that only takes this node's rotation (so tilt and
-## yaw still orient the video, but mount size/distance can't shrink the
-## sphere around the viewer).
+## The source layout (a VideoProjection key: how the frame is read, i.e.
+## its stereo split) is separate from the surface (where the picture sits:
+## set_surface, set_vertex_effects). A 180°/360° video is a Dome at infinity:
+## centred on the camera, taking only this node's rotation (so tilt and yaw
+## still orient the video, but mount size/distance can't shrink it around
+## the viewer).
 
 const _SOURCE_TEX_UNIFORM := "screen_tex"
 const _BASE_RENDER_RES := Vector2i(1920, 1080)
-const _DISPLAY_SHADER := preload("res://player/prefabs/screen_display.gdshader")
-const _SPHERE_SHADER := preload("res://player/prefabs/screen_sphere.gdshader")
-const _EYE_CROP_SHADER := preload("res://player/prefabs/eye_crop.gdshader")
+const _COPY_SHADER := preload("res://player/prefabs/chain_copy.gdshader")
 const _QUAD_ASPECT := 16.0 / 9.0
-const _SPHERE_RADIUS := 50.0
+const _MESH_HALF := Vector2(16.0, 9.0)  # the quad mesh's half size (screen.tscn)
+const _FLAT_CULL_MARGIN := 20.0
+const _CURVED_CULL_MARGIN := 16384.0  # curved or moving: can reach far past the quad
+## _passes' `effect` for the chain_copy passes.
+const _SOURCE_COPY := -1
+const _MARGIN_COPY := -2
+## After the decoder, the bridge and the script runner (see _update_chain_redraw).
+const PROCESS_PRIORITY := 100
+
+## The viewer's home eye (where reset view puts them), in world space:
+## surfaces placed around the viewer centre on it. Set by main.gd.
+static var viewer_eye := Vector3(0.0, 2.0, 8.0)
 
 @onready var mesh: MeshInstance3D = $Mesh
 @onready var render_viewport: SubViewport = $RenderViewport
 @onready var canvas: ColorRect = $RenderViewport/Canvas
 
-var _display_material: ShaderMaterial  # flat quad (alpha-blended)
-var _sphere_material: ShaderMaterial   # immersive sphere (opaque)
+var _display_material: ShaderMaterial
 var _source_texture: Texture2D  # last-received source; re-applied whenever the material or texture changes
-var _sphere: MeshInstance3D
-var _projection: String = "flat"
+var _video_texture: Texture2D  # the playing video, for effects' `video_tex` (see set_video_texture)
+var _projection: String = "flat"  # the source layout
+var _swap_eyes: bool = false
+## {shader, params, placement} (ScreenGeometry.normalized_surface).
+var _surface: Dictionary = ScreenGeometry.default_surface()
+## [{shader, params}] like the effects, run in order before the surface.
+var _vertex_effects: Array[Dictionary] = []
+var _audio: AudioAnalyzer
+var _uses_audio: bool = false  # a vertex effect reads the audio
 var _fit_aspect: bool = false
 var _frame_aspect: float = 0.0
 ## set_effects state: per effect, its key, loaded shader (null = none
@@ -65,12 +94,22 @@ var _frame_aspect: float = 0.0
 var _effect_keys: Array[String] = []
 var _effect_shaders: Array[Shader] = []
 var _effect_params: Array[Dictionary] = []
-## Built passes: [{material, viewport, effect, prepass}] per eye chain
-## (effect -1 = eye crop, which starts each stereo chain; prepass: an
-## effect's prepass, just before the effect's own pass).
+## Built passes: [{material, viewport, effect, prepass, step, count}] per
+## eye chain (effect _SOURCE_COPY / _MARGIN_COPY: a chain_copy pass starting
+## the chain / adding the margin; prepass: an effect's prepass, just before
+## the effect's own pass; step of count: its place in a multi-pass effect or
+## prepass, -1 of 1 otherwise).
 var _passes: Array[Dictionary] = []
-var _base_scale: Vector3 = Vector3.ONE  # the quad's scale before padding
-var _pad_scale: Vector2 = Vector2.ONE  # the quad's growth from Padding effects
+## _pass_counts() when the passes were built: a params change that alters
+## it rebuilds them.
+var _built_counts: Array = []
+## No active effect animates by itself (see _chain_serial).
+var _chain_static: bool = false
+## The input's redraw serial the passes last rendered for; -1 = rendering
+## every frame.
+var _chain_seen: int = -1
+var _base_scale: Vector3 = Vector3.ONE  # the quad's scale before the margin
+var _pad_scale: Vector2 = Vector2.ONE  # the quad's growth from the margin
 var _chain_holder: Node
 var _requested_size: Vector2i  # set_render_size's, before _resolution_scale
 var _resolution_scale: float = 1.0
@@ -80,30 +119,16 @@ var _scripted: Dictionary = {}
 
 
 func _ready() -> void:
+	add_to_group(VisualizerShaders.RELOAD_GROUP)
+	process_priority = PROCESS_PRIORITY
 	render_viewport.transparent_bg = true
 	render_viewport.disable_3d = true
 	_requested_size = render_viewport.size
 
 	_display_material = ShaderMaterial.new()
-	_display_material.shader = _DISPLAY_SHADER
 	mesh.material_override = _display_material
-	_sphere_material = ShaderMaterial.new()
-	_sphere_material.shader = _SPHERE_SHADER
-
-	var sphere_mesh := SphereMesh.new()
-	sphere_mesh.radius = _SPHERE_RADIUS
-	sphere_mesh.height = _SPHERE_RADIUS * 2.0
-	sphere_mesh.radial_segments = 64
-	sphere_mesh.rings = 32
-	_sphere = MeshInstance3D.new()
-	_sphere.name = "Sphere"
-	_sphere.mesh = sphere_mesh
-	_sphere.material_override = _sphere_material
-	_sphere.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_sphere.top_level = true
-	_sphere.visible = false
-	_sphere.extra_cull_margin = 16384.0
-	add_child(_sphere)
+	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_rebuild_display_shader()
 	_chain_holder = Node.new()
 	_chain_holder.name = "Effects"
 	add_child(_chain_holder)
@@ -113,13 +138,24 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if not _sphere.visible:
+	_update_chain_redraw()
+	if _display_material == null:
 		return
-	# Keep the sphere centred on whoever is looking so it always encloses
-	# the camera, and follow only this node's rotation.
-	var cam := get_viewport().get_camera_3d()
-	var origin := cam.global_position if cam != null else global_position
-	_sphere.global_transform = Transform3D(global_basis.orthonormalized(), origin)
+	if _placement() == ScreenGeometry.Placement.AROUND:
+		_display_material.set_shader_parameter("viewer_distance", _viewer_distance())
+	if _uses_audio and _audio != null:
+		_display_material.set_shader_parameter("vfx_audio",
+				Vector4(_audio.level, _audio.bass, _audio.mid, _audio.high))
+
+
+## The shared analyzer, for vertex effects that follow the music.
+func bind_audio(audio: AudioAnalyzer) -> void:
+	_audio = audio
+
+
+## A vertex effect reads the audio, so the analyzer must run.
+func uses_audio() -> bool:
+	return _uses_audio
 
 
 func set_shader_material(mat: ShaderMaterial) -> void:
@@ -137,6 +173,20 @@ func get_shader_material() -> ShaderMaterial:
 func set_source_texture(tex: Texture2D) -> void:
 	_source_texture = tex
 	_wire_source_texture()
+
+
+## The playing video's frame, which effects read as `video_tex` (see
+## effect_prelude.gdshaderinc). Without one they get the source texture:
+## a screen's source is the video.
+func set_video_texture(tex: Texture2D) -> void:
+	_video_texture = tex
+	for p in _passes:
+		p.material.set_shader_parameter("video_tex", _effect_video())
+	_chain_changed()
+
+
+func _effect_video() -> Texture2D:
+	return _video_texture if _video_texture != null else _source_texture
 
 
 func set_render_scale(scale: float) -> void:
@@ -171,19 +221,20 @@ func _apply_render_size() -> void:
 
 
 ## Effect shaders run in order over the output: [{shader: key, params:
-## {uniform: value}}] (ScreenSettings.effects). Changing only params
-## updates the running passes; a different list of shaders rebuilds them.
+## {uniform: value}, enabled}] (ScreenSettings.effects; one switched off
+## keeps its slot and runs nothing). Changing only params updates the
+## running passes; a different list of shaders rebuilds them.
 func set_effects(effects: Array) -> void:
 	var keys: Array[String] = []
 	var params: Array[Dictionary] = []
 	for e in effects:
-		keys.append(String(e.get("shader", "")))
+		keys.append(String(e.get("shader", "")) if ScreenSettings.is_enabled(e) else "")
 		var p = e.get("params", {})
 		# Copies: set_effect_param writes into them.
 		params.append(p.duplicate() if typeof(p) == TYPE_DICTIONARY else {})
 	_effect_params = params
 	if keys == _effect_keys:
-		_apply_effect_params()
+		_params_changed()
 		return
 	_effect_keys = keys
 	_effect_shaders.clear()
@@ -192,22 +243,105 @@ func set_effects(effects: Array) -> void:
 	_wire_source_texture()
 
 
+## Load the effect and display shaders again (VisualizerShaders.reload_all),
+## keeping their params. The artist shader is its layer's to reload.
+func reload_shaders() -> void:
+	_effect_shaders.clear()
+	for k in _effect_keys:
+		_effect_shaders.append(VisualizerShaders.load_shader(k))
+	_rebuild_display_shader()
+	_wire_source_texture()
+
+
 ## One uniform of effect `index` (a `shader_param` track on `<id>.effect<N>`).
 func set_effect_param(index: int, param: String, value: Variant) -> void:
 	if index < 0 or index >= _effect_params.size():
 		return
 	_effect_params[index][param] = value
-	_apply_effect_params()
+	_params_changed()
 
 
-## Projection key from VideoProjection.KEYS (not "auto").
-func set_projection(key: String) -> void:
+## Source layout: a VideoProjection key (not "auto"). Only its stereo split
+## matters here; its field of view picks a surface in main.gd.
+func set_source_layout(key: String) -> void:
 	_projection = key
 	_apply_projection()
 
 
-func get_projection() -> String:
+func get_source_layout() -> String:
 	return _projection
+
+
+## Right eye first (`_RL` files): each eye gets the other half.
+func set_swap_eyes(on: bool) -> void:
+	_swap_eyes = on
+	_set_display_param("swap_eyes", on)
+
+
+## Where the picture sits: {shader: surface key or built-in name, params,
+## placement} (see ScreenGeometry).
+func set_surface(surface: Dictionary) -> void:
+	var s := ScreenGeometry.normalized_surface(surface)
+	if s == _surface:
+		return
+	var rebuild: bool = s.shader != _surface.shader or s.placement != _surface.placement
+	_surface = s
+	if rebuild:
+		_rebuild_display_shader()
+	else:
+		_apply_geometry_params()
+
+
+func get_surface() -> Dictionary:
+	return _surface.duplicate(true)
+
+
+## One param of the surface (a `shader_param` track on `<id>.shape`; not
+## `<id>.surface`, which is the artist shader's).
+func set_surface_param(param: String, value: Variant) -> void:
+	_surface.params[param] = value
+	_apply_geometry_params()
+
+
+## Vertex effects run in order before the surface: [{shader: key, params,
+## enabled}] (ScreenSettings.vertex_effects; one switched off keeps its slot
+## and moves nothing). Changing only params updates uniforms; a different
+## list of shaders builds a new display shader.
+func set_vertex_effects(effects: Array) -> void:
+	var list: Array[Dictionary] = []
+	for e in effects:
+		if typeof(e) != TYPE_DICTIONARY:
+			continue
+		var p = e.get("params", {})
+		var key := String(e.get("shader", "")) if ScreenSettings.is_enabled(e) else ""
+		list.append({"shader": ScreenGeometry.resolve_builtin(key),
+				"params": p.duplicate() if typeof(p) == TYPE_DICTIONARY else {}})
+	var same := list.size() == _vertex_effects.size()
+	for i in mini(list.size(), _vertex_effects.size()):
+		same = same and list[i].shader == _vertex_effects[i].shader
+	_vertex_effects = list
+	if same:
+		_apply_geometry_params()
+	else:
+		_rebuild_display_shader()
+
+
+## One param of vertex effect `index` (a `shader_param` track on
+## `<id>.vertex<N>`).
+func set_vertex_effect_param(index: int, param: String, value: Variant) -> void:
+	if index < 0 or index >= _vertex_effects.size():
+		return
+	_vertex_effects[index].params[param] = value
+	_set_display_param(ScreenGeometry.vertex_prefix(index) + param, value)
+
+
+## Whether the ray from `from` along `dir` hits the picture (its surface;
+## vertex effects ignored). Never at infinity: that surrounds the viewer.
+func ray_hit(from: Vector3, dir: Vector3) -> bool:
+	if mesh == null or not mesh.is_visible_in_tree():
+		return false
+	return ScreenGeometry.ray_hits(from, dir, mesh.global_transform, _MESH_HALF,
+			_picture_half(), _surface, _viewer_distance())
 
 
 ## Full video frame aspect (width / height). With fit_aspect enabled the
@@ -217,25 +351,39 @@ func set_content_aspect(frame_aspect: float) -> void:
 	_apply_aspect()
 
 
-## Flat-quad bend: 0 = flat, 1 = half-cylinder. Ignored for 180°/360°.
+## Earlier scripts' bend (`curvature`: 0 = flat, 1 = half-cylinder): the
+## Pillow's arc_x (arc_y for set_vertical_curvature), switching to a Pillow.
 func set_curvature(amount: float) -> void:
-	_set_display_param("curvature", clampf(amount, 0.0, 1.0))
+	_set_pillow_arc("arc_x", clampf(amount, 0.0, 1.0) * 180.0)
 
 
-## Top-to-bottom bend: 0 = flat, 1 = half-cylinder. Ignored for 180°/360°.
 func set_vertical_curvature(amount: float) -> void:
-	_set_display_param("vertical_curvature", clampf(amount, 0.0, 1.0))
+	_set_pillow_arc("arc_y", clampf(amount, 0.0, 1.0) * 180.0)
 
 
-## 0..1 fade of the flat quad (the 180°/360° sphere stays opaque).
+func _set_pillow_arc(param: String, degrees: float) -> void:
+	if _surface.shader != ScreenGeometry.PILLOW:
+		set_surface(ScreenGeometry.default_surface())
+	set_surface_param(param, degrees)
+
+
+## 0..1 fade of the screen.
 func set_opacity(amount: float) -> void:
 	_set_display_param("opacity", clampf(amount, 0.0, 1.0))
 
 
 ## Target for `shader_param` tracks (`<id>.<slot>`). Slot "display" drives
-## the display pass (`curvature`, `vertical_curvature` and `opacity`),
-## "effect<N>" the Nth effect (from 0); any other slot is the artist shader.
+## the display pass (`opacity`, and earlier scripts' `curvature` /
+## `vertical_curvature`), "shape" the surface's params, "effect<N>" the
+## Nth effect and "vertex<N>" the Nth vertex effect (from 0); any other
+## slot is the artist shader.
 func set_material_param(slot: String, param: String, value: Variant) -> void:
+	if slot == "shape":
+		set_surface_param(param, value)
+		return
+	if slot.begins_with("vertex") and slot.substr(6).is_valid_int():
+		set_vertex_effect_param(int(slot.substr(6)), param, value)
+		return
 	if slot == "display":
 		match param:
 			"curvature": set_curvature(float(value))
@@ -251,9 +399,11 @@ func set_material_param(slot: String, param: String, value: Variant) -> void:
 
 
 ## Called by the runner with the object's `config` block.
-## Recognised keys: render_scale (float), fit_aspect (bool), curvature,
-## vertical_curvature, opacity (floats), effects ([{shader: path, params}],
-## see set_effects). Shader is supplied via `mat`, with its shader_params
+## Recognised keys: render_scale (float), fit_aspect (bool), opacity
+## (float), surface ({shader, params, placement}, see set_surface),
+## effects and vertex_effects ([{shader: path, params}], see set_effects /
+## set_vertex_effects), and earlier scripts' curvature / vertical_curvature
+## (a Pillow's arcs). Shader is supplied via `mat`, with its shader_params
 ## already baked in by the runner.
 func configure(cfg: Dictionary, mat: ShaderMaterial) -> void:
 	if mat != null:
@@ -263,11 +413,18 @@ func configure(cfg: Dictionary, mat: ShaderMaterial) -> void:
 	if cfg.has("fit_aspect"):
 		_fit_aspect = bool(cfg["fit_aspect"])
 		_apply_aspect()
+	if typeof(cfg.get("surface")) == TYPE_DICTIONARY:
+		set_surface(cfg["surface"])
+		_scripted["surface"] = true
 	if cfg.has("curvature"):
 		set_curvature(float(cfg["curvature"]))
+		_scripted["surface"] = true
 	if cfg.has("vertical_curvature"):
 		set_vertical_curvature(float(cfg["vertical_curvature"]))
-		_scripted["vertical_curvature"] = true
+		_scripted["surface"] = true
+	if typeof(cfg.get("vertex_effects")) == TYPE_ARRAY:
+		set_vertex_effects(cfg["vertex_effects"])
+		_scripted["vertex_effects"] = true
 	if cfg.has("opacity"):
 		set_opacity(float(cfg["opacity"]))
 		_scripted["opacity"] = true
@@ -309,10 +466,14 @@ func _build_chains(src: Texture2D) -> void:
 		_chain_holder.remove_child(c)
 		c.queue_free()
 	_passes.clear()
+	_chain_seen = -1  # new passes render every frame until _update_chain_redraw
+	_built_counts = _pass_counts()
 	var active: Array[int] = []
+	_chain_static = true
 	for i in _effect_shaders.size():
 		if _effect_shaders[i] != null:
 			active.append(i)
+			_chain_static = _chain_static and not VisualizerShaders.is_animated(_effect_shaders[i])
 	if active.is_empty() or src == null:
 		_set_display_param("frame_tex", src)
 		_set_display_param("eyes_split", false)
@@ -324,14 +485,18 @@ func _build_chains(src: Texture2D) -> void:
 		eyes = [Rect2(0, 0, 0.5, 1), Rect2(0.5, 0, 0.5, 1)]
 	elif stereo == 2:
 		eyes = [Rect2(0, 0, 1, 0.5), Rect2(0, 0.5, 1, 0.5)]
+	var margin_at := _margin_index()
 	var outs: Array[Texture2D] = []
 	for rect in eyes:
 		var tex := src
-		if eyes.size() > 1:
-			tex = _add_pass(_EYE_CROP_SHADER, tex, -1)
+		# The artist pass already renders one picture at the render size.
+		if eyes.size() > 1 or src == _source_texture:
+			tex = _add_pass(_COPY_SHADER, tex, _SOURCE_COPY)
 			_passes[-1].material.set_shader_parameter("rect",
 					Vector4(rect.position.x, rect.position.y, rect.size.x, rect.size.y))
 		for i in active:
+			if i == margin_at:
+				tex = _add_pass(_COPY_SHADER, tex, _MARGIN_COPY)
 			tex = _add_pass(_effect_shaders[i], tex, i)
 		outs.append(tex)
 	_set_display_param("frame_tex", outs[0])
@@ -341,9 +506,26 @@ func _build_chains(src: Texture2D) -> void:
 
 
 func _add_pass(shader: Shader, input: Texture2D, effect: int) -> Texture2D:
+	var counts: Array = _built_counts[effect] if effect >= 0 else [1, 1]
+	var steps: int = counts[0]
+	if steps > 1:
+		# `@passes`: the same shader N times, each on the one before; all
+		# of them also get the effect's own input as `pass_source_tex`.
+		var tex := input
+		for s in steps:
+			tex = _new_pass(shader, tex, effect, false)
+			_mark_step(s, steps)
+			_passes[-1].material.set_shader_parameter("pass_source_tex", input)
+		return tex
 	var pre: Texture2D = null
 	if effect >= 0 and VisualizerShaders.has_prepass(shader):
 		pre = _new_pass(shader, input, effect, true)
+		# `@prepass_passes`: more prepass steps, each on the one before.
+		var pre_steps: int = counts[1]
+		for s in pre_steps:
+			_mark_step(s, pre_steps)
+			if s < pre_steps - 1:
+				pre = _new_pass(shader, pre, effect, true)
 	var out := _new_pass(shader, input, effect, false)
 	if pre != null:
 		_passes[-1].material.set_shader_parameter("prepass_tex", pre)
@@ -362,32 +544,72 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	mat.set_shader_parameter("input_tex", input)
+	mat.set_shader_parameter("video_tex", _effect_video())
 	if prepass:
 		mat.set_shader_parameter("prepass", true)
 	rect.material = mat
 	vp.add_child(rect)
 	_chain_holder.add_child(vp)
-	_passes.append({"material": mat, "viewport": vp, "effect": effect, "prepass": prepass})
+	_passes.append({"material": mat, "viewport": vp, "effect": effect, "prepass": prepass,
+			"step": -1, "count": 1})
 	return vp.get_texture()
 
 
-## Push effect params and each pass's shape: display_aspect, and past a
-## Padding effect the grown pass size and quad (walked per eye chain, in
+## The last pass made is step `step` of `count` (a multi-pass effect's or
+## prepass's), and its shader is told so.
+func _mark_step(step: int, count: int) -> void:
+	_passes[-1].step = step
+	_passes[-1].count = count
+	_passes[-1].material.set_shader_parameter("pass_index", step)
+	_passes[-1].material.set_shader_parameter("pass_count", count)
+
+
+## [passes, prepass passes] per effect at the current params (see
+## VisualizerShaders.passes_of).
+func _pass_counts() -> Array:
+	var out := []
+	for i in _effect_keys.size():
+		var params: Dictionary = _effect_params[i] if i < _effect_params.size() else {}
+		out.append([VisualizerShaders.passes_of(_effect_keys[i], params),
+				VisualizerShaders.passes_of(_effect_keys[i], params, true)])
+	return out
+
+
+## After a params change: rebuild the passes if an effect's pass count
+## follows the params and changed, else just push the params.
+func _params_changed() -> void:
+	if _pass_counts() != _built_counts:
+		_wire_source_texture()
+	else:
+		_apply_effect_params()
+
+
+## Push effect params and each pass's shape: display_aspect, and from the
+## margin copy on the grown pass size and quad (walked per eye chain, in
 ## units of the unpadded picture's height).
 func _apply_effect_params() -> void:
+	_chain_changed()
 	var base := _display_aspect()
-	var flat := _projection_shape() == VideoProjection.Shape.FLAT
+	var margin := _margin(base)
 	var w := base
 	var h := 1.0
 	var px := Vector2(render_viewport.size) if render_viewport != null else Vector2.ONE
-	var corners := Vector2.ZERO
+	var shape := Vector2.ZERO
 	for p in _passes:
 		var i: int = p.effect
-		if i < 0:
+		if i == _SOURCE_COPY:
 			w = base
 			h = 1.0
-			corners = Vector2.ZERO
+			shape = Vector2.ZERO
 			px = Vector2(render_viewport.size)
+			(p.viewport as SubViewport).size = pass_size(px)
+			continue
+		if i == _MARGIN_COPY:
+			var grown := pad(base, px, margin)
+			w = grown.w
+			h = grown.h
+			px = grown.px
+			p.material.set_shader_parameter("place", picture_rect(base, w, h))
 			(p.viewport as SubViewport).size = pass_size(px)
 			continue
 		var mat: ShaderMaterial = p.material
@@ -395,20 +617,18 @@ func _apply_effect_params() -> void:
 		for k in params:
 			mat.set_shader_parameter(k, params[k])
 		var key: String = _effect_keys[i] if i < _effect_keys.size() else ""
-		if flat and key == VisualizerShaders.PADDING:
-			var grown := pad(w, h, px, float(params.get("amount", _param_default(key, "amount"))))
-			w = grown.w
-			h = grown.h
-			px = grown.px
 		mat.set_shader_parameter("display_aspect", w / h)
 		mat.set_shader_parameter("picture_rect", picture_rect(base, w, h))
-		mat.set_shader_parameter("picture_corners", corners)
+		mat.set_shader_parameter("picture_shape", shape)
 		if key == VisualizerShaders.ROUNDED_CORNERS and not p.prepass:
-			corners = Vector2(float(params.get("radius_x", _param_default(key, "radius_x"))),
-					float(params.get("radius_y", _param_default(key, "radius_y"))))
+			shape = Vector2(float(params.get("roundness", _param_default(key, "roundness"))),
+					float(params.get("bulge", _param_default(key, "bulge"))))
 		var size := px
 		if p.prepass:
 			size *= clampf(float(params.get("prepass_scale", _param_default(key, "prepass_scale", 1.0))), 0.05, 1.0)
+		elif not p.prepass and p.step >= 0 and p.step < p.count - 1:
+			# A multi-pass effect's steps before its last run at `pass_scale`.
+			size *= clampf(float(params.get("pass_scale", _param_default(key, "pass_scale", 1.0))), 0.05, 1.0)
 		(p.viewport as SubViewport).size = pass_size(size)
 	if _passes.is_empty():
 		w = base
@@ -416,18 +636,85 @@ func _apply_effect_params() -> void:
 	_pad_scale = Vector2(w / base, h)
 	if mesh != null:
 		mesh.scale = _base_scale * Vector3(_pad_scale.x, _pad_scale.y, 1.0)
+	_set_display_param("picture_half", _picture_half())
 
 
-## One Padding step: picture `w` × `h` (in unpadded heights) rendered at
-## `px` pixels, with `amount` × h added on each side. -> {w, h, px}
-static func pad(w: float, h: float, px: Vector2, amount: float) -> Dictionary:
-	var m := maxf(amount, 0.0) * h
-	return {"w": w + 2.0 * m, "h": h + 2.0 * m,
-			"px": px * Vector2((w + 2.0 * m) / w, (h + 2.0 * m) / h)}
+## The picture (`base` wide, 1 high) rendered at `px` pixels, with
+## `margin` (x, y; in its heights) added on each side. -> {w, h, px}
+static func pad(base: float, px: Vector2, margin: Vector2) -> Dictionary:
+	var w := base + 2.0 * maxf(margin.x, 0.0)
+	var h := 1.0 + 2.0 * maxf(margin.y, 0.0)
+	return {"w": w, "h": h, "px": px * Vector2(w / base, h)}
+
+
+## Render the passes once when their input frame or they themselves
+## changed, if they can render on demand (_chain_serial); else every frame.
+func _update_chain_redraw() -> void:
+	if _passes.is_empty():
+		return
+	var serial := _chain_serial()
+	if serial < 0:
+		if _chain_seen >= 0:
+			_chain_seen = -1
+			_set_passes_update(SubViewport.UPDATE_ALWAYS)
+		return
+	if serial != _chain_seen:
+		_chain_seen = serial
+		_set_passes_update(SubViewport.UPDATE_ONCE)
+
+
+## The passes' params, sizes or inputs changed: on demand, render them this
+## frame (a resized pass would otherwise show its cleared texture).
+func _chain_changed() -> void:
+	if _chain_seen >= 0:
+		_set_passes_update(SubViewport.UPDATE_ONCE)
+
+
+## The redraw serial of everything the passes read, or -1 if it may change
+## on any frame (an artist shader, an animated effect, or an input that
+## isn't a VideoBridge's frame; see VideoBridge.redraw_serial_of).
+func _chain_serial() -> int:
+	if not _chain_static or get_shader_material() != null:
+		return -1
+	var serial := VideoBridge.redraw_serial_of(_source_texture)
+	var video := _effect_video()
+	if serial >= 0 and video != _source_texture:
+		var v := VideoBridge.redraw_serial_of(video)
+		serial = serial + v if v >= 0 else -1
+	return serial
+
+
+func _set_passes_update(mode: SubViewport.UpdateMode) -> void:
+	for p in _passes:
+		(p.viewport as SubViewport).render_target_update_mode = mode
+
+
+## The first effect (index) drawing past the picture's edge, which the
+## margin copy goes before; -1 if none does.
+func _margin_index() -> int:
+	for i in _effect_shaders.size():
+		if _effect_shaders[i] != null and VisualizerShaders.has_reach(_effect_keys[i]):
+			return i
+	return -1
+
+
+## The margin (x, y; per side, in picture heights) around a picture `base`
+## wide: what the effects from _margin_index() on reach, summed. None at
+## infinity, where the picture already fills its arc.
+func _margin(base: float) -> Vector2:
+	var from := _margin_index()
+	if from < 0 or _placement() == ScreenGeometry.Placement.INFINITY:
+		return Vector2.ZERO
+	var total := Vector2.ZERO
+	for i in range(from, _effect_shaders.size()):
+		if _effect_shaders[i] != null:
+			total += VisualizerShaders.reach_of(_effect_keys[i],
+					_effect_params[i] if i < _effect_params.size() else {}, base)
+	return total
 
 
 ## Where the unpadded picture (`base` wide, 1 high) sits in a pass `w` × `h`
-## (Padding centres it), as UV x, y, width, height: `picture_rect`.
+## (the margin centres it), as UV x, y, width, height: `picture_rect`.
 static func picture_rect(base: float, w: float, h: float) -> Vector4:
 	return Vector4(0.5 - 0.5 * base / w, 0.5 - 0.5 / h, base / w, 1.0 / h)
 
@@ -447,10 +734,6 @@ static func _param_default(key: String, param: String, fallback: float = 0.0) ->
 	return fallback
 
 
-func _projection_shape() -> int:
-	return VideoProjection.shape_of(_projection)
-
-
 ## Width / height of the flat quad's picture, without padding.
 func _display_aspect() -> float:
 	return _QUAD_ASPECT * _base_scale.x / maxf(_base_scale.y, 0.001)
@@ -459,20 +742,75 @@ func _display_aspect() -> float:
 func _apply_projection() -> void:
 	if _display_material == null:
 		return
-	var shape := VideoProjection.shape_of(_projection)
-	_set_display_param("shape", shape)
 	_set_display_param("stereo", VideoProjection.stereo_of(_projection))
-	var immersive := shape != VideoProjection.Shape.FLAT
-	mesh.visible = not immersive
-	_sphere.visible = immersive
 	_apply_aspect()
 	if not _passes.is_empty():
 		_wire_source_texture()  # eye chains follow the stereo layout
 
 
 func _set_display_param(param: String, value: Variant) -> void:
-	_display_material.set_shader_parameter(param, value)
-	_sphere_material.set_shader_parameter(param, value)
+	if _display_material != null:
+		_display_material.set_shader_parameter(param, value)
+
+
+func _placement() -> int:
+	return ScreenGeometry.placement_index(String(_surface.placement))
+
+
+## The unpadded picture's half size in mesh units.
+func _picture_half() -> Vector2:
+	return _MESH_HALF / _pad_scale
+
+
+## Metres from the screen's centre to the viewer's home eye (at infinity:
+## the camera-centred surface's radius).
+func _viewer_distance() -> float:
+	if _placement() == ScreenGeometry.Placement.INFINITY:
+		return ScreenGeometry.INFINITY_RADIUS
+	if mesh == null or not mesh.is_inside_tree():
+		return 8.0
+	return maxf(mesh.global_position.distance_to(viewer_eye), 0.1)
+
+
+## A display shader for the current vertex effects and surface, then its
+## params. At infinity the screen draws first among transparent things, so
+## it stays behind UI panels and other screens like a skybox.
+func _rebuild_display_shader() -> void:
+	if _display_material == null:
+		return
+	var keys: Array = []
+	_uses_audio = false
+	for e in _vertex_effects:
+		keys.append(e.shader)
+		_uses_audio = _uses_audio or bool(ScreenGeometry.hints_for(e.shader).audio)
+	var infinity := _placement() == ScreenGeometry.Placement.INFINITY
+	_display_material.shader = ScreenGeometry.build_shader(keys, _surface.shader)
+	_display_material.render_priority = Material.RENDER_PRIORITY_MIN if infinity else 0
+	_apply_geometry_params()
+	_apply_effect_params()  # padding is off at infinity
+
+
+## Push the surface's and vertex effects' params (defaults for missing
+## ones) and the geometry inputs.
+func _apply_geometry_params() -> void:
+	if _display_material == null:
+		return
+	var curved := _placement() != ScreenGeometry.Placement.FIXED or not _vertex_effects.is_empty()
+	var sp := ScreenGeometry.full_params(_surface.shader, _surface.params)
+	for k in sp:
+		_display_material.set_shader_parameter(ScreenGeometry.SURFACE_PREFIX + k, sp[k])
+		if typeof(sp[k]) in [TYPE_FLOAT, TYPE_INT] and k.begins_with("arc") and float(sp[k]) > 0.0:
+			curved = true
+	for i in _vertex_effects.size():
+		var vp := ScreenGeometry.full_params(_vertex_effects[i].shader, _vertex_effects[i].params)
+		for k in vp:
+			_display_material.set_shader_parameter(ScreenGeometry.vertex_prefix(i) + k, vp[k])
+	_display_material.set_shader_parameter("placement", _placement())
+	_display_material.set_shader_parameter("viewer_distance", _viewer_distance())
+	_display_material.set_shader_parameter("picture_half", _picture_half())
+	if mesh != null:
+		# The quad's bounds don't cover a bent or moving surface.
+		mesh.extra_cull_margin = _CURVED_CULL_MARGIN if curved else _FLAT_CULL_MARGIN
 
 
 func _apply_aspect() -> void:

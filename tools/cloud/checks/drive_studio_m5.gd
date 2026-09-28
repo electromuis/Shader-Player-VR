@@ -255,11 +255,11 @@ func _initialize() -> void:
 	var ms: Dictionary = studio.model.tracks()[studio.model.spawn_index("main_screen")] if studio.model.spawn_index("main_screen") >= 0 else {}
 	print("main_screen: ", ms.get("transform", {}), ", on stage ", reg.get_node_by_id("main_screen") != null)
 	# Effects onto the screen: the user's red edge, then Glow.
-	await drop(asset("effect", "red_edge"), Vector2(vp.x * 0.5, vp.y * 0.45))
+	await drop(asset("effect", "Red edge"), Vector2(vp.x * 0.5, vp.y * 0.45))
 	await drop(asset("effect", "Glow"), Vector2(vp.x * 0.5, vp.y * 0.45))
 	print("effects on main_screen: ", studio.model.effects_of("main_screen").map(func(e): return e.shader))
 	# A user layer on the floor to the left (it stands at eye height).
-	await drop(asset("layer", "stripes"), Vector2(vp.x * 0.12, vp.y * 0.8))
+	await drop(asset("layer", "Stripes"), Vector2(vp.x * 0.12, vp.y * 0.8))
 	# An effect dropped on nothing: not added.
 	await drop(asset("effect", "Glow"), Vector2(vp.x * 0.95, vp.y * 0.1))
 	# The user's prefab on the floor to the right, at 4 s.

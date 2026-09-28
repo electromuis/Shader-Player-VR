@@ -97,12 +97,12 @@ static func test_library_lists_assets_by_type(tc: TestCase) -> void:
 	var objects := lib.of_type("object").map(func(a): return [a.label, a.source])
 	tc.assert_eq(objects, [["Screen", "builtin"], ["Cube", "builtin"], ["Thing", "user"], ["Own", "piece"]])
 	var layers := lib.of_type("layer")
-	tc.assert_eq(layers.slice(0, VisualizerShaders.BUILTINS.size()).map(func(a): return a.path),
-			VisualizerShaders.BUILTINS.map(func(b): return b.key), "built-ins first")
-	var extra := layers.slice(VisualizerShaders.BUILTINS.size()).map(func(a): return [a.label, a.source])
-	tc.assert_eq(extra, [["my_layer", "user"], ["own_layer", "piece"]], "a camera effect isn't a layer")
-	var effects := lib.of_type("effect").slice(VisualizerShaders.BUILTIN_EFFECTS.size())
-	tc.assert_eq(effects.map(func(a): return [a.label, a.source]), [["my_fx", "user"]])
+	tc.assert_eq(layers.slice(0, VisualizerShaders.builtins(false).size()).map(func(a): return a.path),
+			VisualizerShaders.builtins(false).map(func(b): return b.key), "built-ins first")
+	var extra := layers.slice(VisualizerShaders.builtins(false).size()).map(func(a): return [a.label, a.source])
+	tc.assert_eq(extra, [["My layer", "user"], ["Own layer", "piece"]], "a camera effect isn't a layer")
+	var effects := lib.of_type("effect").slice(VisualizerShaders.builtins(true).size())
+	tc.assert_eq(effects.map(func(a): return [a.label, a.source]), [["My fx", "user"]])
 	tc.assert_eq(_asset(lib, "object", "Screen").scale, StudioAssetLibrary.SCREEN_SCALE)
 	var ids := {}
 	for a in lib.assets():
@@ -113,8 +113,8 @@ static func test_library_lists_assets_by_type(tc: TestCase) -> void:
 	tc.assert_eq(lib.signature(), before, "steady while nothing changes")
 	_write(root.path_join("lib/shaders/another.glsl"), LAYER_GLSL)
 	tc.assert_true(lib.signature() != before, "a new file shows")
-	tc.assert_eq(lib.of_type("layer").back().label, "own_layer")
-	tc.assert_true(lib.of_type("layer").any(func(a): return a.label == "another"))
+	tc.assert_eq(lib.of_type("layer").back().label, "Own layer")
+	tc.assert_true(lib.of_type("layer").any(func(a): return a.label == "Another"))
 
 
 static func test_bundling_copies_user_assets_into_the_piece(tc: TestCase) -> void:
@@ -188,21 +188,21 @@ static func test_dropping_cards_adds_and_bundles(tc: TestCase) -> void:
 	tc.assert_eq(m.undo(), "Add Screen", "one undo step")
 	tc.assert_eq(m.object_ids(), ["main_screen"])
 	# A user layer shader: bundled, named, a layer spawned with it.
-	r = drop.drop(_asset(lib, "layer", "my_layer"), floor, head, 0.0, false)
+	r = drop.drop(_asset(lib, "layer", "My layer"), floor, head, 0.0, false)
 	tc.assert_eq([r.ok, r.id], [true, "my_layer"])
 	var cfg := m.config_of("my_layer")
 	tc.assert_eq(m.document().shaders.get(cfg.get("shader", "")), "shaders/my_layer.glsl")
 	tc.assert_true(FileAccess.file_exists(root.path_join("piece/shaders/my_layer.glsl")), "copied into the piece")
 	tc.assert_eq(m.tracks()[m.spawn_index("my_layer")].prefab, "layer")
 	tc.assert_eq(edits.kind_for("my_layer"), "layer")
-	var cards := lib.of_type("layer").filter(func(a): return a.label == "my_layer")
+	var cards := lib.of_type("layer").filter(func(a): return a.label == "My layer")
 	tc.assert_eq(cards.map(func(a): return [a.source, a.in_piece]), [["user", true]], "one card for it and its copy")
 	# A layer card on a layer: its shader changes instead.
-	r = drop.drop(_asset(lib, "layer", "own_layer"), {"point": Vector3.ZERO, "on": "my_layer", "floor": false}, head, 0.0, false)
+	r = drop.drop(_asset(lib, "layer", "Own layer"), {"point": Vector3.ZERO, "on": "my_layer", "floor": false}, head, 0.0, false)
 	tc.assert_eq([r.ok, m.object_ids().size()], [true, 2])
 	tc.assert_eq(m.document().shaders.get(m.config_of("my_layer").shader), "shaders/own_layer.glsl", "the piece's own: no copy")
 	# Effects go on screens and layers only.
-	var fx := _asset(lib, "effect", "my_fx")
+	var fx := _asset(lib, "effect", "My fx")
 	tc.assert_false(drop.drop(fx, floor, head, 0.0, false).ok, "not on the floor")
 	r = drop.drop(fx, {"point": Vector3.ZERO, "on": "main_screen", "floor": false}, head, 0.0, false)
 	tc.assert_eq([r.ok, r.id], [true, "main_screen"])
@@ -216,9 +216,9 @@ static func test_dropping_cards_adds_and_bundles(tc: TestCase) -> void:
 	tc.assert_true(ScriptFormat.load_from_file(m.path).ok)
 	# The inspector's menus offer the user's shaders too, bundled when picked.
 	edits.library = lib
-	tc.assert_true(edits.effect_options().any(func(o): return o.label == "my_fx (yours)" or o.label == "My Fx"), "listed")
+	tc.assert_true(edits.effect_options().any(func(o): return o.label == "My fx (yours)" or o.label == "My Fx"), "listed")
 	_write(root.path_join("lib/shaders/second_fx.gdshader"), EFFECT.replace("0.5", "0.2"))
-	var opt: Array = edits.effect_options().filter(func(o): return o.label == "second_fx (yours)")
+	var opt: Array = edits.effect_options().filter(func(o): return o.label == "Second fx (yours)")
 	tc.assert_eq(opt.size(), 1)
 	tc.assert_true(edits.add_effect("main_screen", opt[0].key))
 	tc.assert_eq(m.document().shaders.get(m.effects_of("main_screen").back().shader), "shaders/second_fx.gdshader")

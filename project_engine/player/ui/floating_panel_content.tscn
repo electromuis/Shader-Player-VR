@@ -106,7 +106,7 @@ theme_override_constants/separation = 12
 unique_name_in_owner = true
 layout_mode = 2
 custom_minimum_size = Vector2(110, 0)
-text = "Projection"
+text = "Source"
 
 [node name="ProjectionOption" type="OptionButton" parent="Tabs/Camera/Scroll/CameraTab/ViewRow"]
 unique_name_in_owner = true
@@ -134,6 +134,12 @@ theme_override_constants/separation = 12
 [node name="LayerOptionsPad" type="Control" parent="Tabs/Camera/Scroll/CameraTab/LayerOptionsRow"]
 layout_mode = 2
 custom_minimum_size = Vector2(110, 0)
+
+[node name="EnabledCheck" type="CheckBox" parent="Tabs/Camera/Scroll/CameraTab/LayerOptionsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Off hides the layer and stops its rendering; its settings are kept"
+text = "On"
 
 [node name="LockCheck" type="CheckBox" parent="Tabs/Camera/Scroll/CameraTab/LayerOptionsRow"]
 unique_name_in_owner = true
@@ -247,57 +253,10 @@ custom_minimum_size = Vector2(90, 0)
 text = "+0°"
 horizontal_alignment = 2
 
-[node name="CurvatureRow" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+[node name="SurfaceBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 12
-
-[node name="CurvatureLabel" type="Label" parent="Tabs/Camera/Scroll/CameraTab/CurvatureRow"]
-layout_mode = 2
-custom_minimum_size = Vector2(110, 0)
-text = "Curvature"
-
-[node name="CurvatureSlider" type="HSlider" parent="Tabs/Camera/Scroll/CameraTab/CurvatureRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-scrollable = false
-min_value = 0.0
-max_value = 1.0
-step = 0.01
-value = 0.0
-
-[node name="CurvatureValue" type="Label" parent="Tabs/Camera/Scroll/CameraTab/CurvatureRow"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(90, 0)
-text = "0.00"
-horizontal_alignment = 2
-
-[node name="VCurveRow" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="VCurveLabel" type="Label" parent="Tabs/Camera/Scroll/CameraTab/VCurveRow"]
-layout_mode = 2
-custom_minimum_size = Vector2(110, 0)
-text = "V. curvature"
-
-[node name="VCurveSlider" type="HSlider" parent="Tabs/Camera/Scroll/CameraTab/VCurveRow"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-scrollable = false
-min_value = 0.0
-max_value = 1.0
-step = 0.01
-value = 0.0
-
-[node name="VCurveValue" type="Label" parent="Tabs/Camera/Scroll/CameraTab/VCurveRow"]
-unique_name_in_owner = true
-layout_mode = 2
-custom_minimum_size = Vector2(90, 0)
-text = "0.00"
-horizontal_alignment = 2
 
 [node name="OpacityRow" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
 layout_mode = 2
@@ -368,12 +327,48 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Effects (run in order on the output)"
 
+[node name="AddEffectTopButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/EffectsHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Add an effect at the top (runs first)"
+text = "+ Effect ↑"
+
 [node name="AddEffectButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/EffectsHeader"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "+ Effect"
+tooltip_text = "Add an effect at the bottom (runs last)"
+text = "+ Effect ↓"
 
 [node name="EffectsBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="VertexSep" type="HSeparator" parent="Tabs/Camera/Scroll/CameraTab"]
+layout_mode = 2
+
+[node name="VertexHeader" type="HBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="VertexLabel" type="Label" parent="Tabs/Camera/Scroll/CameraTab/VertexHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Vertex effects (move the surface, in order)"
+
+[node name="AddVertexEffectTopButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/VertexHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Add a vertex effect at the top (runs first)"
+text = "+ Vertex ↑"
+
+[node name="AddVertexEffectButton" type="Button" parent="Tabs/Camera/Scroll/CameraTab/VertexHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Add a vertex effect at the bottom (runs last)"
+text = "+ Vertex ↓"
+
+[node name="VertexEffectsBox" type="VBoxContainer" parent="Tabs/Camera/Scroll/CameraTab"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 12

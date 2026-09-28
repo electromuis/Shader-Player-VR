@@ -1,3 +1,4 @@
+// @title Light ring
 // A ring of lights whose brightness follows the spectrum.
 shader_type canvas_item;
 #include "res://player/visualizer/shadertoy_prelude.gdshaderinc"

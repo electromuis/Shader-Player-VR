@@ -191,20 +191,20 @@ func _initialize() -> void:
 	await key(KEY_I, false, true)
 	await frames(8)
 	print("shift+i: auto-key ", tools.auto_key, ", hint '", view._hint.text, "'")
-	print("inner_strength keys before: ", track_keys("main_screen.effect1", "inner_strength"))
-	await drag("effect1/inner_strength", 1.2)
-	print("inner_strength to 1.2: '", studio.message, "' keys ", track_keys("main_screen.effect1", "inner_strength"))
+	print("saturation keys before: ", track_keys("main_screen.effect1", "saturation"))
+	await drag("effect1/saturation", 1.2)
+	print("saturation to 1.2: '", studio.message, "' keys ", track_keys("main_screen.effect1", "saturation"))
 	await key(KEY_I, false, true)
 
 	# The diamond: tap to key where it is, tap again to remove it.
 	await frames(8)
-	print("power diamond: '", row("effect1/power").diamond.text, "'")
-	row("effect1/power").diamond.pressed.emit()
+	print("mirror diamond: '", row("effect1/mirror").diamond.text, "'")
+	row("effect1/mirror").diamond.pressed.emit()
 	await frames(8)
-	print("tap: '", studio.message, "' keys ", track_keys("main_screen.effect1", "power"), ", diamond '", row("effect1/power").diamond.text, "'")
-	row("effect1/power").diamond.pressed.emit()
+	print("tap: '", studio.message, "' keys ", track_keys("main_screen.effect1", "mirror"), ", diamond '", row("effect1/mirror").diamond.text, "'")
+	row("effect1/mirror").diamond.pressed.emit()
 	await frames(8)
-	print("tap again: '", studio.message, "' keys ", track_keys("main_screen.effect1", "power"))
+	print("tap again: '", studio.message, "' keys ", track_keys("main_screen.effect1", "mirror"))
 
 	# The tint on the colour wheel: written once it's closed.
 	row("effect1/tint").controls[0].pressed.emit()

@@ -316,33 +316,43 @@ static func _validate_config(cfg, loc: String, errors: Array) -> void:
 	for k in ["modifiers", "reactive"]:
 		if cfg.has(k) and typeof(cfg[k]) != TYPE_DICTIONARY:
 			errors.append("%s.%s must be an object" % [loc, k])
-	if not cfg.has("effects"):
-		return
-	var effects = cfg["effects"]
-	if typeof(effects) != TYPE_ARRAY:
-		errors.append("%s.effects must be an array" % loc)
-		return
-	for i in effects.size():
-		var e = effects[i]
-		if typeof(e) != TYPE_DICTIONARY or typeof(e.get("shader")) != TYPE_STRING:
-			errors.append("%s.effects[%d] must be an object with a shader (a shaders[] key)" % [loc, i])
-		elif e.has("params") and typeof(e["params"]) != TYPE_DICTIONARY:
-			errors.append("%s.effects[%d].params must be an object" % [loc, i])
-		elif e.has("enabled") and typeof(e["enabled"]) != TYPE_BOOL:
-			errors.append("%s.effects[%d].enabled must be true or false" % [loc, i])
-		elif e.has("tracks"):
-			# A switched-off effect's own shader_param tracks, kept for when
-			# it's switched back on (Studio); {param, keyframes} each.
-			var parked = e["tracks"]
-			if typeof(parked) != TYPE_ARRAY:
-				errors.append("%s.effects[%d].tracks must be an array" % [loc, i])
-				continue
-			for k in parked.size():
-				var ploc := "%s.effects[%d].tracks[%d]" % [loc, i, k]
-				if typeof(parked[k]) != TYPE_DICTIONARY or typeof(parked[k].get("param")) != TYPE_STRING:
-					errors.append("%s must be an object with a param" % ploc)
-				else:
-					_validate_keyframes(parked[k].get("keyframes"), ploc, -1, errors)
+	if cfg.has("surface"):
+		var s = cfg["surface"]
+		if typeof(s) != TYPE_DICTIONARY or typeof(s.get("shader")) != TYPE_STRING:
+			errors.append("%s.surface must be an object with a shader (a shaders[] key, or pillow / dome)" % loc)
+		else:
+			if s.has("params") and typeof(s["params"]) != TYPE_DICTIONARY:
+				errors.append("%s.surface.params must be an object" % loc)
+			if s.has("placement") and not s["placement"] in ScreenGeometry.PLACEMENTS:
+				errors.append("%s.surface.placement must be one of %s" % [loc, ScreenGeometry.PLACEMENTS])
+	for list_key in ["effects", "vertex_effects"]:
+		if not cfg.has(list_key):
+			continue
+		var effects = cfg[list_key]
+		if typeof(effects) != TYPE_ARRAY:
+			errors.append("%s.%s must be an array" % [loc, list_key])
+			continue
+		for i in effects.size():
+			var e = effects[i]
+			if typeof(e) != TYPE_DICTIONARY or typeof(e.get("shader")) != TYPE_STRING:
+				errors.append("%s.%s[%d] must be an object with a shader (a shaders[] key)" % [loc, list_key, i])
+			elif e.has("params") and typeof(e["params"]) != TYPE_DICTIONARY:
+				errors.append("%s.%s[%d].params must be an object" % [loc, list_key, i])
+			elif e.has("enabled") and typeof(e["enabled"]) != TYPE_BOOL:
+				errors.append("%s.%s[%d].enabled must be true or false" % [loc, list_key, i])
+			elif e.has("tracks"):
+				# A switched-off effect's own shader_param tracks, kept for when
+				# it's switched back on (Studio); {param, keyframes} each.
+				var parked = e["tracks"]
+				if typeof(parked) != TYPE_ARRAY:
+					errors.append("%s.%s[%d].tracks must be an array" % [loc, list_key, i])
+					continue
+				for k in parked.size():
+					var ploc := "%s.%s[%d].tracks[%d]" % [loc, list_key, i, k]
+					if typeof(parked[k]) != TYPE_DICTIONARY or typeof(parked[k].get("param")) != TYPE_STRING:
+						errors.append("%s must be an object with a param" % ploc)
+					else:
+						_validate_keyframes(parked[k].get("keyframes"), ploc, -1, errors)
 
 
 ## `camera`: {"effects": [...]}, each effect like a screen's (shader,

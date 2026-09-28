@@ -6,7 +6,7 @@ extends Node
 ## One effect pass on the screen or layer it's a child of. Effects run in
 ## child order over the picture (drag to reorder); each is a ShaderMaterial
 ## with one of addons/vj_editor/visualizer/effects/ (the player's built-in
-## Key black, Oval mask, Edge blur, Padding, Glow, Crop, Rounded corners) or your own
+## Key black, Oval mask, Edge blur, Blur, Glow, Crop, Rounded corners) or your own
 ## effect shader (include visualizer/effect_prelude.gdshaderinc).
 ##
 ## The parent exports its effects as `config.effects`, in order. Animate

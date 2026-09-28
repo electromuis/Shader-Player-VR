@@ -1,0 +1,115 @@
+{
+  "format_version": 1,
+  "kind": "camera_preset",
+  "layers": [
+    {
+      "distance": 0.25,
+      "effects": [],
+      "height": 0.0,
+      "lock_to_screen": false,
+      "opacity": 1.0,
+      "params": {},
+      "resolution": 1.0,
+      "shader": "res://player/visualizer/shaders/light_ring.gdshader",
+      "size": 2.25,
+      "surface": {
+        "params": {
+          "arc_x": 0.0,
+          "arc_y": 0.0
+        },
+        "placement": "fixed",
+        "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+      },
+      "tilt": 0.0,
+      "vertex_effects": []
+    },
+    {
+      "distance": 0.0,
+      "effects": [
+        {
+          "params": {
+            "level": 0.14,
+            "outside": false,
+            "ratio": 1.72,
+            "size": 0.78
+          },
+          "shader": "res://player/visualizer/effects/oval_mask.gdshader"
+        }
+      ],
+      "height": 0.0,
+      "lock_to_screen": false,
+      "opacity": 0.4,
+      "params": {
+        "radius": 0.025
+      },
+      "resolution": 1.0,
+      "shader": "res://player/visualizer/shaders/video_blur.gdshader",
+      "size": 2.1,
+      "surface": {
+        "params": {
+          "arc_x": 0.0,
+          "arc_y": 0.0
+        },
+        "placement": "fixed",
+        "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+      },
+      "tilt": 0.0,
+      "vertex_effects": []
+    }
+  ],
+  "name": "Preset 11",
+  "screen": {
+    "distance": 7.05,
+    "effects": [
+      {
+        "params": {
+          "amount": 1.0
+        },
+        "shader": "res://player/visualizer/effects/padding.gdshader"
+      },
+      {
+        "params": {
+          "roundness": 0.5
+        },
+        "shader": "res://player/visualizer/effects/rounded_corners.gdshader"
+      },
+      {
+        "params": {
+          "blur": 0.63,
+          "border_blur": 1.05,
+          "edge_blur": 0.104,
+          "inner_strength": 0.15,
+          "inner_width": 0.204,
+          "intensity": 1.4,
+          "mirror_depth": 0.6,
+          "mirror_far": 0.3,
+          "mirror_near": 0.5,
+          "radius": 0.83,
+          "ray_length": 0.1,
+          "rays": 0.0,
+          "repeat_far": 0.6,
+          "repeat_near": 0.0,
+          "repeat_width": 0.14,
+          "saturation": 1.25,
+          "smear": 0.2,
+          "soften": 0.04
+        },
+        "shader": "res://player/visualizer/effects/glow.gdshader"
+      }
+    ],
+    "height": 0.0,
+    "opacity": 0.79,
+    "resolution": 1.0,
+    "size": 2.95,
+    "surface": {
+      "params": {
+        "arc_x": 59.4,
+        "arc_y": 16.2
+      },
+      "placement": "fixed",
+      "shader": "res://player/visualizer/surfaces/pillow.gdshaderinc"
+    },
+    "tilt": 9.0,
+    "vertex_effects": []
+  }
+}

@@ -64,6 +64,9 @@ func _process(_delta: float) -> void:
 
 ## The panel body (XRToolsViewport2DIn3D's StaticBody3D) the right laser is
 ## on, or null. Any pointer target that maps hits to viewport pixels counts.
+## The wrist HUD is kept off XR Tools' suppress layer (23) in xr_rig.tscn:
+## on it, the laser drops it as a target whenever the hands are close, this
+## returns null, and the trigger falls through to the "play" bindings.
 func pointer_panel_body() -> Node3D:
 	var t := pointer.last_target if pointer != null and pointer.enabled else null
 	if t != null and is_instance_valid(t) and t.has_method("global_to_viewport"):

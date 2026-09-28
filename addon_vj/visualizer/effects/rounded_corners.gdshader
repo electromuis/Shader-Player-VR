@@ -1,16 +1,17 @@
-// Rounds the picture's corners by cutting them away in alpha. `radius_x` /
-// `radius_y` are each corner's width / height, in fractions of the
-// picture's height, capped at half the picture. The corners ease into the
-// sides (see CORNER_EXPONENT), so they stay smooth however unequal the
-// radii. `feather` is the width of the soft edge, in the same units; for a
-// wide, blurry edge put an Edge blur after it. Effects after it (a Glow)
-// follow the rounded outline. After a Padding the corners are the
-// picture's, not the margin's.
+// @title Rounded corners
+// Rounds the picture's outline, cutting away in alpha what falls outside.
+// `roundness` 0 is the plain rectangle; raising it bulges the corners in
+// smoothly (a squircle at 0.5) until at 1 the picture is the oval that fits
+// inside it. `bulge` bows the sides out, pulling the corners in, like an
+// old CRT's screen (roundness 0.25, bulge 0.08 or so). `feather` is the
+// width of the soft edge, in picture heights; for a wide, blurry edge put
+// an Edge blur after it. Effects after it (a Glow) follow the rounded
+// outline. With a margin (for Glow) the outline is the picture's, not the margin's.
 shader_type canvas_item;
 #include "res://addons/vj_editor/visualizer/effect_prelude.gdshaderinc"
 
-uniform float radius_x : hint_range(0.0, 2.0, 0.005) = 0.1;
-uniform float radius_y : hint_range(0.0, 2.0, 0.005) = 0.1;
+uniform float roundness : hint_range(0.0, 1.0, 0.005) = 0.3;
+uniform float bulge : hint_range(0.0, 0.5, 0.005) = 0.0;
 uniform float feather : hint_range(0.0, 0.3, 0.001) = 0.003;
 
 void fragment() {
@@ -22,7 +23,7 @@ void fragment() {
 	vec2 pos = ((UV - picture_rect.xy) / size - 0.5) * half_ext * 2.0;
 	vec2 edge;
 	vec2 normal;
-	float d = outline(pos, half_ext, vec2(radius_x, radius_y), edge, normal);
+	float d = outline(pos, half_ext, vec2(roundness, bulge), edge, normal);
 	float mask = clamp(0.5 - d / max(feather, 0.0005), 0.0, 1.0);
 	COLOR = vec4(c.rgb, c.a * mask);
 }

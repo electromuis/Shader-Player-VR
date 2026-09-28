@@ -1,3 +1,4 @@
+// @title Spectrum bars
 // Spectrum bars along the bottom with the waveform drawn across the middle.
 shader_type canvas_item;
 #include "res://player/visualizer/shadertoy_prelude.gdshaderinc"

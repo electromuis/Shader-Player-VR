@@ -202,10 +202,23 @@ static func test_screen_routes_effect_and_display_slots(tc: TestCase) -> void:
 	]}, null)
 	tc.assert_true(screen.is_scripted("opacity"))
 	tc.assert_true(screen.is_scripted("effects"))
-	tc.assert_false(screen.is_scripted("vertical_curvature"))
+	tc.assert_false(screen.is_scripted("surface"))
 	screen.set_material_param("effect0", "size", 0.9)
-	var pass_mat: ShaderMaterial = screen._passes[0].material
+	# The video is copied down to the render size first.
+	tc.assert_eq(screen._passes.map(func(p): return p.effect), [Screen._SOURCE_COPY, 0])
+	var pass_mat: ShaderMaterial = screen._passes[1].material
 	tc.assert_eq(pass_mat.get_shader_parameter("size"), 0.9)
+	# An effect drawing past the edge gets the margin copy before it, as
+	# wide as it reaches.
+	screen.set_effects([{"shader": VisualizerShaders.OVAL_MASK},
+			{"shader": VisualizerShaders.BLUR, "params": {"radius": 0.25}}])
+	# (Blur is six passes, the last at full size.)
+	tc.assert_eq(screen._passes.map(func(p): return p.effect),
+			[Screen._SOURCE_COPY, 0, Screen._MARGIN_COPY, 1, 1, 1, 1, 1, 1])
+	var render: Vector2i = screen.render_viewport.size
+	tc.assert_eq((screen._passes[-1].viewport as SubViewport).size.y, roundi(render.y * 1.5), "a quarter height each side")
+	screen.set_effect_param(1, "radius", 0.0)
+	tc.assert_eq((screen._passes[-1].viewport as SubViewport).size, render, "follows the param")
 	screen.set_material_param("display", "opacity", 0.25)
 	tc.assert_eq(screen._display_material.get_shader_parameter("opacity"), 0.25)
 	screen.free()

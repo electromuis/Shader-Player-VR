@@ -29,6 +29,12 @@ extends Node3D
 ## (at the hinted or default height) and a stereo video's output is split
 ## per eye as a flat stereo screen, so locked at size 1 it lines up with
 ## the video.
+## The source VisualizerShaders.VIDEO is the video itself, with no shader:
+## the layer's Screen shows it as the main screen does (the same source
+## layout, swap and shape, the effects per eye), and its effects render at
+## the main screen's base size times the layer's resolution. So a video
+## layer locked at size 1 is a copy of the main screen, and at a low
+## resolution with a Blur effect it's a cheap soft glow.
 ## The AudioAnalyzer is shared, so the Stage runs it while any layer
 ## is_running(). So is the BeatClock, whose grid sets the beat uniforms.
 ##
@@ -52,7 +58,10 @@ var _param_specs: Array = []  # the shader's hinted uniforms (VisualizerShaders.
 var _audio: AudioAnalyzer
 var _beats: BeatClock
 var _video: Texture2D
+var _video_projection: String = "flat"  # the main screen's source layout
+var _video_swap: bool = false
 var _video_stereo: int = VideoProjection.Stereo.MONO
+var _video_source: bool = false  # the source is VisualizerShaders.VIDEO
 var _video_aspect: float = 0.0  # full frame width / height; 0 = not known yet
 var _home: Transform3D  # the Screen child's transform while unlocked
 var _follow: Node3D
@@ -63,6 +72,7 @@ var _nudge: float = ORDER_STEP  # toward the viewer, from the stack position
 
 
 func _ready() -> void:
+	add_to_group(VisualizerShaders.RELOAD_GROUP)
 	_screen = SCREEN_SCENE.instantiate()
 	_screen.name = "Screen"
 	if not at_origin:
@@ -77,6 +87,8 @@ func _ready() -> void:
 
 func bind_audio(audio: AudioAnalyzer) -> void:
 	_audio = audio
+	if _screen != null:
+		_screen.bind_audio(audio)
 	_bind_channels()
 
 
@@ -86,18 +98,26 @@ func bind_beats(beats: BeatClock) -> void:
 
 func bind_video(tex: Texture2D) -> void:
 	_video = tex
+	if _screen != null:
+		_screen.set_video_texture(tex)
+	if _video_source:
+		_screen.set_source_texture(tex)
 	_bind_channels()
 
 
-## The main screen's projection key and the video's full frame aspect
-## (0 = none loaded), for shaders that read the video.
-func set_video_layout(projection: String, frame_aspect: float) -> void:
-	var stereo := VideoProjection.stereo_of(projection)
-	if stereo == _video_stereo and is_equal_approx(frame_aspect, _video_aspect):
+## The main screen's projection key and swap, and the video's full frame
+## aspect (0 = none loaded), for a video source and shaders that read the
+## video.
+func set_video_layout(projection: String, frame_aspect: float, swap: bool = false) -> void:
+	if projection == _video_projection and swap == _video_swap 			and is_equal_approx(frame_aspect, _video_aspect):
 		return
-	_video_stereo = stereo
+	_video_projection = projection
+	_video_swap = swap
+	_video_stereo = VideoProjection.stereo_of(projection)
 	_video_aspect = frame_aspect
-	if _material != null and uses_video():
+	if _video_source:
+		_configure_video_source()
+	elif _material != null and uses_video():
 		_configure_screen()
 
 
@@ -106,13 +126,15 @@ func uses_video() -> bool:
 	return _hints.get("channels", {}).values().has("video")
 
 
-## A shader is loaded, so the layer needs live audio.
+## A shader is loaded (or a vertex effect follows the music), so the layer
+## needs live audio.
 func is_running() -> bool:
-	return _material != null
+	return _material != null or _screen.uses_audio()
 
 
-## Switch to the shader at `key` (a VisualizerShaders key); "" hides the
-## layer. Re-selecting the current key does nothing.
+## Switch to the shader at `key` (a VisualizerShaders key, or VIDEO for the
+## video itself); "" hides the layer. Re-selecting the current key does
+## nothing.
 func set_shader(key: String) -> void:
 	if key == _shader_key:
 		return
@@ -120,18 +142,40 @@ func set_shader(key: String) -> void:
 	_material = null
 	_hints = {}
 	_param_specs = []
-	var shader := VisualizerShaders.load_shader(key)
+	_video_source = key == VisualizerShaders.VIDEO
+	var shader: Shader = null if _video_source else VisualizerShaders.load_shader(key)
+	if _video_source:
+		_configure_video_source()
+	else:
+		_screen.set_source_texture(null)
 	if shader != null:
 		_hints = VisualizerShaders.parse_hints(shader.code)
 		_param_specs = _hints.params
 		_material = ShaderMaterial.new()
 		_material.shader = shader
 		_configure_screen()
-	elif key != "":
+	elif key != "" and not _video_source:
 		push_warning("Visualizer: can't load shader %s" % key)
 	# A null material also stops the Screen's render viewport.
 	_screen.set_shader_material(_material)
-	visible = _material != null
+	visible = _material != null or _video_source
+
+
+## Load the layer's shader again (VisualizerShaders.reload_all), keeping the
+## values of params it still has. Its Screen reloads its own effects.
+func reload_shaders() -> void:
+	if _shader_key == "" or _video_source:
+		return
+	var old := _material
+	var key := _shader_key
+	_shader_key = ""
+	set_shader(key)
+	if old == null or _material == null:
+		return
+	for spec in _param_specs:
+		var v: Variant = old.get_shader_parameter(spec.name)
+		if v != null:
+			_material.set_shader_parameter(spec.name, v)
 
 
 func get_shader_key() -> String:
@@ -152,9 +196,10 @@ func set_effects(effects: Array) -> void:
 
 
 ## A scripted layer's `config` from the runner, shader keys already turned
-## into files: shader, params, effects, opacity, curvature,
-## vertical_curvature, resolution. `_mat` is unused (the layer builds its
-## own material, since the shader may be Shadertoy code).
+## into files: shader, params, effects, vertex_effects, surface, opacity,
+## resolution (and earlier scripts' curvature / vertical_curvature). `_mat`
+## is unused (the layer builds its own material, since the shader may be
+## Shadertoy code).
 func configure(cfg: Dictionary, _mat: ShaderMaterial) -> void:
 	set_shader(String(cfg.get("shader", "")))
 	var params = cfg.get("params", {})
@@ -162,16 +207,23 @@ func configure(cfg: Dictionary, _mat: ShaderMaterial) -> void:
 	var effects = cfg.get("effects", [])
 	set_effects(effects if typeof(effects) == TYPE_ARRAY else [])
 	set_opacity(float(cfg.get("opacity", 1.0)))
-	set_curvature(float(cfg.get("curvature", 0.0)))
-	set_vertical_curvature(float(cfg.get("vertical_curvature", 0.0)))
+	var vfx = cfg.get("vertex_effects", [])
+	set_vertex_effects(vfx if typeof(vfx) == TYPE_ARRAY else [])
+	if typeof(cfg.get("surface")) == TYPE_DICTIONARY:
+		set_surface(cfg["surface"])
+	else:
+		set_surface(ScreenGeometry.default_surface())
+		_screen.set_curvature(float(cfg.get("curvature", 0.0)))
+		_screen.set_vertical_curvature(float(cfg.get("vertical_curvature", 0.0)))
 	set_resolution_scale(float(cfg.get("resolution", 1.0)))
 
 
-## Target for `shader_param` tracks (`<id>.<slot>`): "display" and
-## "effect<N>" go to the layer's screen (see Screen.set_material_param),
-## any other slot (e.g. "layer") to the layer's shader.
+## Target for `shader_param` tracks (`<id>.<slot>`): "display", "shape",
+## "effect<N>" and "vertex<N>" go to the layer's screen (see
+## Screen.set_material_param), any other slot (e.g. "layer") to the layer's
+## shader.
 func set_material_param(slot: String, param: String, value: Variant) -> void:
-	if slot == "display" or slot.begins_with("effect"):
+	if slot in ["display", "shape"] or slot.begins_with("effect") or slot.begins_with("vertex"):
 		_screen.set_material_param(slot, param, value)
 	elif _material != null:
 		_material.set_shader_parameter(param, value)
@@ -185,12 +237,13 @@ func set_order(index: int) -> void:
 		_place_home()
 
 
-func set_curvature(amount: float) -> void:
-	_screen.set_curvature(amount)
+## Where the picture sits (see Screen.set_surface).
+func set_surface(surface: Dictionary) -> void:
+	_screen.set_surface(surface)
 
 
-func set_vertical_curvature(amount: float) -> void:
-	_screen.set_vertical_curvature(amount)
+func set_vertex_effects(effects: Array) -> void:
+	_screen.set_vertex_effects(effects)
 
 
 func set_opacity(amount: float) -> void:
@@ -222,10 +275,12 @@ func set_locked(on: bool, size: float, distance: float = 0.0) -> void:
 
 
 func _process(_delta: float) -> void:
-	if _material == null:
+	if not visible:
 		return
 	if _locked:
 		_track_follow_target()
+	if _material == null:
+		return  # a video layer: no shader to feed
 	if _beats != null:
 		var u := _beats.uniforms()
 		for k in u:
@@ -254,11 +309,23 @@ func _configure_screen() -> void:
 	_screen.set_render_size(res)
 	res = _screen.render_viewport.size  # after clamping
 	_screen.configure({"fit_aspect": true}, null)
-	_screen.set_projection(_flat_projection() if video else "flat")
+	_screen.set_source_layout(_flat_projection() if video else "flat")
 	_screen.set_content_aspect(aspect if video else float(res.x) / res.y)
 	_material.set_shader_parameter("iResolution", Vector3(res.x, res.y, 1.0))
 	_material.set_shader_parameter("video_stereo", _video_stereo if video else 0)
 	_bind_channels()
+
+
+## The video as the Screen's source, laid out like the main screen, at the
+## main screen's base render size (before the resolution scale).
+func _configure_video_source() -> void:
+	_screen.set_render_scale(1.0)
+	_screen.configure({"fit_aspect": true}, null)
+	_screen.set_source_layout(_video_projection)
+	_screen.set_swap_eyes(_video_swap)
+	if _video_aspect > 0.0:
+		_screen.set_content_aspect(_video_aspect)
+	_screen.set_source_texture(_video)
 
 
 ## Point each iChannel at its tagged source (unbound when not available).

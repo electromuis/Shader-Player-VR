@@ -1,10 +1,11 @@
+// @title Keep center
 // Keeps the middle of a scaled-up picture near its original size and
 // stretches the rest out to the edges instead. Set `zoom` to how much the
 // screen or layer was scaled up (its Size): the middle `center` of the
 // picture (a fraction of its width and height) is shrunk by that much, so
 // it looks as it did at size 1, and the outer part fills the remaining
 // room. `softness` blends the two zones instead of meeting at a crease.
-// `horizontal` / `vertical` pick the axes it works along. After a Padding
+// `horizontal` / `vertical` pick the axes it works along. With a margin
 // it warps the picture, not the margin.
 shader_type canvas_item;
 #include "res://addons/vj_editor/visualizer/effect_prelude.gdshaderinc"

@@ -28,11 +28,12 @@ const REQUEST_TIMEOUT := 15.0
 const STARTUP_TIMEOUT := 30.0
 ## Stop trying after this many helper crashes / timeouts in one session.
 const MAX_HELPER_FAILURES := 3
-const HELPER_SCRIPT := "user://os_thumbnails.ps1"
+## Both in AppPaths.save_dir().
+static var HELPER_SCRIPT := AppPaths.save_path("os_thumbnails.ps1")
 ## The helper writes each thumbnail's pixels here (one request in flight, so
 ## one file suffices) — far faster than pushing them through the pipe, which
 ## Godot reads a byte per syscall.
-const HELPER_PIXELS := "user://os_thumbnail.rgba"
+static var HELPER_PIXELS := AppPaths.save_path("os_thumbnail.rgba")
 
 ## path → Texture2D, or null once known to have none.
 var _cache: Dictionary = {}

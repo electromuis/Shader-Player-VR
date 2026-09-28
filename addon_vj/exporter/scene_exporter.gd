@@ -27,8 +27,13 @@ extends RefCounted
 ##                                                    → shader_param "<id>.effect<N>"
 ##         (<effect> a VJEffect child of a screen or layer, N its place
 ##         among the enabled ones)
-##       <path>:curvature / :vertical_curvature / :opacity (screens, layers)
-##                                                    → shader_param "<id>.display"
+##       <path>/<vertex effect>:params/<name>         → shader_param "<id>.vertex<N>"
+##         (<vertex effect> a VJVertexEffect child, N its place among the
+##         enabled ones)
+##       <path>:arc_x / :arc_y / :auto_height / :keep_row_width /
+##         :straight_rows (screens, layers)                                    → shader_param "<id>.shape"
+##       <path>:opacity, and earlier scenes' :curvature / :vertical_curvature
+##         (screens, layers)                          → shader_param "<id>.display"
 ##       <path>:opacity / :tint / :flash / :speed / :sort_offset (VJObject;
 ##         opacity only where it's not a screen's or layer's display fade)
 ##                                                    → shader_param "<id>.modifiers"
@@ -47,6 +52,7 @@ const VJLayerScript := preload("res://addons/vj_editor/builtin_prefabs/layer.gd"
 const VJViewerScript := preload("res://addons/vj_editor/builtin_prefabs/vj_viewer.gd")
 const VJObjectScript := preload("res://addons/vj_editor/modifiers/vj_object.gd")
 const VJEffectScript := preload("res://addons/vj_editor/builtin_prefabs/effect.gd")
+const VJVertexEffectScript := preload("res://addons/vj_editor/builtin_prefabs/vertex_effect.gd")
 const BezierTracksScript := preload("res://addons/vj_editor/exporter/bezier_tracks.gd")
 
 const _ANIMATION_NAME := "main"
@@ -58,6 +64,12 @@ const _SHADER_PARAM_PREFIX := "shader_parameter/"
 const _DISPLAY_PROPS := ["curvature", "vertical_curvature", "opacity"]
 ## Where the player starts every script (VJViewer's rest pose should match).
 const VIEWER_HOME_POSITION := Vector3(0, 2, 8)
+## A screen's surface params, animated on `<id>.shape`.
+const _SHAPE_PROPS := ["arc_x", "arc_y", "auto_height", "keep_row_width", "straight_rows"]
+## Picked per spawn in the player: not animatable.
+const _FIXED_PROPS := ["surface", "placement"]
+## The addon's built-in vertex effects: the player knows them by name.
+const _VERTEX_ADDON_DIR := "res://addons/vj_editor/visualizer/vertex/"
 ## Builtin prefab keys → the player's copies.
 const _PLAYER_PREFABS := {
 	"screen": "res://player/prefabs/screen.tscn",
@@ -370,7 +382,7 @@ static func _tracks_from_animation(scene: Node, animation: Animation, objects: A
 	for obj in objects:
 		by_path[obj.path] = obj
 
-	# property path String -> {obj, node, effect, path, comps: {component -> track}}
+	# property path String -> {obj, node, slot, path, comps: {component -> track}}
 	var bezier_groups: Dictionary = {}
 	for i in animation.get_track_count():
 		var type := animation.track_get_type(i)
@@ -382,24 +394,30 @@ static func _tracks_from_animation(scene: Node, animation: Animation, objects: A
 			names.append(String(path.get_name(n)))
 		var obj: _Obj = by_path.get("/".join(names))
 		var node: Node = obj.node if obj != null else null
-		var effect := -1
+		var slot := ""
 		if obj == null and names.size() > 1:
-			# A VJEffect under a screen or layer: its params go to the
-			# parent's `effect<N>` slot.
+			# A VJEffect or VJVertexEffect under a screen or layer: its
+			# params go to the parent's `effect<N>` / `vertex<N>` slot.
 			obj = by_path.get("/".join(names.slice(0, -1)))
 			node = scene.get_node_or_null(NodePath("/".join(names)))
-			if obj == null or node == null or node.get_script() != VJEffectScript:
+			if obj == null or node == null:
 				continue
-			effect = obj.node.call("effect_nodes").find(node) if obj.node.has_method("effect_nodes") else -1
-			if effect < 0:
-				continue  # disabled, or no shader: not exported
+			var index := -1
+			if node.get_script() == VJEffectScript and obj.node.has_method("effect_nodes"):
+				index = obj.node.call("effect_nodes").find(node)
+				slot = "effect%d" % index
+			elif node.get_script() == VJVertexEffectScript and obj.node.has_method("vertex_effect_nodes"):
+				index = obj.node.call("vertex_effect_nodes").find(node)
+				slot = "vertex%d" % index
+			if index < 0:
+				continue  # disabled, no shader, or not an effect: not exported
 		if obj == null:
 			continue
 		if path.get_subname_count() == 0:
 			push_warning("VJ export: track '%s' must target a property — skipped." % path)
 			continue
 		if type == Animation.TYPE_VALUE:
-			_route_track(out, obj, effect, path, _value_track_keys(animation, i))
+			_route_track(out, obj, slot, path, _value_track_keys(animation, i))
 			continue
 		# Bezier tracks animate one float each; a vector's or colour's
 		# components (`position:x`, `glow_tint:r`) are regrouped into the
@@ -408,25 +426,32 @@ static func _tracks_from_animation(scene: Node, animation: Animation, objects: A
 		var prop_path: NodePath = split[0]
 		var group: Dictionary = bezier_groups.get(String(prop_path), {})
 		if group.is_empty():
-			group = {"obj": obj, "node": node, "effect": effect, "path": prop_path, "comps": {}}
+			group = {"obj": obj, "node": node, "slot": slot, "path": prop_path, "comps": {}}
 			bezier_groups[String(prop_path)] = group
 		group.comps[split[1]] = i
 	for group in bezier_groups.values():
-		_route_track(out, group.obj, group.effect, group.path, _bezier_keys(animation, group.node, group.path, group.comps))
+		_route_track(out, group.obj, group.slot, group.path, _bezier_keys(animation, group.node, group.path, group.comps))
 	return out
 
 
-## `effect` >= 0: the track animates that effect (a VJEffect child of
-## `obj`); only its shader params export.
-static func _route_track(out: Array, obj: _Obj, effect: int, path: NodePath, keys: Array) -> void:
-	if effect < 0:
+## `slot` "effect<N>" / "vertex<N>": the track animates that effect (a
+## VJEffect / VJVertexEffect child of `obj`); only its params export.
+static func _route_track(out: Array, obj: _Obj, slot: String, path: NodePath, keys: Array) -> void:
+	if slot == "":
 		_append_track(out, obj, path, keys)
 		return
+	var first := String(path.get_subname(0))
+	if slot.begins_with("vertex"):
+		if not first.begins_with("params/"):
+			push_warning("VJ export: only a vertex effect's params/<name> animates ('%s') — skipped." % path)
+			return
+		out.append(_shader_param_track(keys, "%s.%s" % [obj.id, slot], first.substr("params/".length())))
+		return
 	var last := String(path.get_subname(path.get_subname_count() - 1))
-	if String(path.get_subname(0)) != "material" or not last.begins_with(_SHADER_PARAM_PREFIX):
+	if first != "material" or not last.begins_with(_SHADER_PARAM_PREFIX):
 		push_warning("VJ export: only an effect's material:shader_parameter/<name> animates ('%s') — skipped." % path)
 		return
-	out.append(_shader_param_track(keys, "%s.effect%d" % [obj.id, effect], last.substr(_SHADER_PARAM_PREFIX.length())))
+	out.append(_shader_param_track(keys, "%s.%s" % [obj.id, slot], last.substr(_SHADER_PARAM_PREFIX.length())))
 
 
 ## Routes one animated property of `obj` to its player track. `keys` are
@@ -453,8 +478,13 @@ static func _append_track(out: Array, obj: _Obj, path: NodePath, keys: Array) ->
 		"visible":
 			pass  # _presence_events
 		_:
-			if prop in _DISPLAY_PROPS:
+			var screen := _is_screen(obj.node)
+			if screen and prop in _DISPLAY_PROPS:
 				out.append(_shader_param_track(keys, id + ".display", prop))
+			elif screen and prop in _SHAPE_PROPS:
+				out.append(_shader_param_track(keys, id + ".shape", prop))
+			elif screen and prop in _FIXED_PROPS:
+				push_warning("VJ export: '%s' on '%s' can't animate (it's picked per spawn) — skipped." % [prop, obj.path])
 			else:
 				push_warning("VJ export: unsupported animated property '%s' on '%s' — skipped." % [path.get_concatenated_subnames(), obj.path])
 
@@ -760,7 +790,9 @@ static func _look_config(node: Node3D, out_dir: String, shaders: Dictionary) -> 
 	var is_layer: bool = script == VJLayerScript
 	var cfg: Dictionary = {}
 	var mat: ShaderMaterial = node.call("get_shader_material")
-	if mat != null and mat.shader != null:
+	if is_layer and bool(node.get("video_source")):
+		cfg["shader"] = "video"
+	elif mat != null and mat.shader != null:
 		var key := _register_shader(mat.shader, out_dir, shaders)
 		if not key.is_empty():
 			cfg["shader"] = key
@@ -771,15 +803,53 @@ static func _look_config(node: Node3D, out_dir: String, shaders: Dictionary) -> 
 	var rscale: float = float(node.get("render_scale"))
 	if rscale != 1.0 and rscale > 0.0:
 		cfg["resolution" if is_layer else "render_scale"] = rscale
-	for prop in ["curvature", "vertical_curvature"]:
-		if float(node.get(prop)) > 0.0:
-			cfg[prop] = float(node.get(prop))
+	var surface: Dictionary = node.call("surface_config")
+	if surface.shader != "pillow" or surface.placement != "fixed" \
+			or float(surface.params.arc_x) > 0.0 or float(surface.params.arc_y) > 0.0:
+		cfg["surface"] = surface
 	if float(node.get("opacity")) < 1.0:
 		cfg["opacity"] = float(node.get("opacity"))
 	var effects := _effects_config(node, out_dir, shaders)
 	if not effects.is_empty():
 		cfg["effects"] = effects
+	var vertex := _vertex_effects_config(node, out_dir, shaders)
+	if not vertex.is_empty():
+		cfg["vertex_effects"] = vertex
 	return cfg
+
+
+static func _is_screen(node: Node) -> bool:
+	var script = node.get_script()
+	return script == VJScreenScript or script == VJLayerScript
+
+
+## The enabled VJVertexEffect children, in order, as `config.vertex_effects`
+## (their index is the `vertex<N>` track target). Built-ins go by name
+## ("ripple"); other snippets are copied to `shaders/` next to the JSON.
+static func _vertex_effects_config(node: Node3D, out_dir: String, shaders: Dictionary) -> Array:
+	var out: Array = []
+	for v in node.call("vertex_effect_nodes"):
+		var src: String = v.effect
+		var key := src.get_file().get_basename()
+		if not src.begins_with(_VERTEX_ADDON_DIR):
+			var rel := "shaders/%s" % src.get_file()
+			var dst := out_dir.path_join(rel)
+			DirAccess.make_dir_recursive_absolute(dst.get_base_dir())
+			var f := FileAccess.open(dst, FileAccess.WRITE)
+			if f == null:
+				push_error("VJ export: could not write vertex effect '%s'." % dst)
+				continue
+			f.store_string(v.code())
+			f.close()
+			shaders[key] = rel
+		var e := {"shader": key}
+		var params: Dictionary = {}
+		for k in v.params:
+			params[k] = _value_to_json(v.params[k])
+		if not params.is_empty():
+			e["params"] = params
+		out.append(e)
+	return out
 
 
 ## The VJEffect children with a shader, in order, as `config.effects`.
@@ -795,7 +865,7 @@ static func _effects_config(node: Node3D, out_dir: String, shaders: Dictionary) 
 			continue
 		var mat: ShaderMaterial = child.material
 		var e := {"shader": _register_shader(mat.shader, out_dir, shaders)}
-		var params := _authored_params(mat, ["input_tex", "display_aspect", "picture_rect", "picture_corners", "prepass_tex", "prepass"])
+		var params := _authored_params(mat, ["input_tex", "display_aspect", "picture_rect", "picture_shape", "prepass_tex", "prepass"])
 		if not params.is_empty():
 			e["params"] = params
 		if not child.enabled:

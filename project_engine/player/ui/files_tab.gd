@@ -17,7 +17,9 @@ extends VBoxContainer
 ##
 ## Folders and files are ordered by PlayerSettings.browser_sort (Sort
 ## dropdown); folders always come first. The folder shown is remembered in
-## PlayerSettings.browser_last_dir and reopened next launch. With no folder
+## PlayerSettings.browser_last_dir and reopened next launch. With none
+## remembered it starts in a `media` folder next to the executable, if there
+## is one (the release package's samples). With no folder
 ## to start in, or going up from a drive root, the list shows the system's
 ## drives ("This PC" — _current_dir is "" there).
 ##
@@ -310,6 +312,9 @@ func _initial_dir() -> String:
 	if _settings != null and _settings.browser_last_dir != "" \
 			and DirAccess.dir_exists_absolute(_settings.browser_last_dir):
 		return _settings.browser_last_dir
+	var media := AppPaths.exe_dir().path_join("media")
+	if DirAccess.dir_exists_absolute(media):
+		return media
 	return ""
 
 

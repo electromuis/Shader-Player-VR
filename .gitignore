@@ -60,6 +60,11 @@ project_script_example/addons/vj_editor
 project_script_forest_tunnel/addons/vj_editor
 project_script_forest_tunnel/addons/gde_gozen
 
+# Release package (build_release.bat) and its sample media
+dist/
+release/media/*
+!release/media/.gitkeep
+
 # Downloaded by CI (see ci/fetch_addons.sh)
 project_engine/addons/godotopenxrvendors/
 project_engine/android/

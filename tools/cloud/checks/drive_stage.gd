@@ -74,7 +74,9 @@ func _initialize() -> void:
 	await frames(2)
 	print("script: preset ", presets.active_index, " layers ", layers.count(), " opacity ", screen_settings.opacity)
 	var screen: Node3D = main.runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID)
-	print("screen: parent ", screen.get_parent().name, " curvature ", snappedf(float(screen.get("_display_material").get_shader_parameter("curvature")), 0.01))
+	var surf: Dictionary = screen.get_surface() if screen.has_method("get_surface") else {}
+	var arc = surf.get("params", {}).get("arc_x", null) if not surf.is_empty() else null
+	print("screen: parent ", screen.get_parent().name, " curvature ", snappedf(float(screen.get("_display_material").get_shader_parameter("curvature")), 0.01) if surf.is_empty() 			else "(a %s surface, arc_x %s)" % [surf.get("shader", "?"), str(snappedf(float(arc), 0.1)) if arc != null else "-"])
 	# Play across the cuts (seeking doesn't fire events).
 	main.runner.seek(0.7)
 	main.runner.play()

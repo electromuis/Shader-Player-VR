@@ -44,6 +44,8 @@ var _registry: ObjectRegistry
 var _prefabs: PrefabLibrary
 var _stage: Node3D
 var _events_sorted: Array = []
+## timeline.continuous_tracks(), kept with the timeline (evaluated every frame).
+var _continuous: Array = []
 var _next_event_idx: int = 0
 var _watcher: FileWatcher
 var _video_duration: float = 0.0  # set externally when the video reports its length
@@ -209,6 +211,7 @@ func _apply_timeline(data: TimelineData, preserve_playhead: bool) -> void:
 	_camera_params = {}
 	_events_sorted = data.events_sorted()
 	viewer = ViewerTrack.from_timeline(data)
+	_continuous = data.continuous_tracks()
 	if preserve_playhead:
 		_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	else:
@@ -235,6 +238,7 @@ func _reconcile_swap(new_timeline: TimelineData) -> void:
 	timeline = new_timeline
 	_events_sorted = new_events
 	viewer = ViewerTrack.from_timeline(new_timeline)
+	_continuous = new_timeline.continuous_tracks()
 	_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	_sync_owned(expected)
 	_update_watched_files()
@@ -257,6 +261,7 @@ func apply_edit(data: TimelineData, structural: bool) -> void:
 			DefaultScreen.inject(data)
 		timeline = data
 		_events_sorted = data.events_sorted()
+		_continuous = data.continuous_tracks()
 		viewer = ViewerTrack.from_timeline(data)
 		_next_event_idx = _event_idx_after(playhead, _events_sorted)
 	_reactive_begin()
@@ -452,7 +457,7 @@ func _setup_modifiers(id: String, node: Node3D, cfg: Dictionary) -> void:
 	var reactive = cfg.get("reactive")
 	var spin_kfs: Array = []
 	var pulse_track := false
-	for track in timeline.continuous_tracks():
+	for track in _continuous:
 		if track.get("type") == "shader_param" and track.get("target") == id + ".reactive":
 			if track.get("param") == "spin":
 				spin_kfs = track.get("keyframes", [])
@@ -504,17 +509,22 @@ func _reactive_end() -> void:
 
 
 ## `cfg` with shader keys swapped for the files they name (what Screen /
-## Visualizer.set_effects and Visualizer.set_shader take), and JSON arrays
-## in effect params turned into vectors.
+## Visualizer.set_effects and Visualizer.set_shader take; a layer's "video"
+## source stays, unless `shaders` maps that name), and JSON arrays in
+## effect params turned into vectors.
 func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 	var out := cfg.duplicate(true)
 	if is_layer:
-		out["shader"] = _shader_path(String(cfg.get("shader", "")))
+		var source := String(cfg.get("shader", ""))
+		if source != VisualizerShaders.VIDEO or timeline.shaders.has(source):
+			out["shader"] = _shader_path(source)
 		var params = cfg.get("params", {})
 		if typeof(params) == TYPE_DICTIONARY:
 			out["params"] = _shader_values(params)
-	var effects = cfg.get("effects")
-	if typeof(effects) == TYPE_ARRAY:
+	for list_key in ["effects", "vertex_effects"]:
+		var effects = cfg.get(list_key)
+		if typeof(effects) != TYPE_ARRAY:
+			continue
 		var list: Array = []
 		for e in effects:
 			if typeof(e) != TYPE_DICTIONARY or e.get("enabled", true) == false:
@@ -523,14 +533,27 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 			list.append({
 				"shader": _shader_path(String(e.get("shader", ""))),
 				"params": _shader_values(params) if typeof(params) == TYPE_DICTIONARY else {},
+				"enabled": bool(e.get("enabled", true)),
 			})
-		out["effects"] = list
+		out[list_key] = list
+	var surface = cfg.get("surface")
+	if typeof(surface) == TYPE_DICTIONARY:
+		var params = surface.get("params", {})
+		out["surface"] = {
+			"shader": _shader_path(String(surface.get("shader", ""))),
+			"params": _shader_values(params) if typeof(params) == TYPE_DICTIONARY else {},
+			"placement": String(surface.get("placement", "")),
+		}
 	return out
 
 
+## The file a config's shader key names: a `shaders[]` key, or a built-in
+## surface / vertex effect's name ("dome", "ripple"; ScreenGeometry).
 func _shader_path(key: String) -> String:
 	if key == "":
 		return ""
+	if ScreenGeometry.is_builtin_name(key) and not timeline.shaders.has(key):
+		return ScreenGeometry.resolve_builtin(key)
 	var path := timeline.resolve_shader(key)
 	if path == "":
 		push_warning("shader key '%s' not found" % key)
@@ -587,7 +610,7 @@ func _do_despawn(ev: Dictionary) -> void:
 func _evaluate_continuous_tracks() -> void:
 	if timeline == null:
 		return
-	for track in timeline.continuous_tracks():
+	for track in _continuous:
 		match track.get("type", ""):
 			"transform": _apply_transform_track(track)
 			"shader_param": _apply_shader_param_track(track)
@@ -660,9 +683,10 @@ static func surface_material(node: Node) -> ShaderMaterial:
 func _set_slot_param(id: String, node: Node, slot: String, param: String, value: Variant) -> void:
 	value = shader_value(value)
 	if slot == "modifiers":
-		var mods: Dictionary = node.get_meta(_MODS_META, {}).duplicate()
+		var mods: Dictionary = node.get_meta(_MODS_META, {})
 		value = Modifiers.normalize(param, value)
 		if mods.get(param) != value:
+			mods = mods.duplicate()
 			mods[param] = value
 			node.set_meta(_MODS_META, mods)
 			Modifiers.refresh(node, _mods_lookup)

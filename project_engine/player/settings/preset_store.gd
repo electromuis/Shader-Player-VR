@@ -2,7 +2,8 @@ class_name PresetStore
 extends RefCounted
 
 ## JSON-file preset store for the F2 floating panel. Each preset is one file
-## under `user://presets/preset_N.json`, and reuses the same
+## under AppPaths.presets_dir() (`user://presets`, or the `presets` folder
+## next to the executable when portable) as `preset_N.json`, and reuses the same
 ## `format_version` convention as the timeline script format so presets are
 ## versionable/diffable the same way scripts are. Preset 1 is the default
 ## and is auto-created on first launch; it can't be deleted.
@@ -22,7 +23,6 @@ extends RefCounted
 ## Also tracks which preset is active (last applied; shared by the Camera
 ## and Presets tabs) and which one loads at startup (`startup.cfg`).
 
-const PRESET_DIR := "user://presets"
 const FORMAT_VERSION := 1
 const KIND := "camera_preset"
 const DEFAULT_PRESET_INDEX := 1
@@ -42,7 +42,7 @@ var _dir: String
 
 
 ## `dir` is overridable so tests don't touch the user's real presets.
-func _init(dir: String = PRESET_DIR) -> void:
+func _init(dir: String = AppPaths.presets_dir()) -> void:
 	_dir = dir
 
 
@@ -223,7 +223,6 @@ func _default_preset() -> Dictionary:
 			"distance": 0.0,
 			"height": 0.0,
 			"tilt": 0.0,
-			"curvature": 0.0,
 			"opacity": 1.0,
 		},
 	}

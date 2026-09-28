@@ -4,8 +4,8 @@
 
 [sub_resource type="QuadMesh" id="QuadMesh_screen"]
 size = Vector2(32, 18)
-subdivide_width = 48
-subdivide_depth = 27
+subdivide_width = 96
+subdivide_depth = 54
 
 [node name="Screen" type="Node3D"]
 script = ExtResource("1_screen")

@@ -71,16 +71,21 @@ static func test_resolution_round_trip_and_clamp(t: TestCase) -> void:
 	t.assert_eq(copy.resolution, 1.0, "old presets keep full resolution")
 
 
-static func test_effects_and_vertical_curve_round_trip(t: TestCase) -> void:
+static func test_effects_and_surface_round_trip(t: TestCase) -> void:
 	var s := ScreenSettings.new()
-	s.vertical_curvature = 0.4
+	s.set_surface_shader(ScreenGeometry.DOME)
+	s.set_surface_param("arc_x", 120.0)
+	s.set_surface_placement("infinity")
 	s.add_effect(VisualizerShaders.KEY_BLACK)
 	s.add_effect()
 	s.set_effect_shader(1, VisualizerShaders.OVAL_MASK)
 	s.set_effect_param(1, "size", 0.7)
+	s.add_effect(ScreenGeometry.RIPPLE, ScreenSettings.VERTEX_EFFECTS)
+	s.set_effect_param(0, "amplitude", 0.3, ScreenSettings.VERTEX_EFFECTS)
 	var copy := ScreenSettings.new()
 	copy.from_dict(s.to_dict())
-	t.assert_eq(copy.vertical_curvature, 0.4)
+	t.assert_eq(copy.surface, {"shader": ScreenGeometry.DOME, "params": {"arc_x": 120.0}, "placement": "infinity"})
+	t.assert_eq(copy.vertex_effects, [{"shader": ScreenGeometry.RIPPLE, "params": {"amplitude": 0.3}}])
 	t.assert_eq(copy.effects.size(), 2)
 	t.assert_eq(copy.effects[0].shader, VisualizerShaders.KEY_BLACK)
 	t.assert_eq(copy.effects[1].params.get("size"), 0.7)
@@ -106,7 +111,7 @@ static func test_effect_edits_signal(t: TestCase) -> void:
 
 static func test_move_effect(t: TestCase) -> void:
 	var s := ScreenSettings.new()
-	s.add_effect(VisualizerShaders.PADDING)
+	s.add_effect(VisualizerShaders.BLUR)
 	s.add_effect(VisualizerShaders.GLOW)
 	s.add_effect(VisualizerShaders.KEY_BLACK)
 	s.set_effect_param(1, "intensity", 2.0)
@@ -114,7 +119,7 @@ static func test_move_effect(t: TestCase) -> void:
 	s.structure_changed.connect(func(): counts.structure += 1)
 	s.move_effect(1, -1)
 	t.assert_eq(s.effects.map(func(e): return e.shader),
-			[VisualizerShaders.GLOW, VisualizerShaders.PADDING, VisualizerShaders.KEY_BLACK])
+			[VisualizerShaders.GLOW, VisualizerShaders.BLUR, VisualizerShaders.KEY_BLACK])
 	t.assert_eq(s.effects[0].params.intensity, 2.0, "params move with their effect")
 	s.move_effect(0, 1)
 	s.move_effect(1, 1)
@@ -122,6 +127,35 @@ static func test_move_effect(t: TestCase) -> void:
 	s.move_effect(2, 1)
 	s.move_effect(0, -1)
 	t.assert_eq(counts.structure, 3, "moves past either end do nothing")
+
+
+static func test_add_effect_at_top(t: TestCase) -> void:
+	var s := ScreenSettings.new()
+	s.add_effect(VisualizerShaders.BLUR)
+	s.add_effect(VisualizerShaders.GLOW, ScreenSettings.EFFECTS, 0)
+	s.add_effect(VisualizerShaders.KEY_BLACK, ScreenSettings.EFFECTS, 9)
+	t.assert_eq(s.effects.map(func(e): return e.shader),
+			[VisualizerShaders.GLOW, VisualizerShaders.BLUR, VisualizerShaders.KEY_BLACK])
+
+
+static func test_effect_on_off(t: TestCase) -> void:
+	var s := ScreenSettings.new()
+	s.add_effect(VisualizerShaders.GLOW)
+	s.set_effect_param(0, "intensity", 2.0)
+	var counts := {"structure": 0}
+	s.structure_changed.connect(func(): counts.structure += 1)
+	s.set_effect_enabled(0, false)
+	s.set_effect_enabled(0, false)
+	t.assert_eq(counts.structure, 1, "switching to the same state does nothing")
+	t.assert_false(ScreenSettings.is_enabled(s.effects[0]))
+	var copy := ScreenSettings.new()
+	copy.from_dict(s.to_dict())
+	t.assert_false(ScreenSettings.is_enabled(copy.effects[0]), "off survives a round trip")
+	t.assert_eq(copy.effects[0].params.intensity, 2.0, "and keeps its params")
+	s.set_effect_shader(0, VisualizerShaders.BLUR)
+	t.assert_false(ScreenSettings.is_enabled(s.effects[0]), "re-picking keeps it off")
+	s.set_effect_enabled(0, true)
+	t.assert_false(s.effects[0].has("enabled"), "on is the default, not stored")
 
 
 static func test_legacy_mask_becomes_oval_effect(t: TestCase) -> void:

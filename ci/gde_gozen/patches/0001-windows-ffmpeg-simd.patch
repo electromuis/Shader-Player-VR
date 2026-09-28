@@ -1,0 +1,30 @@
+From 5bd4908a37f0a63f57546fae09caed59b8800574 Mon Sep 17 00:00:00 2001
+From: Electromuis <anton.grootes11@gmail.com>
+Date: Sun, 27 Sep 2026 19:38:47 +0200
+Subject: [PATCH] Windows: build FFmpeg with SIMD (asm)
+
+--disable-asm left the decoders without SIMD: a 4K30 HEVC video took
+~2.5 cores to decode in realtime, ~0.95 with asm. Needs nasm, now
+installed in the CI containers and checked by build_on_windows.py.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ build.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/build.py b/build.py
+index eac80d7..082727b 100755
+--- a/build.py
++++ b/build.py
+@@ -499,7 +499,7 @@ def compile_ffmpeg_windows(arch: str) -> None:
+         "--disable-shared",
+         "--enable-static",
+         "--enable-pic",
+-        "--disable-asm",
++        # SIMD (needs nasm): without it HEVC decodes at ~2.7x the CPU.
+         f"--arch={ffmpeg_arch}",
+         "--target-os=mingw32",
+         "--enable-cross-compile",
+-- 
+2.42.0.windows.1
+

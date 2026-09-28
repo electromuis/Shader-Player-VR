@@ -57,7 +57,7 @@ static func test_camera_files_are_not_layers(tc: TestCase) -> void:
 	var cams := CameraFxShaders.list_options(dirs).map(func(o): return o.label)
 	var layers := VisualizerShaders.list_options(dirs).map(func(o): return o.label)
 	tc.assert_true(cams.has("trip") and not cams.has("plasma"), "camera list: %s" % [cams])
-	tc.assert_true(layers.has("plasma") and not layers.has("trip"), "layer list: %s" % [layers])
+	tc.assert_true(layers.has("Plasma") and not layers.has("Trip") and not layers.has("trip"), "layer list: %s" % [layers])
 	_wipe()
 
 

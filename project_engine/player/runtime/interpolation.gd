@@ -51,14 +51,20 @@ static func evaluate(keyframes: Array, t: float):
 			return _blend(a.get("value"), b.get("value"), raw_u)
 
 
+## The index i of the segment [i, i + 1] holding `t`: the last keyframe at
+## or before it (binary search; exported tracks run to hundreds of keys and
+## this runs per track per frame). Callers have handled t before the first
+## key and at or past the last.
 static func _find_segment(keyframes: Array, t: float) -> int:
-	# Linear scan is fine for typical timeline sizes; upgrade to binary search
-	# if track sizes explode.
-	for i in range(keyframes.size() - 1):
-		var tb := float(keyframes[i + 1].get("t", 0.0))
-		if t < tb:
-			return i
-	return keyframes.size() - 2
+	var lo := 0
+	var hi := keyframes.size() - 1
+	while hi - lo > 1:
+		var mid := (lo + hi) >> 1
+		if t < float(keyframes[mid].get("t", 0.0)):
+			hi = mid
+		else:
+			lo = mid
+	return lo
 
 
 static func _blend(a, b, u: float):

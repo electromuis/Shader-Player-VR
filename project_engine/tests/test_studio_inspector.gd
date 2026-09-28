@@ -174,7 +174,7 @@ static func test_hints_colours_and_groups(tc: TestCase) -> void:
 	for p in h.params:
 		by_name[p.name] = p
 	tc.assert_eq(by_name.intensity.group, "halo")
-	tc.assert_eq(by_name.inner_strength.group, "picture_edge")
+	tc.assert_eq(by_name.edge_width.group, "picture_edge")
 	tc.assert_eq(by_name.prepass_scale.group, "", "after a bare group_uniforms")
 	var c := VisualizerShaders.parse_hints("uniform vec4 a : source_color = vec4(0.5, 0.25, 1.0, 0.0);\nuniform vec3 b : source_color;\nuniform vec3 plain = vec3(1.0);")
 	tc.assert_eq(c.colors.size(), 2, "only source_color vectors")
@@ -216,7 +216,7 @@ static func test_inspector_fields_for_a_screen(tc: TestCase) -> void:
 	# Values at the playhead: track, else config, else the shader's default.
 	tc.assert_eq(e.value_of("scr", _field(sections, "effect1/intensity"), 2.0), 2.0, "from the track")
 	tc.assert_eq(e.value_of("scr", _field(sections, "effect1/radius"), 2.0), 0.64, "from the config")
-	tc.assert_eq(e.value_of("scr", _field(sections, "effect1/power"), 2.0), 2.0, "the shader's default")
+	tc.assert_eq(e.value_of("scr", _field(sections, "effect1/mirror"), 2.0), 0.5, "the shader's default")
 	tc.assert_eq(e.value_of("scr", tint, 0.0), [1.0, 1.0, 1.0])
 	tc.assert_eq(e.value_of("scr", _field(sections, "curvature"), 0.0), 0.3)
 	tc.assert_eq(e.value_of("box", _field(sections, "speed"), 0.0), 2.0)

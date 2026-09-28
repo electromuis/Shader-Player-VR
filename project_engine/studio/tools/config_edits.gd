@@ -182,7 +182,7 @@ static func _color(key: String, label: String, alpha: bool, default: Color, conf
 
 ## An effect's name for people: the built-in's label, else its key.
 static func effect_label(key: String, path: String) -> String:
-	for b in VisualizerShaders.BUILTIN_EFFECTS:
+	for b in VisualizerShaders.builtins(true):
 		if b.key == path:
 			return b.label
 	return key.capitalize()
@@ -434,12 +434,12 @@ func _as_value(field: Dictionary, value):
 ## Effects that can be added: [{key (a shader path), label}]: the built-ins,
 ## the piece's own effect shaders, and the user's (from the library).
 func effect_options() -> Array:
-	return _shader_options(VisualizerShaders.BUILTIN_EFFECTS, true)
+	return _shader_options(VisualizerShaders.builtins(true), true)
 
 
 ## Layer shaders that can be picked: [{key (path), label}], the same way.
 func layer_shader_options() -> Array:
-	return _shader_options(VisualizerShaders.BUILTINS, false)
+	return _shader_options(VisualizerShaders.builtins(false), false)
 
 
 func _shader_options(builtins: Array, effects: bool) -> Array:

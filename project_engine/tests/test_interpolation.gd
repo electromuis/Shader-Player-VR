@@ -111,6 +111,23 @@ static func test_single_keyframe(tc: TestCase) -> void:
 	tc.assert_eq(Interpolation.evaluate(kfs, 100.0), 7.5)
 
 
+static func test_long_track_finds_every_segment(tc: TestCase) -> void:
+	# value == t on every key, so any t in range interpolates back to itself.
+	var kfs: Array = []
+	for i in 101:
+		kfs.append({"t": float(i), "value": float(i)})
+	for t in [0.5, 1.0, 1.25, 49.9, 50.0, 73.3, 99.5]:
+		tc.assert_true(is_equal_approx(Interpolation.evaluate(kfs, t), t), "t = %s" % t)
+
+
+static func test_equal_times_jump_to_the_later_key(tc: TestCase) -> void:
+	var kfs := [{"t": 0.0, "value": 0.0}, {"t": 1.0, "value": 1.0},
+			{"t": 1.0, "value": 5.0}, {"t": 2.0, "value": 6.0}]
+	tc.assert_eq(Interpolation.evaluate(kfs, 0.5), 0.5)
+	tc.assert_eq(Interpolation.evaluate(kfs, 1.0), 5.0)
+	tc.assert_eq(Interpolation.evaluate(kfs, 1.5), 5.5)
+
+
 static func test_to_vec3(tc: TestCase) -> void:
 	var v := Interpolation.to_vec3([1, 2, 3])
 	tc.assert_eq(v.x, 1.0)

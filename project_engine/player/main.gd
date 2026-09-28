@@ -24,6 +24,9 @@ var _cli_start_in_vr: bool = false
 var _cli_force_desktop: bool = false
 ## --paused: open the --script file without starting playback.
 var _cli_paused: bool = false
+## --preset <file>: start with this preset .json instead of the startup
+## preset (tools/bench_preset.gd uses it).
+var _cli_preset_path: String = ""
 var _cli_whirligig_port: int = WhirligigServer.DEFAULT_PORT
 var _cli_whirligig_bind: String = "127.0.0.1"
 var _whirligig: WhirligigServer
@@ -46,9 +49,9 @@ func _ready() -> void:
 		if _whirligig != null:
 			_whirligig.set_media_path(path))
 	stage.video_opening.connect(_show_loading_thumbnail)
-	stage.projection_changed.connect(func(override: String, detected: String):
+	stage.source_changed.connect(func(override: Dictionary, detected: String, detected_swap: bool, swap: bool):
 		if _camera_tab != null:
-			_camera_tab.set_projection_state(override, detected))
+			_camera_tab.set_source_state(override, detected, detected_swap, swap))
 	stage.camera_fx_error_changed.connect(func(text: String):
 		if _camera_tab != null:
 			_camera_tab.set_camera_fx_error(text))
@@ -62,6 +65,7 @@ func _ready() -> void:
 	_update_mode_label()
 	_player_settings = PlayerSettings.new()
 	_player_settings.load_from_disk()
+	stage.startup_preset_path = _cli_preset_path
 	stage.setup(_player_settings, InputBindings.new())
 	stage.router.command.connect(_on_command)
 	stage.router.command_released.connect(_on_command_released)
@@ -217,22 +221,22 @@ func _on_right_stick_clicked() -> void:
 ## `screen_trigger` (right trigger, not on a panel): play/pause while aiming
 ## at the screen.
 func _on_right_trigger() -> void:
+	# Off the panel, the trigger first cancels a dropdown left open there.
+	if floating_panel.close_popups():
+		return
 	if _aiming_at_screen():
 		_toggle_play()
 
 
-## Whether the right controller points at the main screen's flat quad.
-## 180°/360° videos surround the viewer, so there is no screen to aim at and
-## the click keeps its reset-view meaning.
+## Whether the right controller points at the main screen's picture, on
+## its surface. At infinity (180°/360° video) it surrounds the viewer, so
+## there is no screen to aim at and the click keeps its reset-view meaning.
 func _aiming_at_screen() -> bool:
-	var screen: Node = runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID)
+	var screen := runner.registry().get_node_by_id(DefaultScreen.SCREEN_ID) as Screen
 	if screen == null:
 		return false
-	var mesh := screen.get_node_or_null("Mesh") as MeshInstance3D
-	if mesh == null or not mesh.is_visible_in_tree() or not (mesh.mesh is QuadMesh):
-		return false
 	var ray := stage.xr_rig.right_aim_ray()
-	return XRRig.ray_hits_quad(ray[0], ray[1], mesh.global_transform, (mesh.mesh as QuadMesh).size)
+	return screen.ray_hit(ray[0], ray[1])
 
 
 ## Leave VR first so the OpenXR session is torn down before the tree goes.
@@ -266,6 +270,8 @@ func _parse_cli_args() -> void:
 			_cli_force_desktop = true
 		elif a == "--paused":
 			_cli_paused = true
+		elif a == "--preset" and i + 1 < args.size():
+			_cli_preset_path = args[i + 1]
 		elif a == "--start" and i + 1 < args.size():
 			stage.pending_start = float(args[i + 1])
 		elif a == "--whirligig-port" and i + 1 < args.size():
@@ -429,7 +435,7 @@ func _bind_panel_content() -> void:
 	if content.has_method("bind_camera"):
 		content.bind_camera(stage.screen_settings, stage.preset_store, stage.layers)
 		_camera_tab = content.camera_tab
-		_camera_tab.projection_selected.connect(stage.set_projection_override)
+		_camera_tab.source_selected.connect(stage.set_source_override)
 		_camera_tab.reset_view_requested.connect(stage.reset_view)
 		if stage.beats != null:
 			_camera_tab.bind_beats(stage.beats)

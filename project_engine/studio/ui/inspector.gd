@@ -223,6 +223,13 @@ func _scroll_to(target: Control) -> void:
 		_scroll.ensure_control_visible(target)
 
 
+## What a folded section holds, for its header: its first few fields
+## ("tint · flash · speed …").
+static func section_summary(fields: Array, most: int = 3) -> String:
+	var names: Array = fields.slice(0, most).map(func(f): return String(f.label).to_lower())
+	return " · ".join(names) + (" …" if fields.size() > most else "")
+
+
 ## A foldable section: its header and a body with a row per field.
 func _add_section(key: String, title: String, fields: Array, header_extra: Callable = Callable(), note_empty := true) -> VBoxContainer:
 	var open: bool = _open.get(key, title in OPEN_BY_DEFAULT)
@@ -238,6 +245,11 @@ func _add_section(key: String, title: String, fields: Array, header_extra: Calla
 	fold.add_theme_font_size_override("font_size", int(_fs * 1.1))
 	fold.custom_minimum_size.y = _target_h()
 	head.add_child(fold)
+	if not open and not header_extra.is_valid() and not fields.is_empty():
+		# Folded: what's inside, at the right of the header.
+		var inside := _label(head, int(_fs * 0.85), DIM)
+		inside.text = section_summary(fields)
+		inside.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if header_extra.is_valid():
 		header_extra.call(head)
 	var body := VBoxContainer.new()
@@ -428,7 +440,7 @@ func _add_layer_shader(s: Dictionary) -> void:
 			label = o.label
 	if label == "none" and current != "":
 		label = current.capitalize()
-	var body := _add_section("Layer shader", "Layer shader: %s" % label, s.fields)
+	var body := _add_section("Layer shader", "Shader · %s" % label, s.fields)
 	if not body.visible:
 		return
 	var pick := _button("Change shader ▾", func():
@@ -514,7 +526,7 @@ func _commit(key: String) -> void:
 		return
 	var p: Dictionary = _pending[key]
 	_pending.erase(key)
-	var label := edits.commit(_id, p.field, p.value, _playhead(), tools.auto_key)
+	var label := edits.commit(_id, p.field, p.value, _playhead(), tools.auto_key, tools.key_animated)
 	edits.end_preview(_id, p.field, label == "")
 	if label != "":
 		said.emit(label + ".")
@@ -642,6 +654,9 @@ func _refresh_values() -> void:
 	if tools.auto_key:
 		_hint.text = "● Auto-key: changes key at %s." % StudioStatus.timecode(t)
 		_hint.add_theme_color_override("font_color", RECORD)
+	elif tools.key_animated:
+		_hint.text = "Keys on change: animated settings key at %s; still ones are set.\n◆ key here   ◇ animated   • still" % StudioStatus.timecode(t)
+		_hint.add_theme_color_override("font_color", DIM)
 	else:
 		_hint.text = "Changes set the piece's values; animated ones scale as a whole.\n◆ key here   ◇ animated   • still"
 		_hint.add_theme_color_override("font_color", DIM)

@@ -1,0 +1,17 @@
+{
+  "tracks": [
+    {
+      "type": "event",
+      "t": 0.0,
+      "action": "spawn",
+      "id": "main_screen",
+      "prefab": "screen",
+      "transform": {
+        "position": [0.0, 2.0, 0.0],
+        "rotation_deg": [0.0, 0.0, 0.0],
+        "scale": [0.25, 0.25, 0.25]
+      },
+      "config": {"fit_aspect": true}
+    }
+  ]
+}

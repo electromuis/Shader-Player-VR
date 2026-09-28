@@ -2,14 +2,33 @@ class_name StudioStatus
 extends PanelContainer
 
 ## Studio's status in Edit mode: the mode, the piece and whether it has
-## unsaved changes, the playhead, and the last thing that happened (undo,
+## unsaved changes, frames per second, the playhead, what's switched on
+## (auto-key, keys on change, snap, a take, an armed ride, with a line
+## saying what an armed ride does), and the last thing that happened (undo,
 ## save, an error). The desktop window shows it in a corner, with the
 ## keyboard shortcuts; the headset on the left wrist (compact: no hints).
 
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
 const DIM := Color(0.72, 0.75, 0.8)
-const HINTS := "Tab  Play / Edit     Space  play / pause     ← →  1 s     Shift+← →  10 s     Home  start\nCtrl+Z  undo     Ctrl+Shift+Z  redo     Ctrl+S  save     R  reset view     F1  VR\nClick  select     Drag  move (wheel: nearer / further)     Esc  deselect     N  inspector     T  timeline\nI  key it     Shift+I  auto-key     Shift+G  snap     F  go to it     0  seat     Shift+F  back\nL  loop     [ ]  loop from / to here     B  shelf     Delete  delete     Shift+R  record"
+
+## The keyboard shortcuts, as a table: a column per group, key and what it does.
+const HINTS := [
+	["Play", [
+		["Tab", "Play / Edit"], ["Space", "play / pause"], ["← →", "1 s"], ["Shift+← →", "10 s"],
+		["Home", "start"], ["↓ ↑", "prev / next key"], ["L", "loop"], ["[  ]", "loop from / to here"]]],
+	["Edit", [
+		["Ctrl+Z", "undo"], ["Ctrl+Shift+Z", "redo"], ["Ctrl+S", "save"], ["Delete", "delete"],
+		["I", "key it"], ["Shift+I", "auto-key"], ["Shift+G", "snap"], ["Ctrl+L", "save its look"]]],
+	["Select", [
+		["Click", "select"], ["Drag", "move"], ["Wheel", "nearer / further (dragging)"], ["Esc", "deselect"],
+		["F", "go to it"], ["Shift+F", "back"]]],
+	["Viewer", [
+		["V", "key the viewer"], ["Shift+V", "cut to here"], ["Ctrl+Shift+V", "arm the ride"], ["Shift+R", "record (a take)"]]],
+	["View", [
+		["R", "reset view"], ["0", "seat"], ["M", "miniature"], ["F1", "VR"],
+		["N", "inspector"], ["T", "timeline"], ["B", "shelf"], ["H", "hide these"]]],
+]
 
 ## Wrist layout: bigger text, no keyboard hints.
 @export var compact: bool = false
@@ -19,10 +38,18 @@ var _title: Label
 var _dirty: Label
 var _time: Label
 var _message: Label
-var _hints: Label
+var _hints: Control
+var _hints_off: Label
+## Whether the shortcut table shows (H); otherwise a line saying how to get it.
+var hints_on := true
 var _auto_key: Label
 var _snap: Label
 var _rec: Label
+var _ride: Label
+var _ride_help: Label
+var _key_animated: Label
+var _fps: Label
+var _fps_clock := 0.0
 
 
 func _ready() -> void:
@@ -60,23 +87,79 @@ func _ready() -> void:
 		_title.clip_text = true
 		_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_dirty = _label(top, size, RECORD)
+	_fps = _label(top, int(size * 0.8), DIM)
 
 	var toggles := HBoxContainer.new()
 	toggles.add_theme_constant_override("separation", 10)
 	rows.add_child(toggles)
 	_auto_key = _chip(toggles, size, "● AUTO-KEY", RECORD)
+	_key_animated = _chip(toggles, size, "◇ KEY ANIMATED", ACCENT)
 	_snap = _chip(toggles, size, "SNAP", ACCENT)
+	_ride = _chip(toggles, size, "⤳ RIDE ARMED", RECORD)
 	_rec = _chip(toggles, size, "● REC", RECORD)
 	var rec_sb := _rec.get_theme_stylebox("normal").duplicate() as StyleBoxFlat
 	rec_sb.bg_color = RECORD
 	_rec.add_theme_stylebox_override("normal", rec_sb)
 	_rec.add_theme_color_override("font_color", Color.WHITE)
+	_ride_help = _label(rows, int(size * 0.85), RECORD)
+	_ride_help.text = "Ride armed: the next take (● Rec, Shift+R) also records where you fly, as the viewer's path."
+	_ride_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ride_help.visible = false
 	_time = _label(rows, int(size * 1.5), Color.WHITE)
 	_message = _label(rows, size, DIM)
 	_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	if not compact:
-		_hints = _label(rows, 14, DIM)
-		_hints.text = HINTS
+		_hints = _hint_table(rows)
+		_hints_off = _label(rows, 14, DIM)
+		_hints_off.text = "H  keyboard shortcuts"
+		_hints_off.visible = false
+
+
+## Frames per second, a few times a second.
+func _process(delta: float) -> void:
+	_fps_clock += delta
+	if _fps == null or _fps_clock < 0.25:
+		return
+	_fps_clock = 0.0
+	_fps.text = "%d fps" % roundi(Engine.get_frames_per_second())
+
+
+## Shows or hides the shortcut table; the panel shrinks to fit.
+func show_hints(on: bool) -> void:
+	hints_on = on
+	if _hints == null:
+		return
+	_hints.visible = on
+	_hints.get_meta("line").visible = on
+	_hints_off.visible = not on
+	reset_size.call_deferred()
+
+
+## HINTS side by side: a heading over a key / action grid per group.
+func _hint_table(parent: Control) -> Control:
+	var line := HSeparator.new()
+	line.add_theme_color_override("separator", Color(ACCENT, 0.3))
+	parent.add_child(line)
+	var table := HBoxContainer.new()
+	table.add_theme_constant_override("separation", 22)
+	parent.add_child(table)
+	table.set_meta("line", line)
+	for group in HINTS:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 4)
+		table.add_child(col)
+		_label(col, 14, ACCENT).text = String(group[0]).to_upper()
+		var grid := GridContainer.new()
+		grid.columns = 2
+		grid.add_theme_constant_override("h_separation", 10)
+		grid.add_theme_constant_override("v_separation", 1)
+		col.add_child(grid)
+		for row in group[1]:
+			var key := _label(grid, 14, Color.WHITE)
+			key.text = row[0]
+			key.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			_label(grid, 14, DIM).text = row[1]
+	return table
 
 
 ## A small outlined tag, shown while its toggle is on.
@@ -111,14 +194,21 @@ func _label(parent: Control, font_size: int, color: Color) -> Label:
 
 ## Everything at once; cheap enough to call every frame.
 func show_state(mode: String, title: String, dirty: bool, t: float, duration: float, playing: bool, message: String,
-		auto_key: bool = false, snap: bool = false, recording: String = "") -> void:
+		auto_key: bool = false, snap: bool = false, recording: String = "", ride_armed: bool = false,
+		key_animated: bool = false) -> void:
 	if _mode == null:
 		return
 	_auto_key.visible = auto_key and mode == "EDIT"
 	_snap.visible = snap and mode == "EDIT"
+	_key_animated.visible = key_animated and not auto_key and mode == "EDIT"
+	_ride.visible = ride_armed
+	var was := _ride_help.visible
+	_ride_help.visible = ride_armed and recording == ""
+	if was != _ride_help.visible:
+		reset_size.call_deferred()
 	_rec.visible = recording != ""
 	_rec.text = recording
-	_auto_key.get_parent().visible = _auto_key.visible or _snap.visible or _rec.visible
+	_auto_key.get_parent().visible = _auto_key.visible or _snap.visible or _rec.visible or _ride.visible or _key_animated.visible
 	_mode.text = mode
 	_title.text = title
 	_dirty.text = "● unsaved" if dirty else ""

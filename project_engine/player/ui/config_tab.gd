@@ -21,6 +21,7 @@ var _end_action: OptionButton
 var _live_sync: CheckButton
 var _fullscreen: CheckButton
 var _play_bar: CheckButton
+var _ui_scale: OptionButton
 var _camera_fx: CheckButton
 var _camera_fx_max: HSlider
 var _camera_fx_max_value: Label
@@ -83,6 +84,14 @@ func _ready() -> void:
 	_play_bar.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.show_play_bar = on))
 	_row("Play bar", _play_bar)
+
+	_ui_scale = OptionButton.new()
+	for s in PlayerSettings.UI_SCALES:
+		_ui_scale.add_item("%d%%" % roundi(s * 100.0))
+	_ui_scale.tooltip_text = "Size of the desktop window's text and controls (also Studio's). Panels in the headset keep their size."
+	_ui_scale.item_selected.connect(func(idx: int):
+		_apply_ui(func(): _settings.ui_scale = PlayerSettings.UI_SCALES[idx]))
+	_row("UI scale", _ui_scale)
 
 	_camera_fx = CheckButton.new()
 	_camera_fx.text = "Allow full-view effects"
@@ -202,6 +211,7 @@ func _refresh() -> void:
 	_live_sync.button_pressed = _settings.live_sync
 	_fullscreen.button_pressed = _settings.fullscreen
 	_play_bar.button_pressed = _settings.show_play_bar
+	_ui_scale.select(PlayerSettings.UI_SCALES.find(_settings.ui_scale))
 	_camera_fx.button_pressed = _settings.camera_fx
 	_camera_fx_max.value = _settings.camera_fx_max
 	_camera_fx_max_value.text = "%d%%" % roundi(_settings.camera_fx_max * 100.0)

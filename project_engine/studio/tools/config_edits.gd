@@ -79,7 +79,7 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 		"screen":
 			var shader := String(cfg.get("shader", ""))
 			if shader != "":
-				out.append(_shader_section("Surface: %s" % shader, _resolve(shader), ["shader_params"], "surface"))
+				out.append(_shader_section("Surface · %s" % shader.capitalize(), _resolve(shader), ["shader_params"], "surface"))
 			out.append({"title": "Display", "kind": "fields", "fields": [
 				_float("curvature", "Curvature", 0.0, 1.0, 0.01, 0.0, ["curvature"], "display"),
 				_float("vertical_curvature", "V. curvature", 0.0, 1.0, 0.01, 0.0, ["vertical_curvature"], "display"),
@@ -310,7 +310,9 @@ func end_preview(id: String, field: Dictionary, restore: bool = false) -> void:
 
 ## Write `value` for the field (see the top). Returns the undo label, ""
 ## if nothing changed.
-func commit(id: String, field: Dictionary, value, t: float, auto_key: bool) -> String:
+## `key_animated`: a field that already has keys gets one at `t` rather
+## than having them all moved (StudioEditTools.key_animated).
+func commit(id: String, field: Dictionary, value, t: float, auto_key: bool, key_animated: bool = false) -> String:
 	if recorder != null and recorder.owns_param(id, field):
 		return ""  # recorded: the take writes it when it ends
 	value = _typed(field, _as_json(value))
@@ -323,7 +325,7 @@ func commit(id: String, field: Dictionary, value, t: float, auto_key: bool) -> S
 	if slot == "":
 		label = "Set %s" % what
 		done = model.set_config(id, field.config, value, label)
-	elif auto_key or field.config.is_empty() or (ti >= 0 and field.type == "bool"):
+	elif auto_key or field.config.is_empty() or (ti >= 0 and (field.type == "bool" or key_animated)):
 		var at := _key_time(ti, t)
 		label = "Key %s at %s" % [what, StudioStatus.timecode(at)]
 		done = model.batch(label, func(): model.set_key(ScriptFormat.TRACK_SHADER_PARAM, target, field.param, at, value))

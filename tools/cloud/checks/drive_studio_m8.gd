@@ -174,6 +174,7 @@ func _initialize() -> void:
 	write(lib.path_join("shaders/red_edge.gdshader"), RED_EDGE)
 
 	studio = load("res://studio/studio.tscn").instantiate()
+	studio.use_template = false  # this check starts from an empty piece
 	studio.library.library_dirs.insert(0, lib)  # looks go to the first library folder
 	root.add_child(studio)
 	await frames(10)

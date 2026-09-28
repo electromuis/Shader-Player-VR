@@ -61,12 +61,33 @@ const BUILTIN_PREFABS := {
 }
 
 
-## A new, empty piece for the video at `video_path`: `<video>.json` next
-## to it (format 2, the video named relatively, the built-in prefabs named,
-## no objects and no default screen: what you add is what there is). It's
-## written straight away, so the piece exists from the start. {ok, model}
-## or {ok: false, error, errors}.
-static func new_piece(video_path: String) -> Dictionary:
+## What a new piece starts with (Studio uses it): the user's
+## `studio_new_piece.json` in the save folder if there is one, else the
+## built-in one (a screen showing the video).
+const NEW_PIECE_TEMPLATE := "res://studio/new_piece.json"
+const USER_TEMPLATE := "studio_new_piece.json"
+
+
+## The new-piece template ({} if it can't be read): its `meta`, `prefabs`,
+## `shaders` and `tracks` go into a new piece.
+static func new_piece_template() -> Dictionary:
+	for path in [AppPaths.save_path(USER_TEMPLATE), NEW_PIECE_TEMPLATE]:
+		if not FileAccess.file_exists(path):
+			continue
+		var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if typeof(parsed) == TYPE_DICTIONARY:
+			return parsed
+		push_warning("EditModel: %s is not a JSON object" % path)
+	return {}
+
+
+## A new piece for the video at `video_path`: `<video>.json` next to it
+## (format 2, the video named relatively, the built-in prefabs named, no
+## default screen). With no `template`, no objects: what you add is what
+## there is; with one (new_piece_template()), what it holds. It's written
+## straight away, so the piece exists from the start. {ok, model} or
+## {ok: false, error, errors}.
+static func new_piece(video_path: String, template: Dictionary = {}) -> Dictionary:
 	var path := video_path.get_basename() + ".json"
 	if FileAccess.file_exists(path):
 		var err := "%s is already there" % path.get_file()
@@ -83,6 +104,11 @@ static func new_piece(video_path: String) -> Dictionary:
 		"shaders": {},
 		"tracks": [],
 	}
+	for key in ["meta", "prefabs", "shaders"]:
+		if typeof(template.get(key)) == TYPE_DICTIONARY:
+			(doc[key] as Dictionary).merge(template[key], true)
+	if typeof(template.get("tracks")) == TYPE_ARRAY:
+		doc.tracks = template.tracks.duplicate(true)
 	var text := JSON.stringify(doc, "  ", false) + "\n"
 	var r := from_text(text, path)
 	if not r.ok:

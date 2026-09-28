@@ -212,6 +212,7 @@ func _initialize() -> void:
 	write(lib.path_join("prefabs/pillar.tscn"), PILLAR)
 
 	studio = load("res://studio/studio.tscn").instantiate()
+	studio.use_template = false  # this check starts from an empty piece
 	studio.library.library_dirs.append(lib)  # as --library does
 	root.add_child(studio)
 	await frames(10)

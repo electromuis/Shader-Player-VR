@@ -235,6 +235,74 @@ M7 is done apart from what needs a headset. Next is M8 (see *Milestones*): hapti
 
 **Where M8 stands:** everything that can be proven without a headset is done (looks, haptics, left-handed, autosave, readable panels, hover and ghosts). What's left is feel, and needs a Quest 3: haptic strengths, comfort, panel distances, and the milestone's test (a first-time user places, keys and plays back a screen in 10 minutes).
 
+## To do (from the user, 2026-09-28)
+Found by the user in their own Studio runs, plus what the design mockups (`docs/studio/wrist_palette.svg`, `docs/studio/inspector.svg`) show that isn't built; more will be added. Grouped by area. Each group has a before / after sheet in `docs/studio/todo/` (before: a render of the build on 2026-09-28; after: a mockup, `<n>_<group>.svg`, made by `docs/studio/todo/make_mockups.py`). Items marked **(done)** are built.
+
+**Done: the quick wins** (the user's pick: all of them first, then test):
+- **FPS** in the status (desktop and wrist), updated four times a second (`StudioStatus._fps`).
+- **Arming the ride explained:** while armed, a *⤳ RIDE ARMED* chip and a red line in the status, "the next take (● Rec, Shift+R) also records where you fly, as the viewer's path" (not while a take runs); the wrist button reads *● Arm ride*.
+- **Keys on change** (`StudioEditTools.key_animated`; `StudioConfigEdits.commit(..., key_animated)`): *Off* · *Animated* · *All* on the timeline's bar (`StudioTimelineRibbon.KEY_MODES`, `set_key_mode`; *All* is auto-key, which wins). *Animated*: an inspector change or a move keys the channels that already have keys at the playhead, and sets still ones. A *◇ KEY ANIMATED* chip in the status, a line in the inspector.
+- **Drag a block whole** (`StudioTimelineRibbon.move_lane`): pressing between a bar's ends and dragging moves when it comes on, when it goes (a despawn is added if it stayed on to the end, which can't move later) and the object's keys inside the span, drawn moving while dragged; one undo step; snapping puts the start on a beat; kept inside its neighbours and its parent (`StudioTimeline.clamp_shift`). A press without a drag (under 4 px) still scrubs.
+- **Previous / next key** (`studio_prev_key` / `studio_next_key`, ↓ / ↑; ◆◀ / ▶◆ on the timeline's bar and the wrist): the selection's keys, or any with nothing selected (`StudioTimeline.key_times`, `step_key`); the status says whose key, or that there's none.
+- **A new piece starts with a screen** (`EditModel.new_piece(path, template)`, `new_piece_template()`): `studio/new_piece.json` (main_screen, the default screen's place and size, `fit_aspect`), or the user's `studio_new_piece.json` in the save folder; its `meta`, `prefabs`, `shaders` and `tracks` go in. Without a template (tests; `Studio.use_template = false`, which `drive_studio_m5.gd` and `m8` set to keep checking an empty start) a new piece is empty as before.
+- **Folded sections say what's inside** (`StudioInspector.section_summary`: "tint · flash · speed …"), and shader sections read "Shader · <name>", "Surface · <name>".
+- Also: the timeline works its lanes out again when the video's length changes (a new piece's screen lane stopped at 0:01 until something changed).
+- **Proof:** 303/303 tests (new `test_studio_quick_wins.gd`, 7: the template and the empty start; Animated in the inspector and for a grab; previous / next and the ↓ / ↑ bindings; a block moved (ends, keys, undo), stopped at 0, one on to the end moved earlier gaining a despawn; the status's ride line and chips; summaries). `checks/shot_studio_quick_wins.gd` drives the real Studio: a new piece opens with main_screen; next / previous key go 0 → 2 → 6 → 2, and past the last it says "No key after here"; a move at 4 s with Animated keys position there and sets the still rotation; the block moved 3 s (0 → 3, goes 20 → 23, keys 2/4/6 → 5/7/9), undone in one step. Renders: `docs/studio/quick_wins.png`.
+
+### 1. Menu and settings (`docs/studio/todo/1_menu.png`)
+- **F2 menu in Studio** (≡ on a controller in the headset). Studio has none (the player's `FloatingPanel` and `toggle_menu` are the player's only, context `play`). Many player settings apply to Studio too (UI scale, skybox, floor, FPS, camera effects, volume, renderer, ...): Studio gets the menu with the player's Config tab, on the desktop and in the headset, the settings shared with the player (`player_settings.json`).
+- **Button mapping:** the Controls tab (remapping, the Left-handed profile) in Studio's menu; Studio's own commands already live in `InputBindings` (`app: studio`).
+- **A Studio tab** for Studio's own options: keys on change (see 6), haptics on / off (`StudioHaptics.enabled`), autosave, the floor grid.
+- **FPS counter** in Studio **(done: always on, in the status)**; with the menu, it follows the player's `show_fps` setting.
+- (Done: **UI scale**, in the player's Config tab for now; Studio reads it at startup.)
+
+### 2. Inspector (`docs/studio/todo/2_inspector.png`)
+- **Transform as numbers and sliders:** x / y / z fields you can type in (and drag), one row per channel, with its key diamond (today it's read-only text); clicking a row (e.g. rotation) folds out a slider per axis; scale gets a **Uniform** checkbox (one value for all three).
+- **Header:** under the name, "Screen · in screen_split · 00:00 → 55.00": its kind, its group, when it exists. The key legend moves up to the right, small; the explanation line goes.
+- **Catch up with the player's settings UI:** a **↺ reset** button after each setting line, and **projection surfaces** instead of curvature (the mockup's *Curvature* is out of date). Go through the player's tabs and bring the inspector in line.
+- **Pixel effects as a compact list:** one row per effect with a drag handle (≡) to reorder, an on / off switch, its key state (◆ / ◇ / •) and ✕; the chosen one highlighted and unfolded for its settings (today each effect is a section with *On*, ↑ / ↓ and ✕); *+ Add effect* as a dashed button at the end.
+- **Vertex effects** (missing in Studio): the same kind of list, *+ Add vertex effect*.
+- **A master switch** on the pixel effects' header and on the vertex effects', switching the whole stack.
+- **Reactive goes.** It duplicates the vertex effect stack: spin and pulse become vertex effects that follow the music.
+- **(done)** **Folded sections say what's inside** at the right of their header ("tint · flash · speed"); the **shader section** is named after the shader ("Shader · wobble").
+
+### 3. Wrist palette and panels (`docs/studio/todo/3_wrist.png`)
+- **Wrist palette to the mockup** (the player's wrist menu was also reworked, "Better wrist menu", `b93d9a5`): a Play / Edit switch; a big timecode with "of <duration> · bar <n>"; a 4 × 3 grid of icon buttons (*Prev key*, *Play*, *Record*, *Next key* / *Auto-key*, *Snap*, *Loop*, *Undo* / *Shelf*, *Inspector*, *Outliner*, *Timeline*), toggles outlined when on (auto-key in red); a footer with *Save* and "autosaved 12 s ago", and a line saying what an active mode does. Today it's 23 text buttons; the rest (redo, seat, go to it, in / out, key viewer, cut here, arm ride, miniature, delete, menu) go on a second page.
+- **(done)** **Explain arming the ride.** The user didn't get how *● Ride* (`studio_arm_ride`, Ctrl+Shift+V) works: say it where it's armed ("Ride armed: the next take also records where you fly, as the viewer's path"), or rethink it.
+- **Minimize** (–) on every panel (inspector, shelf, timeline, outliner): folds it to a tab on the wrist.
+- **Move panels in VR, carried with you:** grab a panel's title bar to move it; panels keep their place relative to you as you fly, rather than staying in the world. (Check what grabbing a panel does today first.)
+
+### 4. Timeline (`docs/studio/todo/4_timeline.png`)
+- **A scroll bar** over the whole piece (with the audio's outline) under the tracks: drag it to scroll, pull its ends to zoom.
+- **(done)** **Drag a whole existence block**, moving its start and end together (now each end is dragged on its own); the ends still stretch.
+- **(done)** **Prev key / Next key:** jump the playhead to the selection's previous / next key (all keys with nothing selected): buttons here, on the wrist and on the keyboard.
+- **(done)** **Keys on change** (see 6) as a switch in the toolbar: Off · Animated · All (auto-key).
+
+### 5. Placing things and new pieces (`docs/studio/todo/5_placing.png`)
+- **(done)** **A new piece starts with a screen** showing the video, from a **new-piece template** file that can be edited later.
+- **A floor grid** (1 m lines) to judge distance; dropping on the desktop lands too far away today: a card lands on the floor under the cursor, with its distance shown.
+
+### 6. Animation: groups, paths, keys (`docs/studio/todo/6_animation.png`)
+- **Groups:** group objects and animate the group, e.g. the three-screen split. (The format already has spawn parents; Studio has no way to make or use them.)
+- **Outliner:** a panel listing the piece's objects as a tree (groups), to select things you can't easily point at, group (Ctrl+G), ungroup, and drag into a group.
+- **Motion paths, visible.** The selection's position track already draws a path (`StudioEditTools._draw_path_lines`), but the user didn't notice one (in the before render it's a faint thin line): make it obvious, with its keys and times; consider faint paths for every animated object.
+- **(done)** **Keys on change (an option).** Now, with auto-key off, changing a setting that already has keys shifts all its keys by the difference (`StudioConfigEdits.commit`); auto-key (Shift+I) keys every change. Add *Animated*: a change to a setting that's already animated adds a key at the playhead, a still one is just set.
+- **Bug: animating a shader layer's opacity didn't work** (the user tried it). Reproduce and fix.
+
+### 7. Shelf (`docs/studio/todo/7_shelf.png`)
+- **Shadertoy:** the player's Shadertoy browser (Chrome extension, editor dock) isn't reachable from Studio: a Shadertoy tab (search or paste a link; a shader becomes a layer or an effect).
+- **A Vertex tab** for vertex effects.
+- **Animated previews:** layer and effect cards play a short loop instead of a still (on hover on the desktop; in the headset while the shelf is open).
+
+### 8. Performance and playback (`docs/studio/todo/8_performance.png`)
+- **GPU cost:** a readout of which objects, layers and effects cost the most GPU time (each measured as how much faster the frame gets with it switched off), and a **benchmark** that plays the piece through and lists the heaviest moments.
+- **Playback jumps now and then.** Maybe the audio / video sync correction. It shouldn't jump: find the cause.
+- **Shader time follows the video.** Shaders keep animating while paused; their time should be the video's (stopped when paused, jumping with seeks).
+- (FPS counter: see 1.)
+
+### 9. Catch up with the player (no picture)
+- **Everything else the player gained that Studio should have**, e.g. auto padding and shader headers. Master has nothing this branch lacks (checked locally), so these are player features Studio's UI doesn't use yet: go through the player's changes since Studio started (M1) and list what Studio should pick up.
+
 ## Studio design
 
 ### What it's for
@@ -522,6 +590,7 @@ M1–M3 are the smallest thing that's already better than the desktop for layout
 - All 285 player tests pass (with the Shadertoy, shader and video-decoder work's own tests, which aren't Studio's), as does the round-trip test (with rides).
 - `scripts/forest_tunnel/video.json` is still a v1 export (bezier tracks baked to linear keys, within 0.001 of the curves). Its events match the current scene; re-export from the editor for the exact curves and format v2.
 - `scripts/minimal` has no objects, so the exporter refuses it (by design). The round-trip test skips it.
+- **`drive_studio_m4.gd` and `m6` crash (segfault, exit 139) in the user's working copy** (2026-09-28), right after opening their piece, when GoZen closes the piece's `song.wav` (the beat / waveform decode on worker threads). Not reproduced in a clean worktree of the last commit, even with every code file of the quick wins copied in (m4 passes there), nor explained by a fresh user folder. The rest of that working copy (the uncommitted `project.godot` line move, files outside git) is what's left: not tracked down yet. The other Studio checks and all tests pass.
 - **A test that hits a script error stops there but counts as passed** (`tests/run.gd` can't catch GDScript errors). Look for `SCRIPT ERROR` in the output, not only the totals. Tests also run without a scene tree (inside the runner's `_init`), so anything needing global transforms goes in a check.
 
 ## Working locally on Windows

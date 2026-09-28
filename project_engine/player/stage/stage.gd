@@ -469,12 +469,16 @@ func _script_layers() -> Array[Visualizer]:
 	return out
 
 
-## The parts of the viewer's settings the stage shows; the app applies the
-## rest (window, controls) itself.
+## The parts of the viewer's settings the stage shows (and the UI scale,
+## shared by the player and Studio); the app applies the rest (window,
+## controls) itself.
 func _apply_settings() -> void:
 	camera_fx.enabled = settings.camera_fx
 	camera_fx.max_strength = settings.camera_fx_max
 	floor_mesh.visible = settings.show_floor
+	# The window's 2D UI; panels in the world have their own viewports.
+	if is_inside_tree():
+		get_tree().root.content_scale_factor = settings.ui_scale
 	_skyboxes.apply(world_env.environment, settings.skybox)
 	_apply_passthrough()
 	if video != null:

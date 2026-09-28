@@ -144,6 +144,41 @@ static func _object_lanes(model: EditModel, until: float) -> Array:
 	return out
 
 
+## The times of `id`'s keys (all its keyframe tracks), or of every key in
+## the piece with `id` "": sorted, each once.
+static func key_times(model: EditModel, id: String) -> Array:
+	var seen := {}
+	for t in model.tracks():
+		if typeof(t.get("keyframes")) != TYPE_ARRAY:
+			continue
+		if id != "" and String(t.get("target", "")).split(".")[0] != id:
+			continue
+		for k in t.keyframes:
+			seen[snappedf(float(k.get("t", 0.0)), 0.001)] = true
+	var out := seen.keys()
+	out.sort()
+	return out
+
+
+## The first key time after `t` (`dir` 1) or before it (-1), or -1.0.
+static func step_key(times: Array, t: float, dir: int) -> float:
+	if dir > 0:
+		for k in times:
+			if k > t + EditModel.SAME_TIME:
+				return k
+	else:
+		for i in range(times.size() - 1, -1, -1):
+			if times[i] < t - EditModel.SAME_TIME:
+				return times[i]
+	return -1.0
+
+
+## Span `si` of `lane` moved by `dt` as a whole, kept inside `limits`
+## (span_limits): the shift that fits.
+static func clamp_shift(span: Array, limits: Array, dt: float) -> float:
+	return clampf(dt, float(limits[0]) - float(span[0]), float(limits[1]) - float(span[1]))
+
+
 ## How far span `si` of `lane` can stretch, as [earliest start, latest
 ## end]: not into its neighbours, and inside its parent's time on stage.
 static func span_limits(all_lanes: Array, lane: Dictionary, si: int, until: float) -> Array:

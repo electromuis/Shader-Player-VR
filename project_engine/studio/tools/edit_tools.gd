@@ -55,6 +55,11 @@ var stage: Stage
 var recorder: StudioRecorder
 
 var auto_key := false
+## Keys on change, "Animated": a change to something that already has keys
+## keys it at the playhead (still things are just set). Off (and auto-key
+## off), a change moves all its keys by the difference. Auto-key keys
+## everything, and wins.
+var key_animated := false
 var snap := false
 var selected := ""
 ## What the pointer is on (Studio sets it; "" for nothing): drawn faintly.
@@ -289,7 +294,9 @@ func _commit(id: String, before: Dictionary, after: Dictionary) -> String:
 			var spawn_changed := false
 			for ch in changed:
 				var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, id, ch)
-				if ti >= 0:
+				if ti >= 0 and key_animated:
+					model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, t, after[ch])
+				elif ti >= 0:
 					model.set_keyframes(ti, _shifted_keys(model.tracks()[ti].get("keyframes", []), ch, before[ch], after[ch]))
 				else:
 					spawn[ch] = after[ch]

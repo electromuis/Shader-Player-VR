@@ -35,6 +35,9 @@ extends RefCounted
 ##                           nor a script goes past it.
 ##   video_decoder         — preferred decoder, one of VIDEO_DECODERS (see
 ##                           VideoBridge); videos it can't play use the other.
+##   ui_scale              — size of the desktop window's 2D UI (play bar,
+##                           Studio's status, inspector, timeline, shelf), one
+##                           of UI_SCALES. Headset panels keep their own size.
 
 signal changed
 
@@ -68,6 +71,9 @@ const VIDEO_DECODER_LABELS := {
 	"gozen": "FFmpeg — every format, network streams",
 	"native": "Hardware (OS) — local MP4 / MOV",
 }
+
+## Desktop UI scales, in dropdown order.
+const UI_SCALES := [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
 
 ## Built-in skybox keys, in dropdown order. Anything else is a file path.
 const SKYBOX_BUILTINS := [
@@ -109,6 +115,7 @@ var show_play_bar: bool = true: set = _set_show_play_bar
 var camera_fx: bool = true: set = _set_camera_fx
 var camera_fx_max: float = 1.0: set = _set_camera_fx_max
 var video_decoder: String = "gozen": set = _set_video_decoder
+var ui_scale: float = 1.0: set = _set_ui_scale
 
 var _path: String
 var _loading: bool = false
@@ -149,6 +156,7 @@ func from_dict(d: Dictionary) -> void:
 	camera_fx = bool(d.get("camera_fx", true))
 	camera_fx_max = clampf(float(d.get("camera_fx_max", 1.0)), 0.0, 1.0)
 	video_decoder = String(d.get("video_decoder", "gozen"))
+	ui_scale = float(d.get("ui_scale", 1.0))
 	_loading = false
 	changed.emit()
 
@@ -174,6 +182,7 @@ func to_dict() -> Dictionary:
 		"camera_fx": camera_fx,
 		"camera_fx_max": camera_fx_max,
 		"video_decoder": video_decoder,
+		"ui_scale": ui_scale,
 	}
 
 
@@ -294,6 +303,18 @@ func _set_video_decoder(v: String) -> void:
 	if v == video_decoder:
 		return
 	video_decoder = v
+	_touch()
+
+
+func _set_ui_scale(v: float) -> void:
+	# The nearest offered scale, so the dropdown always shows it.
+	var best: float = UI_SCALES[0]
+	for s in UI_SCALES:
+		if absf(s - v) < absf(best - v):
+			best = s
+	if is_equal_approx(best, ui_scale):
+		return
+	ui_scale = best
 	_touch()
 
 

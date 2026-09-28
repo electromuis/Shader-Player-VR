@@ -13,6 +13,9 @@ extends PanelContainer
 ##   the loop handles on the ruler → drag the in / out point
 ##   a lane's ends → drag when the object comes on / goes (one undo step;
 ##     onto beats while snapping); the end dragged to the piece's end stays on
+##   a lane's block (between its ends) → drag it whole: both ends and the
+##     object's keys inside it move together (one undo step); a press
+##     without a drag scrubs there
 ##   a lane's name → select that object
 ##   wheel over the ruler or waveform (or Ctrl+wheel) → zoom about it;
 ##     Shift+wheel → scroll in time; wheel over the lanes → scroll them
@@ -35,6 +38,12 @@ const KEY := Color(1.0, 0.85, 0.3)
 const MIN_SPAN := 0.1
 const DIM := Color(0.72, 0.75, 0.8)
 const PANEL_BG := Color(0.06, 0.06, 0.09, 0.92)
+## Keys on change, in the switch's order: [mode, label, tip].
+const KEY_MODES := [
+	["off", "Off", "A change to something animated moves all its keys by the difference"],
+	["animated", "Animated", "A change to something animated keys it here; still things are just set"],
+	["all", "All", "Auto-key (Shift+I): every change keys at the playhead"],
+]
 const INTERPS := [["linear", "Linear"], ["ease", "Ease"], ["cubic", "Cubic"], ["step", "Step"],
 	["ease_in", "Ease in"], ["ease_out", "Ease out"], ["ease_in_out", "In-out"], ["overshoot", "Overshoot"]]
 
@@ -53,7 +62,7 @@ var _rows: Array = []
 var _cuts: Array = []
 var _layout: Array = []  # [{kind: "lane" / "prop", y, h, id or row}]
 var _needs_data := true
-var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b / lane_start / lane_end, ti, ki, id, si, t, from, lo, hi}
+var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b / lane_start / lane_end / lane_move, ti, ki, id, si, t, from, lo, hi, dt, x0}
 var _vscroll := 0.0
 var _fitted := false
 var _canvas: Control
@@ -65,6 +74,8 @@ var _grid_button: Button
 var _grid_bar: HBoxContainer
 var _grid_label: Label
 var _tap_button: Button
+var _mode_bar: HBoxContainer
+var _mode_buttons: Dictionary = {}  # key mode -> Button
 var _taps: Array = []  # playhead times of the taps so far
 
 # Sizes (scaled up in the headset).
@@ -126,6 +137,13 @@ func _ready() -> void:
 		loop.set_out(_playhead())
 		said.emit("Loop to %s." % StudioStatus.timecode(loop.b))))
 	bar.add_child(_sep())
+	var prev := _button("◆◀", func(): step_key(-1))
+	prev.tooltip_text = "Previous key (Down): the selection's, or any with nothing selected"
+	bar.add_child(prev)
+	var next := _button("▶◆", func(): step_key(1))
+	next.tooltip_text = "Next key (Up)"
+	bar.add_child(next)
+	bar.add_child(_sep())
 	_grid_button = _button("Grid…", func(): _needs_data = true)
 	_grid_button.toggle_mode = true
 	bar.add_child(_grid_button)
@@ -156,6 +174,20 @@ func _ready() -> void:
 		_key_bar.add_child(b)
 		_interp_buttons[it[0]] = b
 	_key_bar.add_child(_button("Delete key", func(): _delete_key()))
+	# Keys on change: what a change to something does (StudioEditTools).
+	_mode_bar = HBoxContainer.new()
+	_mode_bar.add_theme_constant_override("separation", int(4 * _k))
+	bar.add_child(_mode_bar)
+	var mode_label := Label.new()
+	mode_label.text = "Keys on change:"
+	mode_label.add_theme_color_override("font_color", DIM)
+	_mode_bar.add_child(mode_label)
+	for m in KEY_MODES:
+		var b := _button(m[1], func(): set_key_mode(m[0]))
+		b.toggle_mode = true
+		b.tooltip_text = m[2]
+		_mode_bar.add_child(b)
+		_mode_buttons[m[0]] = b
 	_canvas = Control.new()
 	_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_canvas.clip_contents = true
@@ -178,7 +210,10 @@ func _process(_delta: float) -> void:
 		return
 	view.width = maxf(_canvas.size.x - _gutter, 1.0)
 	var runner := tools.runner
-	view.duration = maxf(runner.effective_duration(), 1.0)
+	var duration := maxf(runner.effective_duration(), 1.0)
+	if duration != view.duration:
+		_needs_data = true  # lanes that stay on reach the end: the new one
+	view.duration = duration
 	if not _fitted and runner.effective_duration() > 0.0:
 		_fitted = true
 		view.fit()
@@ -198,6 +233,10 @@ func _process(_delta: float) -> void:
 	_grid_label.text = "%.1f BPM · 1 at %.3f s" % [g.bpm, g.offset] if g != null and g.is_valid() else "No beat grid yet"
 	_tap_button.text = "Tap (%d)" % _taps.size() if not _taps.is_empty() else "Tap"
 	_key_bar.visible = not selected_key.is_empty() and not _grid_bar.visible
+	_mode_bar.visible = not _key_bar.visible and not _grid_bar.visible
+	var key_mode := key_mode_of(tools)
+	for m in _mode_buttons:
+		_mode_buttons[m].set_pressed_no_signal(m == key_mode)
 	if _key_bar.visible:
 		var mode := _mode_of(selected_key.ti, selected_key.ki)
 		for m in _interp_buttons:
@@ -333,6 +372,11 @@ func _draw_canvas() -> void:
 					var chosen: bool = not selected_key.is_empty() and selected_key.ti == row.ti and selected_key.ki == k.ki
 					if chosen and _drag.get("kind", "") == "key":
 						kt = _drag.t
+					elif _drag.get("kind", "") == "lane_move" and _drag.id == lane.id:
+						# Keys inside the block being dragged move with it.
+						var s: Array = lane.spans[_drag.si]
+						if kt >= float(s[0]) - EditModel.SAME_TIME and kt <= float(s[1]) + EditModel.SAME_TIME:
+							kt += float(_drag.dt)
 					_diamond(Vector2(_gutter + view.x_of(kt), y + _row * 0.5), _row * 0.36, KEY if chosen else Color.WHITE, chosen)
 			y += _row
 	# The take being recorded: red from where it records to the playhead;
@@ -370,7 +414,13 @@ func _draw_canvas() -> void:
 func _shown_span(lane: Dictionary, si: int) -> Array:
 	var s: Array = lane.spans[si]
 	if _drag.get("id", "") == lane.id and _drag.get("si", -1) == si:
-		return [_drag.t, s[1]] if _drag.kind == "lane_start" else [s[0], _drag.t]
+		match _drag.kind:
+			"lane_start":
+				return [_drag.t, s[1]]
+			"lane_end":
+				return [s[0], _drag.t]
+			"lane_move":
+				return [float(s[0]) + _drag.dt, float(s[1]) + _drag.dt]
 	return s
 
 
@@ -434,6 +484,9 @@ func hit(at: Vector2) -> Dictionary:
 			var end := _lane_end_at(item.id, at.x, r)
 			if not end.is_empty():
 				return end
+			var body := _lane_body_at(item.id, at.x)
+			if not body.is_empty():
+				return body
 		if item.kind == "prop":
 			var best := {}
 			var best_d := r
@@ -465,6 +518,19 @@ func _lane_end_at(id: String, x: float, r: float) -> Dictionary:
 	return best
 
 
+## The span of `id` whose block is under `x`: {kind: "lane_body", id, si,
+## t (the time there)}, or {}.
+func _lane_body_at(id: String, x: float) -> Dictionary:
+	if id.begins_with("$"):
+		return {}
+	var lane := _lane_of(id)
+	var t := view.t_of(x - _gutter)
+	for si in lane.get("spans", []).size():
+		if t > float(lane.spans[si][0]) and t < float(lane.spans[si][1]):
+			return {"kind": "lane_body", "id": id, "si": si, "t": t}
+	return {}
+
+
 func _lane_of(id: String) -> Dictionary:
 	for lane in _lanes:
 		if lane.id == id:
@@ -480,6 +546,10 @@ func _press(at: Vector2) -> void:
 		"lane_start", "lane_end":
 			var lim := StudioTimeline.span_limits(_lanes, _lane_of(h.id), h.si, view.duration)
 			_drag = {"kind": h.kind, "id": h.id, "si": h.si, "t": h.t, "from": h.t, "lo": lim[0], "hi": lim[1]}
+		"lane_body":
+			var lim := StudioTimeline.span_limits(_lanes, _lane_of(h.id), h.si, view.duration)
+			_drag = {"kind": "lane_move", "id": h.id, "si": h.si, "t": h.t, "from": h.t, "lo": lim[0], "hi": lim[1],
+				"dt": 0.0, "x0": at.x, "moved": false}
 		"key":
 			selected_key = {"ti": h.ti, "ki": h.ki}
 			_drag = {"kind": "key", "ti": h.ti, "ki": h.ki, "t": h.t, "from": h.t}
@@ -501,6 +571,16 @@ func _move(at: Vector2) -> void:
 			loop.b = maxf(t, loop.a + StudioLoop.MIN_LENGTH)
 		"key":
 			_drag.t = StudioTimeline.snap(t, _grid()) if tools.snap else t
+		"lane_move":
+			# A few pixels before it counts as a drag (a press alone scrubs).
+			_drag.moved = _drag.moved or absf(at.x - float(_drag.x0)) > 4.0 * _k
+			if not _drag.moved:
+				return
+			var span: Array = _lane_of(_drag.id).spans[_drag.si]
+			var start := float(span[0]) + (t - float(_drag.from))
+			if tools.snap:
+				start = StudioTimeline.snap(start, _grid())
+			_drag.dt = StudioTimeline.clamp_shift(span, [_drag.lo, _drag.hi], start - float(span[0]))
 		"lane_start", "lane_end":
 			var span: Array = _lane_of(_drag.id).spans[_drag.si]
 			t = StudioTimeline.snap(t, _grid()) if tools.snap else t
@@ -513,6 +593,12 @@ func _move(at: Vector2) -> void:
 func _release() -> void:
 	var d := _drag
 	_drag = {}
+	if d.get("kind", "") == "lane_move":
+		if not d.moved:
+			tools.stage.seek_to(float(d.from))
+		elif absf(float(d.dt)) >= 0.001:
+			move_lane(d.id, d.si, float(d.dt))
+		return
 	if d.get("kind", "") not in ["key", "lane_start", "lane_end"] or absf(float(d.t) - float(d.from)) < 0.001:
 		return
 	if d.kind == "key":
@@ -541,6 +627,78 @@ func move_lane_end(id: String, si: int, start: bool, t: float) -> bool:
 		done = model.add_despawn(id, t)
 	if done:
 		said.emit(model.undo_label() + ".")
+		_needs_data = true
+	return done
+
+
+## "off", "animated" or "all" (auto-key) for `t`'s settings.
+static func key_mode_of(t: StudioEditTools) -> String:
+	return "all" if t.auto_key else ("animated" if t.key_animated else "off")
+
+
+func set_key_mode(mode: String) -> void:
+	tools.auto_key = mode == "all"
+	tools.key_animated = mode == "animated"
+	for m in KEY_MODES:
+		if m[0] == mode:
+			said.emit("Keys on change: %s. %s." % [m[1], m[2]])
+
+
+## Jump the playhead to the next key (`dir` 1) or the previous one (-1):
+## the selection's, or any with nothing selected. False if there's none.
+func step_key(dir: int) -> bool:
+	if edits == null or edits.model == null:
+		return false
+	var times := StudioTimeline.key_times(edits.model, tools.selected)
+	var t := StudioTimeline.step_key(times, _playhead(), dir)
+	var whose := tools.selected if tools.selected != "" else "the piece"
+	if t < 0.0:
+		said.emit("No key %s here for %s." % ["after" if dir > 0 else "before", whose])
+		return false
+	tools.stage.seek_to(t)
+	said.emit("Key of %s at %s." % [whose, StudioStatus.timecode(t)])
+	return true
+
+
+## Span `si` of object `id` moves by `dt` as a whole: when it comes on,
+## when it goes (a despawn is added if it stayed on to the end) and its keys
+## inside the span. One undo step.
+func move_lane(id: String, si: int, dt: float) -> bool:
+	var lane := _lane_of(id)
+	if lane.is_empty() or si < 0 or si >= lane.spans.size():
+		return false
+	var span: Array = lane.spans[si]
+	dt = snappedf(StudioTimeline.clamp_shift(span, StudioTimeline.span_limits(_lanes, lane, si, view.duration), dt), 0.001)
+	if absf(dt) < 0.001:
+		return false
+	var ends: Dictionary = lane.ends[si]
+	var model := edits.model
+	var s0 := float(span[0])
+	var s1 := float(span[1])
+	var label := "Move %s to %s" % [id, StudioStatus.timecode(s0 + dt)]
+	var done := model.batch(label, func():
+		# Keys first: the spawn's index doesn't change when keys move.
+		for ti in model.tracks().size():
+			var tr: Dictionary = model.tracks()[ti]
+			if typeof(tr.get("keyframes")) != TYPE_ARRAY or String(tr.get("target", "")).split(".")[0] != id:
+				continue
+			var kfs: Array = tr.keyframes.duplicate(true)
+			var moved := false
+			for k in kfs:
+				var kt := float(k.get("t", 0.0))
+				if kt >= s0 - EditModel.SAME_TIME and kt <= s1 + EditModel.SAME_TIME:
+					k.t = snappedf(kt + dt, 0.001)
+					moved = true
+			if moved:
+				kfs.sort_custom(func(a, b): return float(a.t) < float(b.t))
+				model.set_keyframes(ti, kfs)
+		model.set_spawn_time(ends.spawn, snappedf(s0 + dt, 0.001))
+		if ends.despawn >= 0:
+			model.set_despawn_time(ends.despawn, snappedf(s1 + dt, 0.001))
+		elif dt < 0.0:
+			model.add_despawn(id, snappedf(s1 + dt, 0.001)))
+	if done:
+		said.emit(label + ".")
 		_needs_data = true
 	return done
 

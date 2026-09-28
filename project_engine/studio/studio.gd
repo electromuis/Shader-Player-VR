@@ -149,6 +149,9 @@ var inspector_panel: XRToolsViewport2DIn3D
 var _inspector_vr: StudioInspector
 ## Whether the timeline shows (in Edit).
 var timeline_on := true
+## New pieces start from the new-piece template (a screen showing the
+## video); off, they start empty.
+var use_template := true
 var ribbon_panel: XRToolsViewport2DIn3D
 var _ribbon_vr: StudioTimelineRibbon
 var waveform: StudioWaveform
@@ -370,7 +373,7 @@ func open_piece(path: String) -> bool:
 	var r: Dictionary
 	var fresh := false
 	if DefaultScreen.is_video(path) and DefaultScreen.sidecar_script(path) == "":
-		r = EditModel.new_piece(path)
+		r = EditModel.new_piece(path, EditModel.new_piece_template() if use_template else {})
 		fresh = true
 	else:
 		if DefaultScreen.is_video(path):
@@ -406,7 +409,9 @@ func open_piece(path: String) -> bool:
 	_cli_start = 0.0
 	_show_ribbon()
 	if fresh:
-		_say("New piece %s: add things from the shelf." % model.path.get_file())
+		_say("New piece %s: %s" % [model.path.get_file(),
+				"it starts with a screen showing the video; add more from the shelf." if model.spawn_index("main_screen") >= 0
+				else "add things from the shelf."])
 		shelf_on = true
 		for view in _shelves():
 			view.show_tab("object")
@@ -524,6 +529,9 @@ func _on_command(id: StringName) -> void:
 		&"studio_seek_back": _seek_by(-SEEK_SECONDS)
 		&"studio_seek_forward": _seek_by(SEEK_SECONDS)
 		&"studio_go_start": stage.seek_to(0.0)
+		&"studio_prev_key", &"studio_next_key":
+			if model != null:
+				ribbon.step_key(1 if id == &"studio_next_key" else -1)
 		&"studio_save": save()
 		&"studio_undo": undo()
 		&"studio_redo": redo()
@@ -546,7 +554,8 @@ func _on_command(id: StringName) -> void:
 		&"studio_save_look": save_look()
 		&"studio_arm_ride":
 			recorder.arm_viewer = not recorder.arm_viewer
-			_say("Ride %s." % ("armed: record, and fly the path while it plays" if recorder.arm_viewer else "not armed"))
+			# Armed, the status says what it does for as long as it is.
+			_say("Ride armed." if recorder.arm_viewer else "Ride not armed: takes record only what's armed or grabbed.")
 		&"studio_key_selection":
 			if model != null and tools.selected == ScriptFormat.VIEWER:
 				key_viewer(false)
@@ -585,6 +594,8 @@ func _on_command(id: StringName) -> void:
 				tools.select("")
 				if model.remove_object(gone):
 					_say("Deleted %s (undo brings it back)." % gone)
+		&"studio_toggle_hints":
+			status_view.show_hints(not status_view.hints_on)
 		&"studio_toggle_timeline":
 			timeline_on = not timeline_on
 			if timeline_on:
@@ -1459,6 +1470,8 @@ func _show_status() -> void:
 		tools.auto_key,
 		tools.snap,
 		_rec_chip(),
+		recorder.arm_viewer,
+		tools.key_animated,
 	]
 	if status_view.visible:
 		status_view.callv("show_state", args)

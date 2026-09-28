@@ -16,7 +16,9 @@ const RECORD := Color(1.0, 0.36, 0.36)
 ## [command id, label, toggle?]
 const BUTTONS := [
 	[&"studio_toggle_mode", "Play / Edit", false],
+	[&"studio_prev_key", "◆◀ Prev key", false],
 	[&"studio_play_pause", "Play ❚❚", false],
+	[&"studio_next_key", "Next key ▶◆", false],
 	[&"studio_key_selection", "◆ Key it", false],
 	[&"studio_toggle_autokey", "Auto-key", true],
 	[&"studio_toggle_snap", "Snap", true],
@@ -36,7 +38,7 @@ const BUTTONS := [
 	[&"studio_record", "● Rec", true],
 	[&"studio_key_viewer", "Key viewer", false],
 	[&"studio_cut_here", "Cut here", false],
-	[&"studio_arm_ride", "● Ride", true],
+	[&"studio_arm_ride", "● Arm ride", true],
 	[&"studio_miniature", "Miniature", true],
 ]
 

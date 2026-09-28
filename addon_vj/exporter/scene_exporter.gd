@@ -15,7 +15,8 @@ extends RefCounted
 ##     `parent`: they move with it and go when it does. Node names are the
 ##     ids, so they must be unique across the scene
 ##   - An optional VJViewer child (vj_viewer.gd) is the viewer; its keys
-##     become vr_cut events
+##     become vr_cut events, or with `motion` "smooth" a ride ("$viewer"
+##     transform tracks)
 ##   - A single AnimationPlayer child holds one Animation named "main"
 ##   - Track paths are relative to root, any depth (`<path>` below is e.g.
 ##     `screens/screen_left`):
@@ -38,7 +39,8 @@ extends RefCounted
 ##         opacity only where it's not a screen's or layer's display fade)
 ##                                                    → shader_param "<id>.modifiers"
 ##       <path>:spin / :pulse (VJObject)              → shader_param "<id>.reactive"
-##       <viewer>:position / :rotation                → vr_cut events
+##       <viewer>:position / :rotation                → vr_cut events, or
+##                                                      transform "$viewer"
 ##     Value and bezier tracks both work; bezier tracks (one per component,
 ##     e.g. `<path>:position:x`) export as "bezier" keys with their handles.
 ##
@@ -66,6 +68,11 @@ const _SHADER_PARAM_PREFIX := "shader_parameter/"
 const _DISPLAY_PROPS := ["curvature", "vertical_curvature", "opacity"]
 ## Where the player starts every script (VJViewer's rest pose should match).
 const VIEWER_HOME_POSITION := Vector3(0, 2, 8)
+## The player's target for the viewer's ride.
+const VIEWER_TARGET := "$viewer"
+## In a ride, keys this close (seconds) are a cut: the viewer jumps. The
+## importer writes a step as a hold ending 1 ms before the next key.
+const VIEWER_CUT_GAP := 0.002
 ## A screen's surface params, animated on `<id>.shape`.
 const _SHAPE_PROPS := ["arc_x", "arc_y", "auto_height", "keep_row_width", "straight_rows"]
 ## Picked per spawn in the player: not animatable.
@@ -168,7 +175,8 @@ static func _build_json(scene, out_dir: String) -> Dictionary:
 			tracks.append(t)
 	var viewer := _find_viewer(scene)
 	if viewer != null:
-		for e in _viewer_cuts(animation, viewer):
+		var viewer_tracks := _viewer_ride(animation, viewer) if String(viewer.motion) == "smooth" else _viewer_cuts(animation, viewer)
+		for e in viewer_tracks:
 			tracks.append(e)
 
 	var media := {"video": String(scene.video_relative_path)}
@@ -761,6 +769,87 @@ static func _viewer_cuts(animation: Animation, viewer: Node3D) -> Array:
 			ev["transition"] = {"type": "fade_to_black", "duration": fade}
 		out.append(ev)
 	return out
+
+
+## The viewer's keys as a ride: "$viewer" transform tracks (position,
+## rotation_deg) interpolating as the scene's value or Bezier tracks do.
+## Keys no more than VIEWER_CUT_GAP apart are a cut (_ride_cuts). Every
+## cut, and the first key if after t=0 (a jump from home), gets the
+## viewer's transition, which starts at the key. A channel without keys
+## holds the rest pose from the first key; with no keys at all, a rest
+## pose away from home is a hard cut at t=0.
+static func _viewer_ride(animation: Animation, viewer: Node3D) -> Array:
+	var channels := {"position": [], "rotation": []}
+	if animation != null:
+		var bezier := {"position": {}, "rotation": {}}  # prop -> {component -> track}
+		for i in animation.get_track_count():
+			var path := animation.track_get_path(i)
+			if path.get_name_count() != 1 or String(path.get_name(0)) != String(viewer.name) or path.get_subname_count() == 0:
+				continue
+			var prop := String(path.get_subname(0))
+			if not channels.has(prop):
+				continue
+			match animation.track_get_type(i):
+				Animation.TYPE_VALUE:
+					channels[prop] = _value_track_keys(animation, i)
+				Animation.TYPE_BEZIER:
+					bezier[prop][BezierTracksScript.split_component(viewer, path)[1]] = i
+		for prop in bezier:
+			if not bezier[prop].is_empty():
+				channels[prop] = _bezier_keys(animation, viewer, NodePath("%s:%s" % [viewer.name, prop]), bezier[prop])
+	if channels.position.is_empty() and channels.rotation.is_empty() \
+			and viewer.position.is_equal_approx(VIEWER_HOME_POSITION) and viewer.rotation.is_equal_approx(Vector3.ZERO):
+		return []
+	var start := INF
+	for prop in channels:
+		if not channels[prop].is_empty():
+			start = minf(start, float(channels[prop][0].t))
+	if start == INF:
+		start = 0.0
+	var cut_times := {}
+	if start > 0.0:
+		cut_times[start] = true
+	for prop in channels:
+		var keys: Array = channels[prop]
+		if keys.is_empty():
+			keys.append({"t": start, "value": viewer.get(prop), "interp": "linear"})
+			continue
+		_ride_cuts(keys)
+		for i in range(1, keys.size()):
+			if keys[i - 1].interp == "step":
+				cut_times[float(keys[i].t)] = true
+	var out := [
+		_transform_track(channels.position, VIEWER_TARGET, "position", false),
+		_transform_track(channels.rotation, VIEWER_TARGET, "rotation_deg", true),
+	]
+	if String(viewer.transition) == "fade_to_black" and float(viewer.fade_duration) > 0.0:
+		for track in out:
+			for kf in track.keyframes:
+				if cut_times.has(float(kf.t)):
+					kf["transition"] = {"type": "fade_to_black", "duration": float(viewer.fade_duration)}
+	return out
+
+
+## Segments no longer than VIEWER_CUT_GAP become jumps: the key before them
+## steps, and when that key only held the one before it (same value, no
+## curve between), it goes.
+static func _ride_cuts(keys: Array) -> void:
+	var i := keys.size() - 2
+	while i >= 0:
+		if float(keys[i + 1].t) - float(keys[i].t) <= VIEWER_CUT_GAP + 1e-6 and keys[i].interp != "step":
+			if i > 0 and keys[i - 1].interp in ["linear", "step"] and _same_value(keys[i - 1].value, keys[i].value):
+				keys.remove_at(i)
+				i -= 1
+			keys[i].interp = "step"
+			keys[i].erase("out")
+			keys[i + 1].erase("in")
+		i -= 1
+
+
+static func _same_value(a, b) -> bool:
+	if a is Vector3 and b is Vector3:
+		return a.is_equal_approx(b)
+	return a == b
 
 
 # ---------- config ----------

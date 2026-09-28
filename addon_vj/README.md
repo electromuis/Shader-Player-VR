@@ -20,7 +20,7 @@ project, and its export writes back to that JSON (see *Import* below).
 - `builtin_prefabs/` — self-contained prefabs the artist drops into a scene
   - `vj_scene.gd` — `@tool` script for the scene root; holds meta/media/output-path
     and an optional `preview_image`
-  - `vj_viewer.gd` — `VJViewer` camera marking the viewer; its keys become `vr_cut`s
+  - `vj_viewer.gd` — `VJViewer` camera marking the viewer; its keys become `vr_cut`s, or a ride
   - `screen.tscn` + `screen.gd` — video screen with an optional artist shader in a
     SubViewport, then its effects (`VJEffect` children). A glowing screen is
     a Glow effect; a split-screen piece is a Crop effect first. In the
@@ -135,12 +135,23 @@ project, and its export writes back to that JSON (see *Import* below).
   `pulse` (0–1, scale grows with the music's bass). The editor viewport
   doesn't move (your saved transform stays yours); spin shows in the F5
   preview and the player, pulse in the player only.
-- Optional `VJViewer` child: the viewer's pose. Every key after t=0 on its
-  position/rotation exports as a `vr_cut`; with `transition = fade_to_black`
-  the event starts `fade_duration / 2` early so the cut lands at peak black
-  on the key's time. The player starts every script at its home pose
-  (0, 2, 8) looking down −Z; a start pose (rest pose, or a key at t=0)
-  anywhere else exports as a hard `vr_cut` at t=0.
+- Optional `VJViewer` child: the viewer's pose, keyed on its
+  position/rotation. Its `motion` says how the keys export:
+  - **cuts** (the default): every key after t=0 is a `vr_cut`; with
+    `transition = fade_to_black` the event starts `fade_duration / 2` early
+    so the cut lands at peak black on the key's time.
+  - **smooth**: the keys are a ride, the script's `$viewer` track (the one
+    Studio records): the viewer glides between them as the tracks
+    interpolate (value or Bezier tracks). A cut inside a ride is a jump:
+    two keys no more than 2 ms apart (or a Nearest / Discrete track, where
+    every key is one). Each cut, and the first key if after t=0 (a jump
+    from home), gets the viewer's transition, whose fade starts at the key.
+    In the headset the player uses only a ride's yaw, and its *Script
+    camera* setting can play a ride as fades only ("cuts only").
+
+  The player starts every script at its home pose (0, 2, 8) looking down
+  −Z; a start pose (rest pose, or a key at t=0) anywhere else is a hard cut
+  at t=0.
 - A single `AnimationPlayer` child of the root holds one Animation named
   `"main"`. Tracks (`<node>` is the path from the root, e.g. `screens/screen_left`;
   the target is that node's name):
@@ -172,8 +183,8 @@ project, and its export writes back to that JSON (see *Import* below).
     each curve is split there exactly (it stays the same curve). Segments with
     flat handles export as plain linear. **Tools > VJ: Convert value tracks to Bezier**
     converts a scene's numeric value tracks (undoable) so the Animation panel's
-    curve editor can edit them; `visible`, nearest / discrete and viewer tracks
-    stay value tracks.
+    curve editor can edit them; `visible`, nearest / discrete tracks and a
+    viewer's moving by cuts stay value tracks.
 
 ## Desktop preview (running the scene)
 
@@ -235,7 +246,10 @@ scene can't; the importer converts them and lists each in the Output panel:
 - an object spawned again with a different prefab, transform, parent or
   config keeps its first spawn's
 - the scene's viewer has one transition, so cuts with different ones all
-  get the first cut's
+  get the first cut's (in a ride too, where the first key after t=0 is a
+  cut from home)
+- a script with a ride (`$viewer` tracks) gets a smooth `VJViewer`; its
+  `vr_cut` events join the ride as cuts, as the player plays them
 - `vr_teleport`, top-level `objects` (the player ignores them too) and
   `media.audio` are dropped
 

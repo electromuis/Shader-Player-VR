@@ -166,7 +166,7 @@ Rejected alternatives, and why:
 - **Not verified (no headset):** recording with real controllers (the laser on the inspector's slider and on the *● Rec* button, grabbing while it plays), how the pre-roll feels, and whether audio and picture stay together while recording on the Quest (the checks have no sound device; timing was checked on the clock). Real songs: only the synthetic one was used.
 - **Left for later:** bezier keys for smooth stretches (linear keys only now: more keys on curves), loop recording in layers (several passes as takes to choose from), an armed property with no track yet showing as a row on the timeline before the take, a knob / fader in the world (XR Tools hinges) instead of the panel's slider, recording the viewer (M7's ride recording uses this), and tap tempo with a controller button.
 
-## Next: M7, animating the viewer
+### Animating the viewer (milestone M7)
 Goal (see *Milestones*): record a ride through the tunnel, preview it from the seat, and it plays back smooth in the player (and as fades with "cuts only"). Design: *Animating the viewer* and *Format additions (v3)*. This is the first format change since v2, so the player and the Godot addon change with it.
 
 **Done so far (player half, steps 1–2):**
@@ -191,8 +191,12 @@ Goal (see *Milestones*): record a ride through the tunnel, preview it from the s
 - **Comfort vignette** (`player/vr/comfort_vignette.gd`, `ComfortVignette`, taken out of Studio's flight): the Stage owns one on the XR camera and eases it in with a ride's speed (0.5 → 5 m/s) or turn (→ 45°/s), never with *cuts only*; `Stage.comfort_extra` lets the app add its own (Studio passes its flight's `motion`). Headset only.
 - **Proof:** 241/241 tests (`test_studio_viewer.gd` gained grabbing a path's keys: the viewer's, an object's snapped, dropped on a selection change). `drive_studio_m7.gd` now also carries the 48 s key 3 m left on the path, and goes into the miniature and back (a render of it); `drive_viewer.gd` prints the vignette's level (1.0 at 13.9 m/s, 0 while paused). Earlier checks print as before.
 
+**Done since (step 3, the addon):**
+- **`VJViewer.motion`** (`addon_vj/builtin_prefabs/vj_viewer.gd`): *cuts* (the default, as before: every key a `vr_cut` event) or *smooth*: the viewer's keys export as the `$viewer` ride (`SceneExporter._viewer_ride`), from value or Bezier tracks with their interpolation. A cut in a ride is a jump: keys no more than 2 ms apart (`VIEWER_CUT_GAP`; `_ride_cuts` makes the key before a step, dropping it when it only held the one before it), or a Nearest / Discrete track. Each cut, and the first key if after t=0, gets the viewer's transition (the player starts its fade at the key, as Studio's *Cut here* does). A channel with no keys holds the rest pose from the ride's start; no keys and a rest pose away from home is a key at t=0. *Convert value tracks to Bezier* now converts a smooth viewer's tracks too.
+- **Importer** (`_collect_ride`, `_build_ride`): `$viewer` tracks make a smooth `VJViewer` keyed as the script (a step among glides is the importer's usual hold ending 1 ms before the next key, which the exporter reads back as a step: exact, no warning). `vr_cut` events next to a ride join it as cuts, as `ViewerTrack` plays them (noted). The cuts' transition becomes the viewer's (warned when they differ; a transition on a key that isn't a cut, which only mattered with *cuts only*, is dropped and warned).
+- **Proof:** the round trip (`addon_vj/tests/run_roundtrip.gd`) now also compares a ride's cuts and their fades (`_ride_cuts`; originals normalised as the player merges event cuts, `_merged_ride`), with two new fixtures: `ride` (a glide, a Bezier curve, a step cut, faded cuts, the first key after t=0, a `vr_cut` event joining it) and `ride_steps` (every key a cut, no rotation track), plus `_check_authored_ride` (a ride keyed in Godot with linear value tracks: cuts from keys 1 ms apart, a hold dropped, the rest rotation held): 7 scripts and the authored ride all ok. The exported rides load in the player (`ScriptFormat`) and its `ViewerTrack` gives the same cuts, fades and poses as the originals (checked by a throwaway script, not committed). 285/285 player tests.
+
 **Still to do in M7**
-- **Addon:** `VJViewer`'s *motion* setting and the exporter / importer writing and reading the viewer track, with the round-trip test. Waiting: other work (the DaVinci Resolve branch) changes `addon_vj/exporter/scene_exporter.gd` too; decide with the user where to do it.
 - **Not verified (no headset):** the rig moving along a ride and the height offset, how a ride feels, the vignette, keying the viewer from a real head pose, flying a ride and carrying path keys with the controllers, and the miniature's world scale (table height, where you stand, flight in it).
 
 **Steps** (as first planned)
@@ -203,6 +207,9 @@ Goal (see *Milestones*): record a ride through the tunnel, preview it from the s
 5. **Motion paths:** the selection's position track (and the viewer's) drawn as a 3D curve with a dot per key; grab a dot to move that key in space (one undo step).
 6. **Miniature view:** the scene at table scale in front of you (a second camera's view of the world, or the world's nodes instanced small), to lay out and fly a ride from above; one button back to full scale. Might split into its own milestone if it grows.
 7. **Prove it:** format and upgrade tests, a player check (a smooth ride and its "cuts only" fades, seeking inside a ride), a Studio check that records a ride through forest_tunnel's tunnel, previews it from the seat and saves, the round trip through the addon, and renders.
+
+## Next: M8, polish
+M7 is done apart from what needs a headset. Next is M8 (see *Milestones*): haptics, comfort, a visual pass, left-handed mode, and looks / presets, until a first-time user can place, key and play back a screen in 10 minutes unaided. Readable UI in the headset (panel resolution and distance) is budgeted here (*Prerequisites and risks*). Much of M8 is feel, which needs a headset: ask the user first which parts to do blind.
 
 ## Studio design
 
@@ -463,7 +470,7 @@ Each ends in something usable, with a clear "done when".
 | M4 ✅ | **Timeline ribbon**: waveform, lanes, key diamonds, retime, loop region, interpolation picker | Retime a key to a beat by dragging; loop a passage |
 | M5 ✅ | **Asset shelf**: library, thumbnails, drag-to-spawn, bundling into the piece | Start from an empty piece and build a scene only from the shelf; the folder zips and plays elsewhere |
 | M6 ✅ | **Performance recording + beat snap** | Record a knob sweep to the music, punch-in a fix, and it plays back tight |
-| M7 | **Motion paths + viewer animation + miniature view**: format v3 viewer track, key viewer here, ride recording, comfort warnings, "cuts only" setting | Record a ride through the tunnel, preview it from the seat, and it plays back smooth in the player (and as fades with "cuts only") |
+| M7 ✅ | **Motion paths + viewer animation + miniature view**: format v3 viewer track, key viewer here, ride recording, comfort warnings, "cuts only" setting | Record a ride through the tunnel, preview it from the seat, and it plays back smooth in the player (and as fades with "cuts only") |
 | M8 | **Polish**: haptics, comfort, visual pass, left-handed mode, looks/presets | A first-time user can place, key and play back a screen in 10 minutes unaided |
 
 | IN ✅ | **Controls and remapping** in the *player*: commands, input router, Controls tab, profiles, keyboard; `xr_rig` / `xr_movement` moved onto it | Rebind play/pause to X on a Quest 3, the default profile still behaves exactly as today, and all binding tests pass. Studio adds its Edit context from M2 on |
@@ -488,7 +495,7 @@ M1–M3 are the smallest thing that's already better than the desktop for layout
 - ~~**Should Studio also open plain videos**~~: yes, a new empty piece (M5).
 
 ## Known issues
-- All 240 player tests pass (with the Shadertoy work's own tests, which aren't Studio's), as does the round-trip test.
+- All 285 player tests pass (with the Shadertoy, shader and video-decoder work's own tests, which aren't Studio's), as does the round-trip test (with rides).
 - `scripts/forest_tunnel/video.json` is still a v1 export (bezier tracks baked to linear keys, within 0.001 of the curves). Its events match the current scene; re-export from the editor for the exact curves and format v2.
 - `scripts/minimal` has no objects, so the exporter refuses it (by design). The round-trip test skips it.
 

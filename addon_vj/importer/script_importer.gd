@@ -15,8 +15,12 @@ extends RefCounted
 ##   - an "ease" track becomes Bezier (Godot has no smoothstep track)
 ##   - an object spawned more than once keeps its first spawn's prefab,
 ##     transform, parent and config
-##   - cuts share one transition in the scene (VJViewer's); vr_teleport,
-##     top-level `objects` and media.audio have no place in the scene
+##   - cuts share one transition in the scene (VJViewer's), in a ride
+##     too (where the first key, if after t=0, is a cut from home);
+##     vr_teleport, top-level `objects` and media.audio have no place in
+##     the scene
+##   - vr_cut events next to a ride join it as cuts (as the player plays
+##     them)
 ##
 ## Files: a bundled custom prefab (`prefabs/x.tscn` next to the JSON) is
 ## copied into `<dest_dir>/prefabs/`, a custom shader into
@@ -132,10 +136,15 @@ static func build_scene(json_path: String, dest_dir: String) -> Dictionary:
 	events = order.map(func(i): return events[i])
 	_build_objects(ctx, events)
 	_build_presence(ctx, events)
+	var ride := {}  # channel -> the viewer's keyframes
 	for t in tracks:
-		if typeof(t) == TYPE_DICTIONARY and t.get("type") in ["transform", "shader_param"]:
+		if typeof(t) != TYPE_DICTIONARY or not t.get("type") in ["transform", "shader_param"]:
+			continue
+		if t.get("target") == SceneExporterScript.VIEWER_TARGET:
+			_collect_ride(ctx, t, ride)
+		else:
 			_build_track(ctx, t)
-	_build_viewer(ctx, cuts)
+	_build_viewer(ctx, cuts, ride)
 	var length := float(media.get("duration", 0.0))
 	for i in anim.get_track_count():
 		for k in anim.track_get_key_count(i):
@@ -684,7 +693,9 @@ static func _custom_material_property(node: Node) -> String:
 
 ## Keys `kfs` onto `path`: a value track when every segment shares a mode
 ## Godot's value tracks have (linear, cubic, step), otherwise Bezier tracks.
-static func _add_keys(ctx: _Ctx, path: String, kfs: Array, template, dv_scale: float) -> void:
+## `steps_expected`: steps among other interpolations are expected (the
+## viewer's cuts, which the exporter reads back as steps): no warning.
+static func _add_keys(ctx: _Ctx, path: String, kfs: Array, template, dv_scale: float, steps_expected := false) -> void:
 	var modes: Dictionary = {}
 	for i in kfs.size() - 1:
 		modes[String(kfs[i].get("interp", "linear"))] = true
@@ -701,7 +712,8 @@ static func _add_keys(ctx: _Ctx, path: String, kfs: Array, template, dv_scale: f
 			ctx.anim.track_insert_key(track, float(kf.t), _to_type(_scaled(kf.value, 1.0 / dv_scale), template))
 		return
 	if modes.has("step"):
-		ctx.warn("%s mixes step with other interpolations; each step holds until %.0f ms before its next key" % [path, _STEP_EDGE * 1000.0])
+		if not steps_expected:
+			ctx.warn("%s mixes step with other interpolations; each step holds until %.0f ms before its next key" % [path, _STEP_EDGE * 1000.0])
 		kfs = _expand_steps(kfs)
 	_add_bezier(ctx, path, kfs, template, dv_scale)
 
@@ -787,15 +799,35 @@ static func _handle(h, c: int) -> Vector2:
 
 # ---------- viewer ----------
 
+## A "$viewer" transform track's keys into `ride` (channel -> keyframes).
+static func _collect_ride(ctx: _Ctx, t: Dictionary, ride: Dictionary) -> void:
+	var ch := String(t.get("channel", ""))
+	if t.type != "transform" or not ch in ["position", "rotation_deg"]:
+		ctx.warn("the viewer's %s %s track has no place in the scene; dropped" % [t.get("channel", t.get("param", "")), t.type])
+		return
+	if ride.has(ch):
+		ctx.warn("a second track animates the viewer's %s; dropped" % ch)
+		return
+	var kfs: Array = t.get("keyframes", []).duplicate(true)
+	if kfs.is_empty():
+		return
+	kfs.sort_custom(func(a, b): return float(a.t) < float(b.t))
+	ride[ch] = kfs
+
+
 ## Cuts become VJViewer keys (at the cut's jump, half a fade after the
-## event starts); a hard cut at t=0 is its start pose.
-static func _build_viewer(ctx: _Ctx, cuts: Array) -> void:
+## event starts); a hard cut at t=0 is its start pose. A ride (`ride`, the
+## script's "$viewer" tracks) makes a smooth viewer instead (_build_ride).
+static func _build_viewer(ctx: _Ctx, cuts: Array, ride: Dictionary) -> void:
 	var viewer := Camera3D.new()
 	viewer.name = "Viewer"
 	viewer.set_script(VJViewerScript)
 	ctx.root.add_child(viewer)
 	viewer.owner = ctx.root
 	viewer.position = SceneExporterScript.VIEWER_HOME_POSITION
+	if not ride.is_empty():
+		_build_ride(ctx, viewer, cuts, ride)
+		return
 	if cuts.is_empty():
 		return
 	var fades: Dictionary = {}
@@ -833,6 +865,80 @@ static func _build_viewer(ctx: _Ctx, cuts: Array) -> void:
 	for k in keys:
 		ctx.anim.track_insert_key(pos_track, k[0], k[1])
 		ctx.anim.track_insert_key(rot_track, k[0], k[2])
+
+
+## A ride: `motion` "smooth", the viewer's tracks keyed as the script's
+## (its steps, the cuts, hold until 1 ms before the cut, which the exporter
+## reads back as a step). vr_cut events join the ride as cuts, as the
+## player plays them. The cuts' transition (the first key's if after t=0,
+## and every key after a step) becomes the viewer's.
+static func _build_ride(ctx: _Ctx, viewer: Node3D, cuts: Array, ride: Dictionary) -> void:
+	viewer.motion = "smooth"
+	for ch in ["position", "rotation_deg"]:
+		if not ride.has(ch):
+			ride[ch] = []
+	for ev in cuts:
+		var to: Dictionary = ev.get("to", {})
+		var at := float(ev.get("t", 0.0))
+		for ch in ride:
+			var key := {"t": at, "value": to.get(ch, [0.0, 0.0, 0.0])}
+			if typeof(ev.get("transition")) == TYPE_DICTIONARY:
+				key["transition"] = ev.transition
+			var kfs: Array = ride[ch]
+			var i := 0
+			while i < kfs.size() and float(kfs[i].t) < at:
+				i += 1
+			if i < kfs.size() and float(kfs[i].t) == at:
+				kfs[i] = key
+			else:
+				kfs.insert(i, key)
+			if i > 0:
+				kfs[i - 1]["interp"] = "step"
+				kfs[i - 1].erase("out")
+	if not cuts.is_empty():
+		ctx.warn("%d vr_cut event(s) join the viewer's ride as cuts" % cuts.size())
+
+	var earliest := INF
+	var transitions := {}  # t -> the transition of a key there
+	for ch in ride:
+		for kf in ride[ch]:
+			earliest = minf(earliest, float(kf.t))
+			if typeof(kf.get("transition")) == TYPE_DICTIONARY:
+				transitions[float(kf.t)] = kf.transition
+	var cut_times := {}
+	for ch in ride:
+		var kfs: Array = ride[ch]
+		for i in kfs.size():
+			var at := float(kfs[i].t)
+			if (at == earliest and at > 0.0) or (i > 0 and String(kfs[i - 1].get("interp", "linear")) == "step"):
+				cut_times[at] = true
+	var fades := {}  # fade seconds (0: a hard cut) -> true, in order met
+	var in_order := cut_times.keys()
+	in_order.sort()
+	for at in in_order:
+		var tr = transitions.get(at, {})
+		fades[float(tr.get("duration", 0.5)) if tr.get("type") == "fade_to_black" else 0.0] = true
+	for at in transitions:
+		if not cut_times.has(at):
+			ctx.warn("the viewer's key at %.3fs has a transition but isn't a cut; dropped (it only mattered with \"cuts only\")" % at)
+	if fades.size() > 1:
+		ctx.warn("the ride's cuts use different transitions; the scene's viewer has one, so all use the first cut's")
+	if not fades.is_empty():
+		var fade: float = fades.keys()[0]
+		viewer.transition = "fade_to_black" if fade > 0.0 else "none"
+		if fade > 0.0:
+			viewer.fade_duration = fade
+
+	# The rest pose is the ride's start (the player's default for a channel
+	# with no keys is zero).
+	viewer.position = _vec3(ride.position[0].value) if not ride.position.is_empty() else Vector3.ZERO
+	var rot_deg := _vec3(ride.rotation_deg[0].value) if not ride.rotation_deg.is_empty() else Vector3.ZERO
+	viewer.rotation = Vector3(deg_to_rad(rot_deg.x), deg_to_rad(rot_deg.y), deg_to_rad(rot_deg.z))
+	for ch in ride:
+		if not ride[ch].is_empty():
+			var rotation: bool = ch == "rotation_deg"
+			_add_keys(ctx, "%s:%s" % [viewer.name, "rotation" if rotation else "position"], ride[ch], Vector3(),
+					rad_to_deg(1.0) if rotation else 1.0, true)
 
 
 # ---------- values ----------

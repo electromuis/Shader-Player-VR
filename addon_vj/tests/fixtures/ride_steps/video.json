@@ -1,0 +1,19 @@
+{
+  "format_version": 2,
+  "meta": {"title": "A ride of cuts only (every key steps)", "author": "", "created": ""},
+  "media": {"video": "video.mp4"},
+  "prefabs": {
+    "cube": "res://player/prefabs/cube.tscn"
+  },
+  "shaders": {},
+  "tracks": [
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "box", "prefab": "cube",
+      "transform": {"position": [0.0, 2.0, -4.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}},
+    {"type": "transform", "target": "$viewer", "channel": "position",
+      "keyframes": [
+        {"t": 0.0, "value": [0.0, 2.0, 6.0], "interp": "step"},
+        {"t": 5.0, "value": [2.0, 3.0, 2.0], "interp": "step"},
+        {"t": 9.0, "value": [0.0, 2.0, 0.0], "interp": "step"}
+      ]}
+  ]
+}

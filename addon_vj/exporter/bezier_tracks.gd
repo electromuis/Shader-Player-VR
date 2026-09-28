@@ -12,7 +12,7 @@ extends RefCounted
 ## "Balanced" handles along the curve's own slopes. Tracks that can't
 ## become bezier stay value tracks:
 ## non-numeric values (`visible`), nearest / discrete tracks, angle
-## interpolation, eased keys, and the viewer's (its keys are cuts).
+## interpolation, eased keys, and a viewer moving by cuts (its keys are cuts).
 
 const VJViewerScript := preload("res://addons/vj_editor/builtin_prefabs/vj_viewer.gd")
 
@@ -115,8 +115,8 @@ static func _convertible(animation: Animation, i: int, root: Node) -> bool:
 		all_int = all_int and v is int
 	var path := animation.track_get_path(i)
 	var node := root.get_node_or_null(NodePath(path.get_concatenated_names())) if root != null else null
-	if node != null and node.get_script() == VJViewerScript:
-		return false
+	if node != null and node.get_script() == VJViewerScript and String(node.motion) == "cuts":
+		return false  # its keys are cuts, held until the next
 	# Whole-number keys (`0` in a .tscn loads as an int) are fine on a float
 	# property, but a real int property stays a value track.
 	return not all_int or (node != null and node.get_indexed(NodePath(path.get_concatenated_subnames())) is float)

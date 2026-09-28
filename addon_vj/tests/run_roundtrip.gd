@@ -42,8 +42,61 @@ func _initialize() -> void:
 		scripts.append_array(_find_json(dir))
 	for path in scripts:
 		_check(path)
+	_check_authored_ride()
 	print("\nRound trip: %d script(s), %s" % [scripts.size(), "all ok" if _fails == 0 else "%d failure(s)" % _fails])
 	quit(0 if _fails == 0 else 1)
+
+
+## A ride keyed in Godot: a smooth VJViewer with a linear position track
+## whose keys 1 ms apart are cuts (a hold before one goes), no rotation
+## track (its rest pose is held from the first key).
+func _check_authored_ride() -> void:
+	print("== authored ride")
+	var built := ScriptImporterScript.build_scene(
+			ProjectSettings.globalize_path("res://addons/vj_editor/tests/fixtures/ride_steps/video.json"), _tmp.path_join("authored"))
+	if not built.ok:
+		_fail("import failed: %s" % built.error)
+		return
+	var root: Node = built.root
+	var viewer: Node3D = root.get_node("Viewer")
+	var anim: Animation = root.get_node("AnimationPlayer").get_animation("main")
+	for i in range(anim.get_track_count() - 1, -1, -1):
+		if String(anim.track_get_path(i)).begins_with("Viewer:"):
+			anim.remove_track(i)
+	viewer.motion = "smooth"
+	viewer.transition = "fade_to_black"
+	viewer.fade_duration = 0.5
+	viewer.rotation = Vector3(0, deg_to_rad(30.0), 0)
+	var track := anim.add_track(Animation.TYPE_VALUE)
+	anim.track_set_path(track, "Viewer:position")
+	var a := Vector3(0, 2, 8)
+	for key in [[0.0, a], [3.0, a], [3.001, Vector3(0, 2, 2)], [6.0, Vector3(1, 2, 0)], [6.001, Vector3(5, 2, 0)], [9.0, Vector3(5, 2, -3)]]:
+		anim.track_insert_key(track, key[0], key[1])
+	var res: Dictionary = SceneExporterScript._build_json(root, _tmp.path_join("authored_export"))
+	root.free()
+	if not res.ok:
+		_fail("export failed: %s" % res.error)
+		return
+	var ride := {}
+	for t in res.data.tracks:
+		if t.get("target") == SceneExporterScript.VIEWER_TARGET:
+			ride[t.channel] = JSON.parse_string(JSON.stringify(t.keyframes))
+	var fade := {"type": "fade_to_black", "duration": 0.5}
+	var want := {
+		"position": [
+			{"t": 0.0, "value": [0.0, 2.0, 8.0], "interp": "step"},
+			{"t": 3.001, "value": [0.0, 2.0, 2.0], "transition": fade},
+			{"t": 6.0, "value": [1.0, 2.0, 0.0], "interp": "step"},
+			{"t": 6.001, "value": [5.0, 2.0, 0.0], "transition": fade},
+			{"t": 9.0, "value": [5.0, 2.0, -3.0]},
+		],
+		"rotation_deg": [{"t": 0.0, "value": [0.0, 30.0, 0.0]}],
+	}
+	var diffs: Array = []
+	_diff(want, ride, "ride", diffs, 1e-4)
+	for d in diffs.slice(0, 10):
+		_fail("authored ride: " + d)
+	print("   %d position keys, cuts at 3.001 and 6.001" % ride.get("position", []).size())
 
 
 func _find_json(dir: String) -> Array:
@@ -113,6 +166,7 @@ func _same_playback(a: Dictionary, b: Dictionary) -> void:
 		_diff(a.get(k, {}).keys().filter(func(x): return _used(a, k, x)).map(func(x): return str(x)),
 				b.get(k, {}).keys(), k, diffs, 0.0, true)
 	_diff(_events(a), _events(b), "events", diffs, _TOLERANCE)
+	_diff(_ride_cuts(a), _ride_cuts(b), "viewer cuts", diffs, _TOLERANCE)
 	var ta := _continuous(a)
 	var tb := _continuous(b)
 	_diff(ta.keys(), tb.keys(), "tracks", diffs, 0.0, true)
@@ -197,7 +251,7 @@ static func _normalized(data: Dictionary) -> Dictionary:
 						if typeof(kf.get(h)) == TYPE_ARRAY and kf[h].size() == 2:
 							kf[h][1] = float(kf[h][1]) * 180.0
 		tracks.append(t)
-	out["tracks"] = tracks
+	out["tracks"] = _merged_ride(tracks)
 	for k in shaders.keys():
 		if shaders[k] == ScriptImporterScript._LEGACY_PADDING:
 			shaders.erase(k)
@@ -224,6 +278,74 @@ static func _drop_unknown_params(e: Dictionary, path: String) -> void:
 ## Whether a prefabs / shaders key is used (the exporter only lists used ones).
 func _used(data: Dictionary, map: String, key: String) -> bool:
 	return JSON.stringify(data.get("tracks", [])).contains('"%s"' % key)
+
+
+## With a ride ("$viewer" tracks), the player's view of the viewer: both
+## channels (a missing one holds zero from the ride's start), and vr_cut
+## events joined as keys the viewer jumps to (the key before steps), as
+## ViewerTrack does.
+static func _merged_ride(tracks: Array) -> Array:
+	var ride := {}  # channel -> track
+	for t in tracks:
+		if t.get("type") == "transform" and t.get("target") == SceneExporterScript.VIEWER_TARGET:
+			ride[t.get("channel")] = t
+	if ride.is_empty():
+		return tracks
+	var start := INF
+	for ch in ride:
+		for kf in ride[ch].keyframes:
+			start = minf(start, float(kf.t))
+	var out: Array = []
+	for ch in ["position", "rotation_deg"]:
+		if not ride.has(ch):
+			ride[ch] = {"type": "transform", "target": SceneExporterScript.VIEWER_TARGET, "channel": ch,
+					"keyframes": [{"t": start, "value": [0.0, 0.0, 0.0]}]}
+			out.append(ride[ch])
+	for t in tracks:
+		if t.get("type") == "event" and t.get("action") == "vr_cut":
+			var at := float(t.get("t", 0.0))
+			for ch in ride:
+				var kfs: Array = ride[ch].keyframes
+				var i := 0
+				while i < kfs.size() and float(kfs[i].t) < at:
+					i += 1
+				var key := {"t": at, "value": t.get("to", {}).get(ch, [0.0, 0.0, 0.0])}
+				if typeof(t.get("transition")) == TYPE_DICTIONARY:
+					key["transition"] = t.transition
+				kfs.insert(i, key)
+				if i > 0:
+					kfs[i - 1]["interp"] = "step"
+					kfs[i - 1].erase("out")
+			continue
+		out.append(t)
+	return out
+
+
+## The ride's cuts as [t, fade seconds (0: hard)]: its first key if after
+## t=0, and every key reached by a step (see ViewerTrack).
+static func _ride_cuts(data: Dictionary) -> Array:
+	var times := {}  # t -> fade
+	var start := INF
+	var fades := {}
+	for t in data.get("tracks", []):
+		if t.get("type") != "transform" or t.get("target") != SceneExporterScript.VIEWER_TARGET:
+			continue
+		var kfs: Array = t.keyframes
+		for i in kfs.size():
+			var at := float(kfs[i].t)
+			start = minf(start, at)
+			var tr = kfs[i].get("transition")
+			if typeof(tr) == TYPE_DICTIONARY and tr.get("type") == "fade_to_black":
+				fades[at] = float(tr.get("duration", 0.5))
+			if i > 0 and String(kfs[i - 1].get("interp", "linear")) == "step":
+				times[at] = true
+	if start > 0.0 and start != INF:
+		times[start] = true
+	var out: Array = []
+	for at in times:
+		out.append([at, fades.get(at, 0.0)])
+	out.sort_custom(func(x, y): return x[0] < y[0])
+	return out
 
 
 func _events(data: Dictionary) -> Array:

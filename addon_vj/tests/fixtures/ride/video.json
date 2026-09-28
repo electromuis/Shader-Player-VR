@@ -1,0 +1,33 @@
+{
+  "format_version": 2,
+  "meta": {"title": "A ride: glides, a curve, cuts and a cut event", "author": "", "created": ""},
+  "media": {"video": "video.mp4", "duration": 16.0},
+  "prefabs": {
+    "cube": "res://player/prefabs/cube.tscn"
+  },
+  "shaders": {},
+  "tracks": [
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "box", "prefab": "cube",
+      "transform": {"position": [0.0, 2.0, -4.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}},
+    {"type": "transform", "target": "$viewer", "channel": "position",
+      "keyframes": [
+        {"t": 2.0, "value": [0.0, 2.0, 8.0], "transition": {"type": "fade_to_black", "duration": 0.8}},
+        {"t": 4.0, "value": [0.0, 2.5, 2.0], "interp": "bezier",
+          "out": [[1.0, 0.0], [1.0, 0.0], [1.0, -1.0]]},
+        {"t": 8.0, "value": [3.0, 2.0, -4.0], "interp": "step",
+          "in": [[-1.0, 0.0], [-1.0, 0.0], [-1.0, 2.0]]},
+        {"t": 10.0, "value": [0.0, 2.0, 8.0], "transition": {"type": "fade_to_black", "duration": 0.8}},
+        {"t": 14.0, "value": [0.0, 2.0, 4.0]}
+      ]},
+    {"type": "transform", "target": "$viewer", "channel": "rotation_deg",
+      "keyframes": [
+        {"t": 2.0, "value": [0.0, 0.0, 0.0], "transition": {"type": "fade_to_black", "duration": 0.8}},
+        {"t": 8.0, "value": [0.0, -45.0, 0.0], "interp": "step"},
+        {"t": 10.0, "value": [0.0, 180.0, 0.0], "transition": {"type": "fade_to_black", "duration": 0.8}},
+        {"t": 14.0, "value": [0.0, 200.0, 0.0]}
+      ]},
+    {"type": "event", "t": 12.0, "action": "vr_cut",
+      "to": {"position": [5.0, 2.0, 0.0], "rotation_deg": [0.0, 90.0, 0.0]},
+      "transition": {"type": "fade_to_black", "duration": 0.8}}
+  ]
+}

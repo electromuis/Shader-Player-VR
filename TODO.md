@@ -50,7 +50,7 @@ Open tasks carry a rough difficulty, **[D1]** (minutes to an hour) to **[D5]** (
 - [x] 61. **[D2]** Bug: a keyframe forgets its value. Key a value of 0, then key a value of 1 at a later time: the first key loses its 0. Reproduce with a test and fix. — done in 87f3a9d
 - [ ] 62. **[D2]** Lock an object's position (a lock toggle in the inspector and outliner) so it can't be moved by accident; a locked object can still be selected and its other properties edited.
 - [ ] 63. **[D1]** The on/off toggle's circle isn't centred in its track; fix it and check the other toggles.
-- [ ] 64. **[D3]** Timeline: a vertical scroll bar for the lanes, and a toggle on each object's row to show or hide its property tracks.
+- [x] 64. Timeline: a vertical scroll bar for the lanes, and a toggle on each object's row to show or hide its property tracks. Done 2026-09-29 in b1e2fe5: a scroll bar down the ribbon's right when the lanes overflow, and a triangle before each animated object's name (`StudioTimelineRibbon.is_open` / `set_open`); checked with `checks/shot_studio_lanes.gd`.
 - [ ] 65. **[D2]** Bug: domes can't be resized: setting the size to infinity still gives a small globe around the viewer. Find out what the size setting does and make a large or infinite dome work.
 - [ ] 66. **[D3]** Move gizmo: arrows on an object's origin axis lines; drag an arrow to move the object along that axis.
 - [ ] 67. **[D2]** Scale by press, hold and scroll (or drag): hold a button on an object and scroll or drag to scale it.

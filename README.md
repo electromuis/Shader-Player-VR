@@ -72,6 +72,7 @@ Studio opens a script and lets you change it from inside the headset, on the pla
 
 - **Start it** from its own build (the *Studio* download from CI, or `build_and_run.bat studio [video.json]`) with the piece: `ShaderPlayerVR-Studio.exe -- --piece path\to\video.json`. From the Godot editor, run `res://studio/studio.tscn` with the same arguments. A video works too: its same-name `.json`, or, if it has none, a **new, empty piece** made next to it (`clip.mp4` → `clip.json`). With no piece, Studio opens with the shelf's *Open…* tab to pick one; a piece or video dropped on the window opens as well. `--start <seconds>` opens at that time, `--vr` / `--desktop` as in the player, and `--library <folder>` adds a folder of your own assets to the shelf (repeat it for more).
 - **Play and Edit:** Play is the audience view with nothing added. Edit shows the piece's name, the time, whether there are unsaved changes and what just happened, on the left wrist in the headset and in the corner of the desktop window. Switching keeps the playhead.
+- **Wrist palette** (Edit, in the headset; point the laser at it): a Play / Edit switch and the piece's name over the time, its length and the bar and beat. Below, two pages of big tiles; swipe across the palette (or press a dot under it) for the other page. Page 1 is what you use all the time: *Prev key*, *Play*, *Record*, *Next key*, *Auto-key*, *Snap*, *Loop*, *Undo*, *Shelf*, *Inspector*, *Key it*, *Timeline*. Page 2 has the rest: *Redo*, *Seat*, *Go to it*, *Back*, *Loop in*, *Loop out*, *Key viewer*, *Cut here*, *Arm ride*, *Miniature*, *Delete*, *Menu*. Switches that are on are lit (auto-key, recording and an armed ride in red). At the foot: *Save*, whether there are unsaved changes and how long ago they were autosaved, a line saying what the active mode does (or, while you point at a tile, what that tile does), and what just happened.
 - **Controls** (defaults; Studio's own, separate from the player's):
 
   | | Headset | Keyboard |
@@ -82,12 +83,12 @@ Studio opens a script and lets you change it from inside the headset, on the pla
   | Seek 10 s | right stick ← → | Shift+← → |
   | Scrub (Edit; further = faster) | left trigger + left stick | |
   | Go to the start | | Home |
-  | Previous / next key (the selection's, or any) | wrist *◆◀ Prev key* / *Next key ▶◆*, timeline ◆◀ / ▶◆ | ↓ / ↑ |
+  | Previous / next key (the selection's, or any) | wrist *Prev key* / *Next key*, timeline ◆◀ / ▶◆ | ↓ / ↑ |
   | Undo / redo (Edit) | B / hold B | Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y |
-  | Save | | Ctrl+S |
+  | Save | wrist | Ctrl+S |
   | Reset view (the home seat) | right stick click | R |
   | Enter / leave VR | | F1 |
-  | Menu (settings, controls, Studio's options) | hold left ≡ | F2 |
+  | Menu (settings, controls, Studio's options) | hold left ≡, wrist | F2 |
   | **Edit mode:** | | |
   | Select what you point at | right trigger | left click |
   | Grab and move (hold) | right grip | left drag |
@@ -103,11 +104,11 @@ Studio opens a script and lets you change it from inside the headset, on the pla
   | Show / fold the timeline | wrist, or — on it | T |
   | Show / fold the asset shelf | wrist, or — on it | B |
   | Show / hide the keyboard shortcuts (the table under the desktop status) | | H |
-  | Record / stop | wrist *● Rec* | Shift+R |
+  | Record / stop | wrist *Record* | Shift+R |
   | Drop the take being recorded | | Esc |
   | Key the viewer here (the ride glides here) | wrist *Key viewer* | V |
   | Cut the viewer to here | wrist *Cut here* | Shift+V |
-  | Arm / disarm recording the ride | wrist *● Arm ride* | Ctrl+Shift+V |
+  | Arm / disarm recording the ride | wrist *Arm ride* | Ctrl+Shift+V |
   | Miniature: the whole scene from above / back | wrist *Miniature* | M |
   | Drop a carried shelf card | let go of the trigger (or pull it again) | let go of the mouse (or click) |
   | Put a carried card back | | Esc |

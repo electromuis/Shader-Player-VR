@@ -76,9 +76,9 @@ const STEP_SECONDS := 1.0
 const SEEK_SECONDS := 10.0
 const WRIST_SCENE := preload("res://studio/ui/wrist_palette.tscn")
 ## The wrist palette's size in metres and pixels (bigger than the player's
-## wrist HUD: it has buttons).
-const WRIST_SIZE := Vector2(0.26, 0.365)
-const WRIST_PIXELS := Vector2(780, 1095)
+## wrist HUD: it has two pages of tiles), 3000 pixels a metre.
+const WRIST_SIZE := Vector2(0.3, 0.35)
+const WRIST_PIXELS := Vector2(900, 1050)
 ## A cut made with Cut here fades this long.
 const CUT_FADE := 0.5
 ## Push / pull speed with the right stick while grabbing (m/s at full push).
@@ -184,6 +184,8 @@ var _take_felt := false
 ## Autosave (StudioSafety): time since the last one, and what it wrote.
 var _autosave_clock := 0.0
 var _autosaved_text := ""
+## When the last autosave was written (ticks in ms), -1 = none since.
+var _autosaved_at := -1
 ## Whether the shelf shows (in Edit).
 var shelf_on := false
 var shelf_panel: XRToolsViewport2DIn3D
@@ -365,10 +367,12 @@ func autosave_now() -> void:
 	if not model.is_dirty():
 		StudioSafety.clear_autosave(model.path)
 		_autosaved_text = ""
+		_autosaved_at = -1
 		return
 	var text := model.to_text()
 	if text != _autosaved_text and StudioSafety.autosave(model):
 		_autosaved_text = text
+		_autosaved_at = Time.get_ticks_msec()
 
 
 func _notification(what: int) -> void:
@@ -414,6 +418,7 @@ func open_piece(path: String) -> bool:
 		return false
 	autosave_now()  # the piece being left
 	_autosaved_text = ""
+	_autosaved_at = -1
 	_autosave_clock = 0.0
 	_drop_held()
 	recorder.cancel()
@@ -501,6 +506,7 @@ func save() -> bool:
 	if r.ok:
 		StudioSafety.clear_autosave(model.path)
 		_autosaved_text = ""
+		_autosaved_at = -1
 	_say("Saved %s." % model.path.get_file() if r.ok else String(r.error))
 	return r.ok
 
@@ -1539,11 +1545,24 @@ func _show_status() -> void:
 		_wrist = stage.xr_rig.wrist_content() as StudioWristPalette
 		if _wrist != null:
 			_wrist.action.connect(_on_command)
-			if _wrist.status != null:
-				_wrist.status.show_fps(_settings.show_fps)
-	if _wrist != null and stage.xr_rig.wrist_panel.visible and _wrist.status != null:
-		_wrist.status.callv("show_state", args)
+			_wrist.show_fps(_settings.show_fps)
+	if _wrist != null and stage.xr_rig.wrist_panel.visible:
+		_wrist.show_state(_wrist_state(args))
 		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer, miniature_on)
+
+
+## The wrist palette's state: the status's, plus the bar and the autosave.
+func _wrist_state(args: Array) -> Dictionary:
+	var grid: BeatGrid = stage.beats.grid if stage.beats != null else null
+	var on_grid := grid != null and grid.is_valid() and grid.beat_at(runner.playhead) >= 0.0
+	return {
+		"mode": args[0], "title": args[1], "dirty": args[2], "t": args[3], "duration": args[4],
+		"playing": args[5], "message": args[6], "auto_key": args[7], "snap": args[8],
+		"recording": args[9], "ride_armed": args[10], "key_animated": args[11],
+		"bar": grid.bar_at(runner.playhead) if on_grid else null,
+		"beats_per_bar": grid.beats_per_bar if on_grid else 4,
+		"autosaved": (Time.get_ticks_msec() - _autosaved_at) / 1000.0 if _autosaved_at >= 0 and studio_settings.autosave else -1.0,
+	}
 
 
 ## The status's record chip: "" when not recording.
@@ -1707,8 +1726,8 @@ func _size_window() -> void:
 ## The player's settings Studio applies itself (the stage does the rest).
 func _apply_player_settings() -> void:
 	status_view.show_fps(_settings.show_fps)
-	if _wrist != null and is_instance_valid(_wrist) and _wrist.status != null:
-		_wrist.status.show_fps(_settings.show_fps)
+	if _wrist != null and is_instance_valid(_wrist):
+		_wrist.show_fps(_settings.show_fps)
 	if DisplayServer.get_name() == "headless" or stage.xr_mode.is_in_vr():
 		return
 	var mode_now := DisplayServer.window_get_mode()

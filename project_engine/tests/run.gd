@@ -7,10 +7,33 @@ extends SceneTree
 const TESTS_DIR := "res://tests"
 
 
+## Collects GDScript runtime errors. A script error aborts the test function
+## without failing any assertion, so the runner checks this after each test.
+class ScriptErrorLogger extends Logger:
+	var _mutex := Mutex.new()
+	var _errors: Array = []
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String, _editor_notify: bool, error_type: int, _script_backtraces: Array[ScriptBacktrace]) -> void:
+		if error_type != ERROR_TYPE_SCRIPT:
+			return
+		_mutex.lock()
+		_errors.append("script error: %s (%s:%d, %s)" % [rationale if rationale != "" else code, file, line, function])
+		_mutex.unlock()
+
+	func take() -> Array:
+		_mutex.lock()
+		var out := _errors
+		_errors = []
+		_mutex.unlock()
+		return out
+
+
 func _init() -> void:
 	var total := 0
 	var passed := 0
 	var failed_names: Array = []
+	var script_errors := ScriptErrorLogger.new()
+	OS.add_logger(script_errors)
 	for suite_path in _discover_suites():
 		var script: Script = load(suite_path)
 		if script == null:
@@ -24,11 +47,10 @@ func _init() -> void:
 			total += 1
 			var tc := TestCase.new()
 			tc.begin(name)
-			var ok := true
-			var err = null
+			script_errors.take()
 			# Static method call via reflection.
 			script.call(name, tc)
-			var failures := tc.failures()
+			var failures := tc.failures() + script_errors.take()
 			if failures.is_empty():
 				passed += 1
 				print("  PASS %s" % name)
@@ -37,6 +59,7 @@ func _init() -> void:
 				print("  FAIL %s" % name)
 				for f in failures:
 					print("     %s" % f)
+	OS.remove_logger(script_errors)
 	print("")
 	print("Ran %d tests: %d passed, %d failed" % [total, passed, total - passed])
 	if failed_names.size() > 0:

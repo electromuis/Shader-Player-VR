@@ -10,7 +10,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 4. Delete the unused placeholder plugin `project_engine/addons/vj_editor/` (not enabled; a "Phase 6" stub).
 - [ ] 5. Decide which README the CI packages ship: they copy the developer `README.md`, while `build_release.bat` ships the end-user `release/README.md`.
 - [ ] 6. Try Studio as a full exported Windows build (so far only checked with `--export-pack`).
-- [ ] 7. Make `tests/run.gd` count a test that hits a script error as failed (now it stops there but counts as passed).
+- [x] 7. Make `tests/run.gd` count a test that hits a script error as failed (now it stops there but counts as passed). Done 2026-09-29: the runner registers a `Logger` (`OS.add_logger`) and fails a test during which a GDScript runtime error was logged; all 320 tests still pass.
 
 ## Studio
 

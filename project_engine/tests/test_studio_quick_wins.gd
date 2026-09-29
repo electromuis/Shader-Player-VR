@@ -73,8 +73,8 @@ static func test_keys_on_change_animated_in_the_inspector(tc: TestCase) -> void:
 	# A still field is just set.
 	var scale := _field(s, "render_scale")
 	tc.assert_eq(e.commit("scr", scale, 0.5, 8.0, false, true), "Set scr render scale")
-	# Off, between keys: the keys move by the difference, as before.
-	tc.assert_eq(e.commit("scr", opacity, 0.1, 7.0, false, false), "Move scr opacity's keys")
+	# Off, between keys: held unkeyed, nothing written.
+	tc.assert_has(e.commit("scr", opacity, 0.1, 7.0, false, false), "Not keyed")
 	# Off, on a key (within KEY_NEAR): that key changes, the others stay.
 	tc.assert_eq(e.commit("scr", opacity, 0.9, 8.02, false, false), "Key scr opacity at 0:08.00")
 	kfs = e.model.tracks()[e.track_of("scr", opacity)].keyframes

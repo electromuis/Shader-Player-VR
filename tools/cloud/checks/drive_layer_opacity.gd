@@ -118,9 +118,7 @@ func _initialize() -> void:
 	studio.stage.seek_to(8.0)
 	await frames(4)
 	await drag("opacity", 0.3)
-	print("drag 0.3 at 8 s, off any key: '", studio.message, "'")
-	await key(KEY_Z, true)
-	print("undo: '", studio.message, "'")
+	print("drag 0.3 at 8 s, off any key (held unkeyed, TODO 61): '", studio.message, "'")
 	for t in studio.model.tracks():
 		if t.get("type") == "shader_param":
 			print("track ", t.target, ":", t.param, " ", t.keyframes.map(func(k): return [k.t, k.value]))

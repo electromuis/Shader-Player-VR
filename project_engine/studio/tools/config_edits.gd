@@ -23,10 +23,11 @@ extends RefCounted
 ##   auto-key on  — a key at the playhead on the field's track (made if
 ##                  needed); a key within KEY_NEAR of the playhead is that key
 ##   auto-key off — the spawn config (every spawn with the same value); if
-##                  the field is animated, its whole track scales by the
-##                  change instead (where the value is 0, it shifts), so the
-##                  curve keeps its shape and a fade from 0 still starts at
-##                  0 (as a grab does with a path). A switch keys.
+##                  the field is animated, a key at the playhead is edited,
+##                  and between keys the change is held unkeyed: shown, not
+##                  written, until the diamond (or A) keys it (key_unkeyed)
+##                  or the playhead moves on (drop_unkeyed). Keys on change
+##                  "Animated" keys it straight away. A switch keys.
 ##   A field with no place in the config (a custom prefab's own material)
 ##   keys either way: a single key is a still value. A choice or an image
 ##   keys with step keys (it can't be in between), and a picked image
@@ -49,6 +50,9 @@ var library: StudioAssetLibrary
 ## While a take runs, armed fields go to it instead of being written.
 ## Optional.
 var recorder: StudioRecorder
+## Changes to animated fields held unkeyed (see the top): "<id>.<slot>:<param>"
+## -> {id, field, value (as JSON has it), t}. The runner holds them on show.
+var unkeyed: Dictionary = {}
 
 
 # ---------- what an object has ----------
@@ -391,6 +395,9 @@ func track_of(id: String, field: Dictionary) -> int:
 ## The field's value at `t` as JSON has it: its track's there, else the
 ## config's, else the shader's default.
 func value_of(id: String, field: Dictionary, t: float):
+	var u: Dictionary = unkeyed.get(_hold_key(id, field), {})
+	if not u.is_empty() and absf(float(u.t) - t) < UNKEYED_NEAR:
+		return u.value
 	var ti := track_of(id, field)
 	if ti >= 0:
 		var v = Interpolation.evaluate(model.tracks()[ti].get("keyframes", []), t)
@@ -442,11 +449,14 @@ static func _typed(field: Dictionary, v):
 	return v
 
 
-## "key" (a key at the playhead), "animated", "static", or "none" (it
-## can't be keyed): what the diamond shows.
+## "key" (a key at the playhead), "unkeyed" (changed here, not keyed yet),
+## "animated", "static", or "none" (it can't be keyed): what the diamond
+## shows.
 func key_state(id: String, field: Dictionary, t: float) -> String:
 	if String(field.slot) == "":
 		return "none"
+	if unkeyed.has(_hold_key(id, field)):
+		return "unkeyed"
 	var ti := track_of(id, field)
 	if ti < 0:
 		return "static"
@@ -480,7 +490,7 @@ func _key_time(ti: int, t: float) -> float:
 func preview(id: String, field: Dictionary, value) -> void:
 	if runner == null or String(field.slot) == "":
 		return
-	runner.held_params["%s.%s:%s" % [id, field.slot, field.param]] = true
+	runner.held_params[_hold_key(id, field)] = true
 	runner.preview_param(id, field.slot, field.param, _as_value(field, value))
 	if recorder != null:
 		recorder.touch_param(id, field, _typed(field, _as_json(value)))
@@ -491,7 +501,9 @@ func preview(id: String, field: Dictionary, value) -> void:
 func end_preview(id: String, field: Dictionary, restore: bool = false) -> void:
 	if runner == null or (recorder != null and recorder.owns_param(id, field)):
 		return  # the take holds it until it ends
-	runner.held_params.erase("%s.%s:%s" % [id, field.slot, field.param])
+	if unkeyed.has(_hold_key(id, field)):
+		return  # held on show until it's keyed or dropped
+	runner.held_params.erase(_hold_key(id, field))
 	if restore:
 		runner.apply_edit(model.timeline(), false)
 
@@ -524,10 +536,11 @@ func commit(id: String, field: Dictionary, value, t: float, auto_key: bool, key_
 		label = "Key %s at %s" % [what, StudioStatus.timecode(at)]
 		var interp := _key_interp(field)
 		done = model.batch(label, func(): model.set_key(ScriptFormat.TRACK_SHADER_PARAM, target, field.param, at, value, interp))
+		_release_unkeyed(_hold_key(id, field))
 	elif ti >= 0:
-		var now = value_of(id, field, t)
-		label = "Move %s's keys" % what
-		done = model.set_keyframes(ti, _shifted(model.tracks()[ti].get("keyframes", []), now, value), label)
+		_hold_unkeyed(id, field, value, t)
+		return "Not keyed: %s %s at %s. ◆ or Key it (A, I) keys it; moving the playhead drops it" % [
+				what, _shown(value), StudioStatus.timecode(t)]
 	else:
 		label = "Set %s" % what
 		done = _set_config(id, field.config, value, label)
@@ -550,17 +563,113 @@ func toggle_key(id: String, field: Dictionary, t: float) -> String:
 	if String(field.slot) == "":
 		return ""
 	var ti := track_of(id, field)
-	if ti >= 0:
+	if ti >= 0 and not unkeyed.has(_hold_key(id, field)):
 		var k := key_near(model.tracks()[ti].get("keyframes", []), t)
 		if k >= 0:
 			var kt := float(model.tracks()[ti].keyframes[k].get("t", t))
 			var label := "Delete %s %s key at %s" % [EditModel.who(id), String(field.label).to_lower(), StudioStatus.timecode(kt)]
 			return label if model.batch(label, func(): model.delete_key(ti, k)) else ""
 	var value = value_of(id, field, t)
+	_release_unkeyed(_hold_key(id, field))
 	var label := "Key %s %s at %s" % [EditModel.who(id), String(field.label).to_lower(), StudioStatus.timecode(t)]
 	var interp := _key_interp(field)
 	return label if model.batch(label, func():
 		model.set_key(ScriptFormat.TRACK_SHADER_PARAM, "%s.%s" % [id, field.slot], field.param, t, value, interp)) else ""
+
+
+# ---------- unkeyed changes ----------
+
+## An unkeyed change counts at the time it was made, give or take this
+## (a frame's rounding); anywhere else it's dropped.
+const UNKEYED_NEAR := 0.001
+
+
+static func _hold_key(id: String, field: Dictionary) -> String:
+	return "%s.%s:%s" % [id, field.slot, field.param]
+
+
+## Hold `value` (as JSON has it) on show for the field at `t`, unkeyed.
+func _hold_unkeyed(id: String, field: Dictionary, value, t: float) -> void:
+	var hk := _hold_key(id, field)
+	unkeyed[hk] = {"id": id, "field": field, "value": value, "t": t}
+	if runner != null:
+		runner.held_params[hk] = true
+		runner.preview_param(id, field.slot, field.param, _as_value(field, value))
+
+
+## Forget one unkeyed change (it was keyed); the runner applies its track
+## again from the next edit on.
+func _release_unkeyed(hk: String) -> void:
+	if unkeyed.erase(hk) and runner != null:
+		runner.held_params.erase(hk)
+
+
+## Key `id`'s unkeyed changes ("" for everyone's) where they were made,
+## part of the caller's batch if there is one. Returns how many.
+func key_unkeyed(id: String = "") -> int:
+	var n := 0
+	for hk in unkeyed.keys():
+		var u: Dictionary = unkeyed[hk]
+		if id != "" and u.id != id:
+			continue
+		var field: Dictionary = u.field
+		model.set_key(ScriptFormat.TRACK_SHADER_PARAM, "%s.%s" % [u.id, field.slot], field.param,
+				_key_time(track_of(u.id, field), float(u.t)), u.value, _key_interp(field))
+		_release_unkeyed(hk)
+		n += 1
+	return n
+
+
+## Drop every unkeyed change: the runner shows the piece's values again.
+## Returns what was dropped ("scr opacity, box glow"), "" if nothing.
+func drop_unkeyed() -> String:
+	if unkeyed.is_empty():
+		return ""
+	var names: Array = []
+	for hk in unkeyed.keys():
+		var u: Dictionary = unkeyed[hk]
+		names.append("%s %s" % [EditModel.who(u.id), String(u.field.label).to_lower()])
+		if runner != null:
+			runner.held_params.erase(hk)
+	unkeyed.clear()
+	if runner != null and model != null:
+		runner.apply_edit(model.timeline(), false)
+	return ", ".join(names)
+
+
+## Let the runner apply the unkeyed fields' tracks again (before it applies
+## an edit; show_unkeyed afterwards puts the unkeyed values back on top).
+func unhold_unkeyed() -> void:
+	if runner == null:
+		return
+	for hk in unkeyed.keys():
+		runner.held_params.erase(hk)
+
+
+## Show the unkeyed changes again (after an edit respawned what they're on).
+func show_unkeyed() -> void:
+	if runner == null:
+		return
+	for hk in unkeyed.keys():
+		var u: Dictionary = unkeyed[hk]
+		runner.held_params[hk] = true
+		runner.preview_param(u.id, u.field.slot, u.field.param, _as_value(u.field, u.value))
+
+
+## The unkeyed changes' time, or -1 if there are none.
+func unkeyed_time() -> float:
+	for u in unkeyed.values():
+		return float(u.t)
+	return -1.0
+
+
+## A value for the status line: numbers with two decimals.
+static func _shown(value) -> String:
+	if typeof(value) == TYPE_FLOAT:
+		return "%.2f" % value
+	if typeof(value) == TYPE_ARRAY:
+		return "(%s)" % ", ".join(value.map(func(v): return "%.2f" % v if typeof(v) == TYPE_FLOAT else str(v)))
+	return str(value)
 
 
 ## A new key's interp: "step" for what can't be in between (a choice, an
@@ -590,38 +699,6 @@ func toggle_transform_key(id: String, channel: String, t: float, now: Dictionary
 	var label := "Key %s %s at %s" % [id, channel, StudioStatus.timecode(t)]
 	return label if model.batch(label, func():
 		model.set_key(ScriptFormat.TRACK_TRANSFORM, id, channel, t, now[channel])) else ""
-
-
-## Keys moved as a whole so the value at the playhead goes from `from` to
-## `to`: scaled by to / from (so a fade from 0 still starts at 0 and the
-## curve keeps its shape; bezier handles scale with it), or, where `from`
-## is 0, shifted by the difference. Arrays (a colour, a vector) per element.
-static func _shifted(kfs: Array, from, to) -> Array:
-	var out: Array = kfs.duplicate(true)
-	var arrays := typeof(from) == TYPE_ARRAY and typeof(to) == TYPE_ARRAY
-	var n: int = mini(from.size(), to.size()) if arrays else 1
-	var moves: Array = []  # per element: [ratio, add]
-	for c in n:
-		var a := float(from[c]) if arrays else float(from)
-		var b := float(to[c]) if arrays else float(to)
-		moves.append([b / a, 0.0] if absf(a) > 1e-6 else [1.0, b - a])
-	for kf in out:
-		var v = kf.get("value")
-		if arrays and typeof(v) == TYPE_ARRAY:
-			var nv: Array = []
-			for c in v.size():
-				nv.append(float(v[c]) * moves[c][0] + moves[c][1] if c < n else float(v[c]))
-			kf["value"] = nv
-			for h in ["in", "out"]:
-				if typeof(kf.get(h)) == TYPE_ARRAY and kf[h].size() == v.size():
-					for c in mini(n, v.size()):
-						kf[h][c][1] = float(kf[h][c][1]) * moves[c][0]
-		elif not arrays and typeof(v) in [TYPE_FLOAT, TYPE_INT]:
-			kf["value"] = float(v) * moves[0][0] + moves[0][1]
-			for h in ["in", "out"]:
-				if typeof(kf.get(h)) == TYPE_ARRAY and kf[h].size() == 2:
-					kf[h][1] = float(kf[h][1]) * moves[0][0]
-	return out
 
 
 ## A control's value as JSON holds it (a Color becomes [r, g, b(, a)]).

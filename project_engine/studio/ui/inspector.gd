@@ -28,6 +28,8 @@ signal action(id: StringName)
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
 const DIM := Color(0.72, 0.75, 0.8)
+## A diamond for a change made here but not keyed yet.
+const UNKEYED := Color(1.0, 0.65, 0.2)
 const PANEL_BG := Color(0.06, 0.06, 0.09, 0.92)
 const ROW_BG := Color(0.11, 0.13, 0.18)
 ## A change made without a drag (a click, the colour wheel) is written once
@@ -1077,7 +1079,13 @@ func _toggle_transform_key(channel: String) -> void:
 	if node == null:
 		return
 	_commit_all()
-	var label := edits.toggle_transform_key(_id, channel, _playhead(), GrabMath.to_dict(node.transform))
+	var label: String
+	if tools.is_unkeyed(_id, channel):
+		label = "Key %s %s at %s" % [_id, channel, StudioStatus.timecode(_playhead())]
+		if not edits.model.batch(label, func(): tools.key_unkeyed(_id, channel)):
+			label = ""
+	else:
+		label = edits.toggle_transform_key(_id, channel, _playhead(), GrabMath.to_dict(node.transform))
 	if label != "":
 		said.emit(label + ".")
 
@@ -1114,10 +1122,15 @@ func _refresh_values() -> void:
 	elif tools.key_animated:
 		_hint.text = "Keys on change: animated settings key at %s; still ones are set." % StudioStatus.timecode(t)
 		_hint.add_theme_color_override("font_color", DIM)
+	# While something here is changed but not keyed, the legend says what
+	# the orange diamond is.
+	var unkeyed: bool = tools.unkeyed.has(_id) or edits.unkeyed.values().any(func(u): return u.id == _id)
+	_legend.text = "◆ not keyed yet" if unkeyed else "◆ key here  ◇ animated"
+	_legend.add_theme_color_override("font_color", UNKEYED if unkeyed else DIM)
 	var node := _node()
 	for tr in _t_rows:
 		var ch: String = tr.channel
-		_show_diamond(tr.diamond, edits.transform_state(_id, ch, t))
+		_show_diamond(tr.diamond, "unkeyed" if tools.is_unkeyed(_id, ch) else edits.transform_state(_id, ch, t))
 		if node != null and not _t_pending.has(ch):
 			_show_transform(GrabMath.to_dict(node.transform)[ch], ch)
 	for r in _rows:
@@ -1253,12 +1266,16 @@ func _show_diamond(b: Button, state: String) -> void:
 		"animated":
 			b.text = "◇"
 			b.add_theme_color_override("font_color", RECORD)
+		"unkeyed":
+			b.text = "◆"
+			b.add_theme_color_override("font_color", UNKEYED)
 		"static":
 			b.text = "•"
 			b.add_theme_color_override("font_color", DIM)
 		_:
 			b.text = ""
 	b.tooltip_text = {"key": "A key here: tap to remove it", "animated": "Animated: tap to key it here",
+			"unkeyed": "Changed here, not keyed yet: tap to key it (moving the playhead drops it)",
 			"static": "Tap to key it here", "none": ""}.get(state, "")
 
 

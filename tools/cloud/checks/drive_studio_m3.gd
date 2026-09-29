@@ -2,7 +2,7 @@ extends SceneTree
 
 ## Studio M3 end to end, on a copy of forest_tunnel: select the main screen
 ## and retune its glow in the inspector (a still value into the config, an
-## animated one moved as a whole, a key with auto-key on, a diamond tap, the
+## animated one held unkeyed and then keyed with its diamond, a key with auto-key on, a diamond tap, the
 ## tint on the colour wheel), add an effect and move it up, switch one off
 ## and on (its keys go with it), undo / redo, then save and play the result
 ## in the player. The inspector's own controls are driven (their signals,
@@ -182,11 +182,16 @@ func _initialize() -> void:
 			" (under it: ", reg.get_node_by_id("backdrop").get_parent() == now_screen if reg.has_id("backdrop") else false, ")")
 	print("the screen shows radius ", now_screen._effect_params[1].get("radius") if now_screen is Screen else "?")
 
-	# Animated, auto-key off: the whole intensity track moves.
+	# Animated, auto-key off, between keys: held unkeyed (the keys stay),
+	# then its diamond keys it (TODO 61; it used to move the whole track).
 	print("intensity keys before: ", track_keys("main_screen.effect1", "intensity"), " value at 20 s ", row("effect1/intensity").value.text)
 	var at20: float = studio.edits.value_of("main_screen", row("effect1/intensity").field, 20.0)
 	await drag("effect1/intensity", at20 + 0.4)
-	print("intensity +0.4: '", studio.message, "' keys ", track_keys("main_screen.effect1", "intensity"))
+	print("intensity +0.4: '", studio.message, "' keys ", track_keys("main_screen.effect1", "intensity"),
+			", diamond '", row("effect1/intensity").diamond.text, "' ", studio.edits.key_state("main_screen", row("effect1/intensity").field, studio.runner.playhead))
+	row("effect1/intensity").diamond.pressed.emit()
+	await frames(8)
+	print("its diamond: '", studio.message, "' keys ", track_keys("main_screen.effect1", "intensity"))
 
 	# Auto-key on: a key at the playhead.
 	await key(KEY_I, false, true)

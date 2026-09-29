@@ -331,6 +331,21 @@ func _process(delta: float) -> void:
 	_loop_playback()
 	_autosave_tick(delta)
 	_update_hover(delta)
+	_drop_unkeyed_if_moved()
+
+
+## Unkeyed changes (EditTools / ConfigEdits `unkeyed`) belong to the time
+## they were made at: once the playhead leaves it (a seek, playing, a step
+## to a key), they're dropped and the piece's values show again.
+func _drop_unkeyed_if_moved(always: bool = false) -> void:
+	if tools == null or edits == null:
+		return
+	var t := maxf(tools.unkeyed_time(), edits.unkeyed_time())
+	if t < 0.0 or (not always and absf(runner.playhead - t) < StudioConfigEdits.UNKEYED_NEAR):
+		return
+	var dropped: Array = [tools.drop_unkeyed(), edits.drop_unkeyed()].filter(func(s): return s != "")
+	if not dropped.is_empty():
+		_say("Not keyed, dropped: %s." % ", ".join(dropped))
 
 
 ## What the pointer would pick (the mouse, or the main hand's laser when
@@ -431,6 +446,7 @@ func open_piece(path: String) -> bool:
 		_say("Can't open %s: %s" % [path.get_file(), r.error])
 		return false
 	autosave_now()  # the piece being left
+	_drop_unkeyed_if_moved(true)
 	_autosaved_text = ""
 	_autosaved_at = -1
 	_autosave_clock = 0.0
@@ -500,6 +516,7 @@ func _apply_mode() -> void:
 				_stop_take()
 			tools.cancel()
 			_drop_held()
+			_drop_unkeyed_if_moved(true)
 		tools.visible = editing
 		_show_floor_grid()
 		flight.enabled = editing and stage.xr_mode.is_in_vr()
@@ -543,7 +560,12 @@ func _on_model_changed(structural: bool) -> void:
 	message = model.undo_label()  # undo / redo say their own afterwards
 	var data := model.timeline()
 	if data != null:
+		# Unkeyed changes stay on show over the edit (a respawn included).
+		tools.unhold_unkeyed()
+		edits.unhold_unkeyed()
 		runner.apply_edit(data, structural)
+		tools.show_unkeyed()
+		edits.show_unkeyed()
 	for view in _inspectors():
 		view.request_rebuild()
 	for view in _ribbons():
@@ -613,7 +635,7 @@ func _on_command(id: StringName) -> void:
 			if model != null and tools.selected == ScriptFormat.VIEWER:
 				key_viewer(false)
 			elif model != null:
-				if tools.key_selection() == "":
+				if tools.key_selection(func(id): edits.key_unkeyed(id)) == "":
 					_say("Select something first (right trigger, or click it).")
 		&"studio_toggle_autokey":
 			tools.auto_key = not tools.auto_key

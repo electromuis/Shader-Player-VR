@@ -434,6 +434,8 @@ static func _add_vertex_effect(ctx: _Ctx, node: Node3D, v, id: String) -> void:
 	effect.name = key
 	effect.effect = path
 	effect.enabled = v.get("enabled", true) != false
+	if typeof(v.get("mix")) in [TYPE_INT, TYPE_FLOAT]:
+		effect.mix = clampf(float(v.mix), 0.0, 1.0)
 	var params = v.get("params", {})
 	if typeof(params) == TYPE_DICTIONARY:
 		for k in params:
@@ -463,6 +465,10 @@ static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> bool:
 	_set_params(mat, e.get("params", {}))
 	effect.material = mat
 	effect.enabled = e.get("enabled", true) != false
+	if typeof(e.get("mix")) in [TYPE_INT, TYPE_FLOAT]:
+		effect.mix = clampf(float(e.mix), 0.0, 1.0)
+	if typeof(e.get("blend")) == TYPE_STRING:
+		effect.blend = e.blend
 	if typeof(e.get("tracks")) == TYPE_ARRAY and not e["tracks"].is_empty():
 		ctx.warn("'%s': the switched-off %s effect's kept animation is dropped (switch it on in Studio first to keep it)" % [node.name, key])
 	node.add_child(effect)
@@ -616,6 +622,10 @@ static func _build_track(ctx: _Ctx, t: Dictionary) -> void:
 		path = resolved[0]
 		prop = resolved[1]
 		template = resolved[2]
+		if prop == "on":
+			kfs = _switch_keys(ctx, kfs, path, target)
+		elif prop == "blend":
+			kfs = kfs.map(func(kf): return {"t": kf.get("t", 0.0), "value": kf.get("value"), "interp": "step"})
 	if prop.is_empty():
 		ctx.warn("track for '%s' names no property; dropped" % target)
 		return
@@ -649,6 +659,8 @@ static func _param_path(ctx: _Ctx, node: Node3D, slot: String, param: String, ta
 				var vertex: Array = node.call("vertex_effect_nodes")
 				var n := slot.substr(6).to_int()
 				if n < vertex.size():
+					if param in ["mix", "enabled"]:
+						return ["%s/%s" % [path, vertex[n].name], "on" if param == "enabled" else "mix", true if param == "enabled" else 1.0]
 					return ["%s/%s" % [path, vertex[n].name], "params/" + param, vertex[n].get("params/" + param)]
 			elif slot.begins_with("effect") and slot.substr(6).is_valid_int():
 				var effects: Array = node.call("effect_nodes") if node.has_method("effect_nodes") else []
@@ -660,6 +672,10 @@ static func _param_path(ctx: _Ctx, node: Node3D, slot: String, param: String, ta
 						return []  # its effect wasn't imported (Padding; warned)
 				if n >= 0 and n < effects.size():
 					var effect: Node = effects[n]
+					match param:
+						"enabled": return ["%s/%s" % [path, effect.name], "on", true]
+						"mix": return ["%s/%s" % [path, effect.name], "mix", 1.0]
+						"blend": return ["%s/%s" % [path, effect.name], "blend", "normal"]
 					return ["%s/%s" % [path, effect.name], "material:shader_parameter/" + param,
 							_uniform_default(effect.material.shader, param)]
 			elif is_screen:
@@ -673,6 +689,31 @@ static func _param_path(ctx: _Ctx, node: Node3D, slot: String, param: String, ta
 					return [path, mat_prop + ":shader_parameter/" + param, _uniform_default(mat.shader, param)]
 	ctx.warn("shader_param track '%s' / '%s' has no matching property in the scene; dropped" % [target, param])
 	return []
+
+
+## An on / off track's keys as the effect's `on` keys (held from key to
+## key); the effect node at `path` takes the fade of the first key that has
+## one (the node has one fade for all its keys: others are warned about).
+static func _switch_keys(ctx: _Ctx, kfs: Array, path: String, target: String) -> Array:
+	var out: Array = []
+	var fade := -1.0
+	var warned := false
+	for kf in kfs:
+		var d := 0.0
+		var tr = kf.get("transition")
+		if typeof(tr) == TYPE_DICTIONARY and tr.get("type") == "fade":
+			d = float(tr.get("duration", 0.0))
+		if fade < 0.0:
+			fade = d
+		elif absf(d - fade) > 0.0001 and not warned:
+			warned = true
+			ctx.warn("'%s': on / off keys with different fades all get the first one's (%.2f s)" % [target, fade])
+		var v = kf.get("value", true)
+		out.append({"t": kf.get("t", 0.0), "value": v > 0 if typeof(v) in [TYPE_INT, TYPE_FLOAT] else bool(v), "interp": "step"})
+	var node := ctx.root.get_node_or_null(NodePath(path))
+	if node != null and fade > 0.0:
+		node.set("fade", fade)
+	return out
 
 
 ## Where a custom prefab's shader material is, as the player finds it (the

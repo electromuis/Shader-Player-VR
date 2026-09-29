@@ -21,11 +21,14 @@ var mask_panels: Array[Node3D] = []
 
 var effect := CameraFxEffect.new()
 
+const EffectBlend := preload("res://player/visualizer/effect_blend.gd")
+
 var _key := ""
 var _code := ""
 var _specs: Array = []
 var _params: Dictionary = {}
 var _strength := 0.0
+var _blend := 0
 var _free_time := false
 
 
@@ -39,9 +42,10 @@ func attach(env: WorldEnvironment) -> void:
 	env.compositor = comp
 
 
-## Which effect shows: a CameraFxShaders key ("" = none), its param values
-## and its strength (0..1, before the user's cap).
-func show_effect(key: String, params: Dictionary, strength: float) -> void:
+## Which effect shows: a CameraFxShaders key ("" = none), its param values,
+## its strength (0..1, before the user's cap: how much of it shows) and how
+## it combines with the view (an EffectBlend mode).
+func show_effect(key: String, params: Dictionary, strength: float, blend: String = "normal") -> void:
 	if key != _key:
 		_key = key
 		_code = CameraFxShaders.code_for(key)
@@ -49,6 +53,7 @@ func show_effect(key: String, params: Dictionary, strength: float) -> void:
 		_free_time = VisualizerShaders.is_free_time(_code)
 	_params = params
 	_strength = strength
+	_blend = EffectBlend.index_of(blend)
 
 
 ## The strength actually applied.
@@ -71,6 +76,7 @@ func _process(_delta: float) -> void:
 	effect.code = _code
 	effect.values = CameraFxShaders.param_values(_specs, _params)
 	effect.strength = applied_strength()
+	effect.blend = _blend
 	effect.time = MediaTime.engine_seconds() if _free_time else MediaTime.seconds
 	if audio != null and audio.texture != null:
 		effect.audio = Vector4(audio.level, audio.bass, audio.mid, audio.high)

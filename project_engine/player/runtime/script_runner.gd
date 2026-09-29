@@ -551,11 +551,15 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 			if typeof(e) != TYPE_DICTIONARY or e.get("enabled", true) == false:
 				continue  # switched off: kept for editors, skipped (and not counted in effect<N>)
 			var params = e.get("params", {})
-			list.append({
+			var entry := {
 				"shader": _shader_path(String(e.get("shader", ""))),
 				"params": _param_values(params) if typeof(params) == TYPE_DICTIONARY else {},
 				"enabled": bool(e.get("enabled", true)),
-			})
+			}
+			for k in ["mix", "blend"]:
+				if e.has(k):
+					entry[k] = e[k]
+			list.append(entry)
 		out[list_key] = list
 	var surface = cfg.get("surface")
 	if typeof(surface) == TYPE_DICTIONARY:
@@ -683,11 +687,18 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 	var node := _registry.get_node_by_id(parts[0])
 	if node == null:
 		return
+	_set_slot_param(parts[0], node, parts[1], param, track_value(track, playhead))
+
+
+## A shader_param track's value at `t`: an `enabled` track's switch level
+## (EffectSwitch, 0..1), else the keys interpolated (null without keys).
+static func track_value(track: Dictionary, t: float) -> Variant:
 	var kfs: Array = track.get("keyframes", [])
-	var value = Interpolation.evaluate(kfs, playhead)
-	if value == null:
-		return
-	_set_slot_param(parts[0], node, parts[1], param, value)
+	if kfs.is_empty():
+		return null
+	if String(track.get("param", "")) == EffectSwitch.PARAM:
+		return EffectSwitch.level(kfs, t)
+	return Interpolation.evaluate(kfs, t)
 
 
 ## Show `value` for `param` of `id`'s `slot` now ("display", "effect1",
@@ -718,6 +729,8 @@ static func surface_material(node: Node) -> ShaderMaterial:
 
 
 func _set_slot_param(id: String, node: Node, slot: String, param: String, value: Variant) -> void:
+	if value == null:
+		return
 	value = shader_value(value)
 	if slot == "modifiers":
 		var mods: Dictionary = node.get_meta(_MODS_META, {})
@@ -746,10 +759,10 @@ func _set_slot_param(id: String, node: Node, slot: String, param: String, value:
 		mat.set_shader_parameter(param, ImageLibrary.value(value))
 
 
-## `$camera.effect<N>` tracks: the camera effect's params (and `strength`),
-## read back through camera_effect().
+## `$camera.effect<N>` tracks: the camera effect's params (and `strength`,
+## `blend` and `enabled`), read back through camera_effect().
 func _apply_camera_track(slot: String, track: Dictionary) -> void:
-	var value = Interpolation.evaluate(track.get("keyframes", []), playhead)
+	var value = track_value(track, playhead)
 	if value == null:
 		return
 	if not _camera_params.has(slot):
@@ -757,9 +770,10 @@ func _apply_camera_track(slot: String, track: Dictionary) -> void:
 	_camera_params[slot][String(track.get("param", ""))] = value
 
 
-## The script's camera effect for CameraFx: {key, params, strength} with
-## the tracks' current values applied, or {} if the script has none. Only
-## the first enabled effect runs for now.
+## The script's camera effect for CameraFx: {key, params, strength, blend}
+## with the tracks' current values applied (an `enabled` track's level
+## multiplies the strength), or {} if the script has none. Only the first
+## enabled effect runs for now.
 func camera_effect() -> Dictionary:
 	if timeline == null:
 		return {}
@@ -773,8 +787,12 @@ func camera_effect() -> Dictionary:
 	for k in live:
 		params[k] = live[k]
 	var strength := float(live.get("strength", e.get("strength", 1.0)))
-	params.erase("strength")
-	return {"key": _shader_path(String(e.get("shader", ""))), "params": params, "strength": strength}
+	strength *= float(live.get(EffectSwitch.PARAM, 1.0))
+	var blend := String(live.get("blend", e.get("blend", "normal")))
+	for k in ["strength", "blend", EffectSwitch.PARAM]:
+		params.erase(k)
+	return {"key": _shader_path(String(e.get("shader", ""))), "params": params, "strength": strength,
+			"blend": blend}
 
 
 ## A spawn transform as a node's: rotation, then scale along the object's

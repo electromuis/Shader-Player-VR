@@ -30,6 +30,7 @@ extends RefCounted
 ## under 3 per second.
 
 const MAX_PARAMS := 32
+const EffectBlend := preload("res://player/visualizer/effect_blend.gd")
 const CAMERA_HINT := "@camera"
 const EXTENSIONS := ["glsl", "frag", "txt"]
 
@@ -148,7 +149,7 @@ layout(push_constant, std430) uniform Push {
 	int fx_eye;
 	int mask_count;
 	int mask_offset;
-	int pad;
+	int fx_blend;
 } pc;
 #define iTime pc.time
 #define iResolution vec3(pc.size, 1.0)
@@ -197,7 +198,7 @@ void main() {
 		return;
 	}
 	vec4 base = imageLoad(color_image, px);
-	vec3 fx = camera_fx(uv);
+	vec3 fx = effect_blend(base.rgb, camera_fx(uv), pc.fx_blend);
 	imageStore(color_image, px, vec4(mix(base.rgb, fx, clamp(pc.fx_strength, 0.0, 1.0)), base.a));
 }
 """
@@ -258,9 +259,10 @@ static func params_of(code: String) -> Array:
 
 ## The full compute shader for an effect: the hinted uniforms become reads
 ## from the data buffer (data.v[i], in params_of order), everything else is
-## the effect's own code between the provided head and the pass's main().
+## the effect's own code between the provided head and the pass's main()
+## (which blends the result with the view by the pushed EffectBlend mode).
 static func build_source(code: String) -> String:
-	return _prefix(code) + _body(code) + "\n" + _TAIL
+	return _prefix(code) + _body(code) + "\n" + EffectBlend.FUNCTIONS + _TAIL
 
 
 ## Everything before the effect's own code (its first line is the line

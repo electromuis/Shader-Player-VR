@@ -25,6 +25,7 @@ const INTERP_MODES := ["linear", "cubic", "step", "ease", "bezier"]
 ## "$" are reserved for such things ("$camera" is the camera block's).
 const VIEWER := "$viewer"
 const TRANSITIONS := ["fade_to_black"]
+const EffectBlend := preload("res://player/visualizer/effect_blend.gd")
 
 
 static func load_from_file(path: String) -> Dictionary:
@@ -201,7 +202,29 @@ static func _validate_shader_param_track(t: Dictionary, loc: String, errors: Arr
 		errors.append("%s.target must be a string (e.g. 'main_screen.surface')" % loc)
 	if typeof(t.get("param")) != TYPE_STRING:
 		errors.append("%s.param must be a string" % loc)
+	elif t.param == EffectSwitch.PARAM:
+		_validate_switch_keys(t.get("keyframes"), loc, errors)
 	_validate_keyframes(t.get("keyframes"), loc, -1, errors)
+
+
+## An `enabled` track's keys (EffectSwitch): true / false, each with an
+## optional {"type": "fade", "duration": seconds}.
+static func _validate_switch_keys(kfs, loc: String, errors: Array) -> void:
+	if typeof(kfs) != TYPE_ARRAY:
+		return
+	for i in kfs.size():
+		var kf = kfs[i]
+		if typeof(kf) != TYPE_DICTIONARY:
+			continue
+		var kloc := "%s.keyframes[%d]" % [loc, i]
+		if kf.has("value") and typeof(kf.value) not in [TYPE_BOOL, TYPE_INT, TYPE_FLOAT]:
+			errors.append("%s.value must be true or false" % kloc)
+		if kf.has("transition"):
+			var tr = kf.transition
+			if typeof(tr) != TYPE_DICTIONARY or tr.get("type") != "fade":
+				errors.append("%s.transition must be {\"type\": \"fade\", \"duration\": seconds}" % kloc)
+			elif tr.has("duration") and (typeof(tr.duration) not in [TYPE_INT, TYPE_FLOAT] or float(tr.duration) < 0.0):
+				errors.append("%s.transition.duration must be a number of seconds" % kloc)
 
 
 static func _validate_keyframes(kfs, loc: String, expected_len: int, errors: Array) -> void:
@@ -341,6 +364,11 @@ static func _validate_config(cfg, loc: String, errors: Array) -> void:
 				errors.append("%s.%s[%d].params must be an object" % [loc, list_key, i])
 			elif e.has("enabled") and typeof(e["enabled"]) != TYPE_BOOL:
 				errors.append("%s.%s[%d].enabled must be true or false" % [loc, list_key, i])
+			elif not _valid_mix(e):
+				errors.append("%s.%s[%d].mix must be a number from 0 to 1" % [loc, list_key, i])
+			elif e.has("blend") and (list_key != "effects" or not e["blend"] in EffectBlend.MODES):
+				errors.append("%s.%s[%d].blend must be one of %s%s" % [loc, list_key, i, EffectBlend.MODES,
+						" (effects only; a vertex effect has a mix)" if list_key != "effects" else ""])
 			elif e.has("tracks"):
 				# A switched-off effect's own shader_param tracks, kept for when
 				# it's switched back on (Studio); {param, keyframes} each.
@@ -378,6 +406,15 @@ static func _validate_camera(cam, errors: Array) -> void:
 			errors.append("%s.enabled must be true or false" % loc)
 		if e.has("strength") and typeof(e["strength"]) not in [TYPE_INT, TYPE_FLOAT]:
 			errors.append("%s.strength must be a number" % loc)
+		if e.has("blend") and not e["blend"] in EffectBlend.MODES:
+			errors.append("%s.blend must be one of %s" % [loc, EffectBlend.MODES])
+
+
+## An effect entry's optional mix: a number from 0 to 1.
+static func _valid_mix(e: Dictionary) -> bool:
+	if not e.has("mix"):
+		return true
+	return typeof(e.mix) in [TYPE_INT, TYPE_FLOAT] and float(e.mix) >= 0.0 and float(e.mix) <= 1.0
 
 
 static func _err(msg: String) -> Dictionary:

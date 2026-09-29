@@ -24,7 +24,8 @@ extends PanelContainer
 ##     press beside it to jump there; the wheel over it scrolls in time
 ## The bar above: time, zoom − / + / fit, loop on / off, set in / out at the
 ## playhead, and for a selected key its interpolation (and bezier presets)
-## and delete. *Grid…* opens the beat grid's controls instead: nudge it
+## and delete; an on / off key (an effect's `enabled` track, drawn as a
+## strip where the effect is on) takes a fade instead. *Grid…* opens the beat grid's controls instead: nudge it
 ## earlier / later, tempo − / +, ×2 / ½, tap tempo (tap along while it
 ## plays), and back to the detected grid; they write the piece's
 ## `media.beats`, so the player uses the same grid. While recording, the
@@ -54,6 +55,8 @@ const KEY_MODES := [
 ]
 const INTERPS := [["linear", "Linear"], ["ease", "Ease"], ["cubic", "Cubic"], ["step", "Step"],
 	["ease_in", "Ease in"], ["ease_out", "Ease out"], ["ease_in_out", "In-out"], ["overshoot", "Overshoot"]]
+## An on / off key's fades (seconds), in its bar: [seconds, label].
+const FADES := [[0.0, "Cut"], [0.25, "Fade ¼ s"], [0.5, "Fade ½ s"], [1.0, "Fade 1 s"], [2.0, "Fade 2 s"], [4.0, "Fade 4 s"]]
 
 var vr := false
 var edits: StudioConfigEdits
@@ -78,6 +81,7 @@ var _time: Label
 var _loop_button: Button
 var _key_bar: HBoxContainer
 var _interp_buttons: Dictionary = {}
+var _fade_buttons: Dictionary = {}  # seconds -> Button
 var _grid_button: Button
 var _grid_bar: HBoxContainer
 var _grid_label: Label
@@ -187,6 +191,12 @@ func _ready() -> void:
 		b.toggle_mode = true
 		_key_bar.add_child(b)
 		_interp_buttons[it[0]] = b
+	for f in FADES:
+		var b := _button(f[1], func(): set_key_fade(f[0]))
+		b.toggle_mode = true
+		b.tooltip_text = "How it switches: at once, or fading over that long from the key"
+		_key_bar.add_child(b)
+		_fade_buttons[f[0]] = b
 	_key_bar.add_child(_button("Delete key", func(): _delete_key()))
 	# Keys on change: what a change to something does (StudioEditTools).
 	_mode_bar = HBoxContainer.new()
@@ -259,8 +269,14 @@ func _process(_delta: float) -> void:
 		_mode_buttons[m].set_pressed_no_signal(m == key_mode)
 	if _key_bar.visible:
 		var mode := _mode_of(selected_key.ti, selected_key.ki)
+		var switch := _is_switch(selected_key.ti)
 		for m in _interp_buttons:
+			_interp_buttons[m].visible = not switch
 			_interp_buttons[m].set_pressed_no_signal(m == mode)
+		var fade := EffectSwitch.fade_of(edits.model.tracks()[selected_key.ti].keyframes[selected_key.ki]) if switch else 0.0
+		for f in _fade_buttons:
+			_fade_buttons[f].visible = switch
+			_fade_buttons[f].set_pressed_no_signal(absf(f - fade) < 0.001)
 	_canvas.queue_redraw()
 
 
@@ -387,6 +403,8 @@ func _draw_canvas() -> void:
 				c.draw_string(font, Vector2(18 * _k + lane.depth * 12 * _k, y + _row * 0.75), ("● " if armed else "") + row.label, HORIZONTAL_ALIGNMENT_LEFT,
 						_gutter - 22 * _k, int(_fs * 0.85), RECORD if armed else DIM)
 				c.draw_line(Vector2(_gutter, y + _row * 0.5), Vector2(w, y + _row * 0.5), Color(1, 1, 1, 0.07), 1.0)
+				if row.get("switch", false):
+					_draw_switch(row, y, w)
 				for k in row.keys:
 					var kt: float = k.t
 					var chosen: bool = not selected_key.is_empty() and selected_key.ti == row.ti and selected_key.ki == k.ki
@@ -429,6 +447,21 @@ func _draw_canvas() -> void:
 	if px >= _gutter and px <= w:
 		c.draw_line(Vector2(px, 0), Vector2(px, h), Color.WHITE, maxf(2.0, 1.5 * _k))
 	_draw_bar(font)
+
+
+## An on / off row's strip: as tall as the effect shows (its fades ramp),
+## a column every few pixels.
+func _draw_switch(row: Dictionary, y: float, w: float) -> void:
+	var kfs: Array = edits.model.tracks()[row.ti].get("keyframes", [])
+	var step := maxf(2.0, 2.0 * _k)
+	var x := _gutter
+	var mid := y + _row * 0.5
+	while x < w:
+		var level := EffectSwitch.level(kfs, view.t_of(x - _gutter + step * 0.5))
+		if level > 0.0:
+			var half := _row * 0.3 * level
+			_canvas.draw_rect(Rect2(x, mid - half, minf(step, w - x), half * 2.0), Color(ACCENT, 0.45))
+		x += step
 
 
 ## Where the lanes end: the scroll bar is under them.
@@ -856,6 +889,23 @@ func _set_interp(mode: String) -> void:
 		return
 	if edits.model.set_key_interp(selected_key.ti, selected_key.ki, mode):
 		said.emit(edits.model.undo_label() + ".")
+
+
+## Whether track `ti` is an on / off track (EffectSwitch).
+func _is_switch(ti: int) -> bool:
+	var tracks := edits.model.tracks()
+	return ti < tracks.size() and tracks[ti].get("type") == ScriptFormat.TRACK_SHADER_PARAM \
+			and tracks[ti].get("param") == EffectSwitch.PARAM
+
+
+## The selected on / off key's fade (seconds; 0 switches at once).
+func set_key_fade(seconds: float) -> bool:
+	if selected_key.is_empty() or not _is_switch(selected_key.ti):
+		return false
+	if not edits.model.set_key_fade(selected_key.ti, selected_key.ki, seconds):
+		return false
+	said.emit(edits.model.undo_label() + ".")
+	return true
 
 
 func _delete_key() -> void:

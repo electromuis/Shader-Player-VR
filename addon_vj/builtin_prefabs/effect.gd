@@ -23,10 +23,30 @@ extends Node
 		material = value
 		update_configuration_warnings()
 
-## Off: skipped in the preview and in the player (it exports with
-## `"enabled": false`, so it's kept). Not animatable (the player's effect
-## chain is fixed per spawn).
+## Off: skipped in the preview and in the player for the whole piece (it
+## exports with `"enabled": false`, so it's kept, and doesn't count in the
+## `effect<N>` numbering). Not animatable: animate `on` instead.
 @export var enabled: bool = true
+
+## How much of it shows, 0..1 (the player's effect `mix`; animatable, to
+## fade it in and out).
+@export_range(0.0, 1.0, 0.01) var mix: float = 1.0
+
+## How its picture goes over what it works on (the player's effect
+## `blend`): normal replaces it, the others blend like an image editor's
+## layers. Animatable (it holds from key to key).
+@export_enum("normal", "add", "subtract", "multiply", "screen", "overlay", "difference", "lighten", "darken")
+var blend: String = "normal"
+
+## On at this moment. Animate it to switch the effect on and off over time:
+## it exports as the effect's on / off keys (an `enabled` track), each
+## fading over `fade`. Off with no keys: off from the start. The effect
+## keeps its place in the numbering either way.
+@export var on: bool = true
+
+## Seconds each on / off key fades over (0: it switches at once). The
+## preview switches at once.
+@export_range(0.0, 10.0, 0.05, "or_greater", "suffix:s") var fade: float = 0.0
 
 
 func _notification(what: int) -> void:
@@ -47,3 +67,8 @@ func _get_configuration_warnings() -> PackedStringArray:
 ## Whether this effect takes part (the preview and the export skip it if not).
 func is_active() -> bool:
 	return enabled and material != null and material.shader != null
+
+
+## How much of it shows now: its mix while it's on, else 0.
+func amount() -> float:
+	return clampf(mix, 0.0, 1.0) if on else 0.0

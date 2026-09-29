@@ -913,6 +913,23 @@ func set_key_interp(ti: int, ki: int, mode: String) -> bool:
 	return _do(label, _is_structural_track(track), [_change(["tracks", ti, "keyframes"], kfs)])
 
 
+## An on / off key's fade (an `enabled` track, EffectSwitch): `seconds` > 0
+## gives key `ki` of track `ti` a `{"type": "fade", "duration": seconds}`
+## transition, 0 takes it off (a hard switch).
+func set_key_fade(ti: int, ki: int, seconds: float) -> bool:
+	var kfs = _keyframes(ti)
+	if kfs == null or ki < 0 or ki >= kfs.size():
+		return false
+	kfs = kfs.duplicate(true)
+	var key: Dictionary = kfs[ki]
+	var label := "Fade %s at %s" % ["%s s" % snappedf(seconds, 0.01) if seconds > 0.0 else "off", _time_label(float(key.get("t", 0.0)))]
+	if seconds > 0.0:
+		key["transition"] = {"type": "fade", "duration": seconds}
+	else:
+		key.erase("transition")
+	return _do(label, _is_structural_track(tracks()[ti]), [_change(["tracks", ti, "keyframes"], kfs)])
+
+
 ## Remove key `ki` of track `ti`; the last one takes its track with it.
 func delete_key(ti: int, ki: int) -> bool:
 	var kfs = _keyframes(ti)

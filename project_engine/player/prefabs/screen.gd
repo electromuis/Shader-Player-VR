@@ -15,7 +15,8 @@ extends Node3D
 ##          |
 ##          v  ViewportTexture
 ##   Effect chain (set_effects): one SubViewport pass per effect shader,
-##   each reading the previous output as `input_tex`; for stereo
+##   each reading the previous output as `input_tex` (an effect that mixes
+##   or blends gets an EffectBlend pass after it); for stereo
 ##   projections, one chain per eye. A chain starts with a chain_copy pass
 ##   (the eye, averaged down to the render size)
 ##          |
@@ -63,6 +64,7 @@ extends Node3D
 const _SOURCE_TEX_UNIFORM := "screen_tex"
 const _BASE_RENDER_RES := Vector2i(1920, 1080)
 const _COPY_SHADER := preload("res://player/prefabs/chain_copy.gdshader")
+const EffectBlend := preload("res://player/visualizer/effect_blend.gd")
 const _QUAD_ASPECT := 16.0 / 9.0
 const _MESH_HALF := Vector2(16.0, 9.0)  # the quad mesh's half size (screen.tscn)
 const _FLAT_CULL_MARGIN := 20.0
@@ -93,7 +95,9 @@ var _projection: String = "flat"  # the source layout
 var _swap_eyes: bool = false
 ## {shader, params, placement} (ScreenGeometry.normalized_surface).
 var _surface: Dictionary = ScreenGeometry.default_surface()
-## [{shader, params}] like the effects, run in order before the surface.
+## [{shader, params, mix, level}] like the effects, run in order before the
+## surface (mix: how far each moves the surface, 0..1; level: its
+## EffectSwitch level, multiplying the mix).
 var _vertex_effects: Array[Dictionary] = []
 var _audio: AudioAnalyzer
 var _uses_audio: bool = false  # a vertex effect reads the audio
@@ -104,11 +108,18 @@ var _frame_aspect: float = 0.0
 var _effect_keys: Array[String] = []
 var _effect_shaders: Array[Shader] = []
 var _effect_params: Array[Dictionary] = []
-## Built passes: [{material, viewport, effect, prepass, step, count}] per
-## eye chain (effect _SOURCE_COPY / _MARGIN_COPY: a chain_copy pass starting
-## the chain / adding the margin; prepass: an effect's prepass, just before
-## the effect's own pass; step of count: its place in a multi-pass effect or
-## prepass, -1 of 1 otherwise).
+## Per effect: its mix (0..1) and blend mode (an EffectBlend.MODES index)
+## from the entry or a track, and its switch level (0..1, EffectSwitch: an
+## `enabled` track), which multiplies the mix.
+var _effect_mix: Array[float] = []
+var _effect_blend: Array[int] = []
+var _effect_level: Array[float] = []
+## Built passes: [{material, viewport, effect, prepass, blend, step, count}]
+## per eye chain (effect _SOURCE_COPY / _MARGIN_COPY: a chain_copy pass
+## starting the chain / adding the margin; prepass: an effect's prepass,
+## just before the effect's own pass; blend: the EffectBlend pass after an
+## effect that mixes or blends; step of count: its place in a multi-pass
+## effect or prepass, -1 of 1 otherwise).
 var _passes: Array[Dictionary] = []
 ## _pass_counts() when the passes were built: a params change that alters
 ## it rebuilds them.
@@ -246,18 +257,29 @@ func _apply_render_size() -> void:
 
 
 ## Effect shaders run in order over the output: [{shader: key, params:
-## {uniform: value}, enabled}] (ScreenSettings.effects; one switched off
-## keeps its slot and runs nothing). Changing only params updates the
-## running passes; a different list of shaders rebuilds them.
+## {uniform: value}, enabled, mix, blend}] (ScreenSettings.effects; one
+## switched off keeps its slot and runs nothing; mix and blend: see
+## EffectBlend). Changing only params updates the running passes; a
+## different list of shaders rebuilds them.
 func set_effects(effects: Array) -> void:
 	var keys: Array[String] = []
 	var params: Array[Dictionary] = []
+	var mixes: Array[float] = []
+	var blends: Array[int] = []
 	for e in effects:
 		keys.append(String(e.get("shader", "")) if ScreenSettings.is_enabled(e) else "")
 		var p = e.get("params", {})
 		# Copies: set_effect_param writes into them.
 		params.append(p.duplicate() if typeof(p) == TYPE_DICTIONARY else {})
+		mixes.append(EffectBlend.mix_of(e))
+		blends.append(EffectBlend.index_of(e.get("blend", "normal")))
 	_effect_params = params
+	_effect_mix = mixes
+	_effect_blend = blends
+	if _effect_level.size() != keys.size():
+		_effect_level.clear()
+		for k in keys:
+			_effect_level.append(1.0)
 	if keys == _effect_keys:
 		_params_changed()
 		return
@@ -278,12 +300,48 @@ func reload_shaders() -> void:
 	_wire_source_texture()
 
 
-## One uniform of effect `index` (a `shader_param` track on `<id>.effect<N>`).
+## One uniform of effect `index` (a `shader_param` track on
+## `<id>.effect<N>`), or its `mix`, `blend` or switch level (`enabled`, see
+## EffectSwitch; a bool or 0..1).
 func set_effect_param(index: int, param: String, value: Variant) -> void:
 	if index < 0 or index >= _effect_params.size():
 		return
-	_effect_params[index][param] = value
+	match param:
+		"mix":
+			var m := clampf(float(value), 0.0, 1.0)
+			if m == _effect_mix[index]:
+				return
+			_effect_mix[index] = m
+		"blend":
+			var b := EffectBlend.index_of(value)
+			if b == _effect_blend[index]:
+				return
+			_effect_blend[index] = b
+		EffectSwitch.PARAM:
+			var l := clampf(float(value), 0.0, 1.0)
+			if l == _effect_level[index]:
+				return
+			_effect_level[index] = l
+		_:
+			_effect_params[index][param] = value
 	_params_changed()
+
+
+## How much of effect `index` shows (its mix times its switch level).
+func effect_amount(index: int) -> float:
+	if index < 0 or index >= _effect_mix.size():
+		return 0.0
+	return _effect_mix[index] * _effect_level[index]
+
+
+## Whether effect `index` runs: it has a shader and shows at all.
+func _effect_active(index: int) -> bool:
+	return _effect_shaders[index] != null and effect_amount(index) > 0.0
+
+
+## Whether effect `index` needs a blend pass after it.
+func _effect_blends(index: int) -> bool:
+	return _effect_active(index) and (_effect_blend[index] != 0 or effect_amount(index) < 1.0)
 
 
 ## Source layout: a VideoProjection key (not "auto"). Only its stereo split
@@ -340,7 +398,8 @@ func set_vertex_effects(effects: Array) -> void:
 		var p = e.get("params", {})
 		var key := String(e.get("shader", "")) if ScreenSettings.is_enabled(e) else ""
 		list.append({"shader": ScreenGeometry.resolve_builtin(key),
-				"params": p.duplicate() if typeof(p) == TYPE_DICTIONARY else {}})
+				"params": p.duplicate() if typeof(p) == TYPE_DICTIONARY else {},
+				"mix": EffectBlend.mix_of(e), "level": 1.0})
 	var same := list.size() == _vertex_effects.size()
 	for i in mini(list.size(), _vertex_effects.size()):
 		same = same and list[i].shader == _vertex_effects[i].shader
@@ -352,9 +411,14 @@ func set_vertex_effects(effects: Array) -> void:
 
 
 ## One param of vertex effect `index` (a `shader_param` track on
-## `<id>.vertex<N>`).
+## `<id>.vertex<N>`), or its `mix` or switch level (`enabled`).
 func set_vertex_effect_param(index: int, param: String, value: Variant) -> void:
 	if index < 0 or index >= _vertex_effects.size():
+		return
+	if param == "mix" or param == EffectSwitch.PARAM:
+		_vertex_effects[index]["mix" if param == "mix" else "level"] = clampf(float(value), 0.0, 1.0)
+		_set_display_param(ScreenGeometry.vertex_prefix(index) + "mix",
+				_vertex_effects[index].mix * _vertex_effects[index].level)
 		return
 	_vertex_effects[index].params[param] = value
 	_set_display_param(ScreenGeometry.vertex_prefix(index) + param, value)
@@ -507,7 +571,7 @@ func _build_chains(src: Texture2D) -> void:
 	var active: Array[int] = []
 	_chain_static = true
 	for i in _effect_shaders.size():
-		if _effect_shaders[i] != null:
+		if _effect_active(i):
 			active.append(i)
 			_chain_static = _chain_static and not VisualizerShaders.is_animated(_effect_shaders[i])
 	if active.is_empty() or src == null:
@@ -533,7 +597,13 @@ func _build_chains(src: Texture2D) -> void:
 		for i in active:
 			if i == margin_at:
 				tex = _add_pass(_COPY_SHADER, tex, _MARGIN_COPY)
+			var before := tex
 			tex = _add_pass(_effect_shaders[i], tex, i)
+			if _effect_blends(i):
+				var fx := tex
+				tex = _new_pass(EffectBlend.pass_shader(), before, i, false)
+				_passes[-1].blend = true
+				_passes[-1].material.set_shader_parameter("effect_tex", fx)
 		outs.append(tex)
 	_set_display_param("frame_tex", outs[0])
 	_set_display_param("frame_tex_right", outs[-1])
@@ -587,7 +657,7 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 	vp.add_child(rect)
 	_chain_holder.add_child(vp)
 	_passes.append({"material": mat, "viewport": vp, "effect": effect, "prepass": prepass,
-			"step": -1, "count": 1})
+			"blend": false, "step": -1, "count": 1})
 	return vp.get_texture()
 
 
@@ -600,14 +670,17 @@ func _mark_step(step: int, count: int) -> void:
 	_passes[-1].material.set_shader_parameter("pass_count", count)
 
 
-## [passes, prepass passes] per effect at the current params (see
-## VisualizerShaders.passes_of).
+## [passes, prepass passes, runs, blend pass] per effect at the current
+## params, mix and switch (see VisualizerShaders.passes_of, _effect_active,
+## _effect_blends).
 func _pass_counts() -> Array:
 	var out := []
 	for i in _effect_keys.size():
 		var params: Dictionary = _effect_params[i] if i < _effect_params.size() else {}
+		var shaders_known := i < _effect_shaders.size()
 		out.append([VisualizerShaders.passes_of(_effect_keys[i], params),
-				VisualizerShaders.passes_of(_effect_keys[i], params, true)])
+				VisualizerShaders.passes_of(_effect_keys[i], params, true),
+				shaders_known and _effect_active(i), shaders_known and _effect_blends(i)])
 	return out
 
 
@@ -649,6 +722,11 @@ func _apply_effect_params() -> void:
 			(p.viewport as SubViewport).size = pass_size(px)
 			continue
 		var mat: ShaderMaterial = p.material
+		if p.blend:
+			mat.set_shader_parameter("blend_mode", _effect_blend[i])
+			mat.set_shader_parameter("mix_amount", effect_amount(i))
+			(p.viewport as SubViewport).size = pass_size(px)
+			continue
 		var params: Dictionary = _effect_params[i] if i < _effect_params.size() else {}
 		for k in params:
 			mat.set_shader_parameter(k, ImageLibrary.value(params[k]))
@@ -729,7 +807,7 @@ func _set_passes_update(mode: SubViewport.UpdateMode) -> void:
 ## margin copy goes before; -1 if none does.
 func _margin_index() -> int:
 	for i in _effect_shaders.size():
-		if _effect_shaders[i] != null and VisualizerShaders.has_reach(_effect_keys[i]):
+		if _effect_active(i) and VisualizerShaders.has_reach(_effect_keys[i]):
 			return i
 	return -1
 
@@ -743,7 +821,7 @@ func _margin(base: float) -> Vector2:
 		return Vector2.ZERO
 	var total := Vector2.ZERO
 	for i in range(from, _effect_shaders.size()):
-		if _effect_shaders[i] != null:
+		if _effect_active(i):
 			total += VisualizerShaders.reach_of(_effect_keys[i],
 					_effect_params[i] if i < _effect_params.size() else {}, base)
 	return total
@@ -841,6 +919,8 @@ func _apply_geometry_params() -> void:
 		var vp := ScreenGeometry.full_params(_vertex_effects[i].shader, _vertex_effects[i].params)
 		for k in vp:
 			_display_material.set_shader_parameter(ScreenGeometry.vertex_prefix(i) + k, vp[k])
+		_display_material.set_shader_parameter(ScreenGeometry.vertex_prefix(i) + "mix",
+				_vertex_effects[i].mix * _vertex_effects[i].level)
 	_display_material.set_shader_parameter("placement", _placement())
 	_display_material.set_shader_parameter("viewer_distance", _viewer_distance())
 	_display_material.set_shader_parameter("picture_half", _picture_half())

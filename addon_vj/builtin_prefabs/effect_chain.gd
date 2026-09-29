@@ -18,9 +18,14 @@ extends Node
 ## / `pass_count`, all given the effect's input as `pass_source_tex`) and
 ## `// @prepass_passes` its prepass; both are expressions over the params
 ## (see the player's VisualizerShaders.eval_hint), and a count changing
-## makes is_current() false so the screen rebuilds.
+## makes is_current() false so the screen rebuilds. `mixing` (set by the
+## screen before each call) gives each material's blend mode and how much
+## of it shows (VJEffect's blend, and mix while it's on): one that shows
+## none is skipped, and one that mixes or blends gets an EffectBlend pass
+## after it, as in the player.
 
 const COPY_SHADER := preload("res://addons/vj_editor/builtin_prefabs/chain_copy.gdshader")
+const EffectBlend := preload("res://addons/vj_editor/builtin_prefabs/effect_blend.gd")
 const ROUNDED_CORNERS_FILE := "rounded_corners.gdshader"
 ## Uniforms the chain sets itself; never copied from the authored material.
 const CHAIN_INPUTS := ["input_tex", "display_aspect", "picture_rect", "picture_shape", "prepass_tex", "prepass",
@@ -31,14 +36,19 @@ const EXPRESSION_HINTS := ["reach", "passes", "prepass_passes"]
 
 ## The quad's growth from the margin, as (width, height) factors.
 var pad_scale: Vector2 = Vector2.ONE
+## Per material given to build / is_current / sync: [blend mode (an
+## EffectBlend.MODES index), amount 0..1]; missing ones are [0, 1].
+var mixing: Array = []
 
 static var _hint_re := RegEx.create_from_string("(?m)^\\s*//\\s*@(%s)\\s+(.+?)\\s*$" % "|".join(EXPRESSION_HINTS))
 static var _hint_cache := {}  # shader code -> {hint name: Expression or null, "": input names}
 static var _hint_helpers := _HintHelpers.new()
 
 var _sources: Array[ShaderMaterial] = []
-## {material, viewport, source (null: the margin copy), prepass, step, count}
+## {material, viewport, source (null: the margin copy), prepass, blend
+## (the EffectBlend pass after `source`), step, count}
 var _passes: Array[Dictionary] = []
+var _mix_of: Dictionary = {}  # source material -> [mode, amount] when built
 var _built: Array = []  # [material, shader, pass counts] per material when built, to notice changes
 var _margin_from: int = -1  # the first source with a @reach (-1 = none)
 
@@ -52,10 +62,14 @@ func build(src: Texture2D, materials: Array[ShaderMaterial], px: Vector2i, aspec
 	_passes.clear()
 	_sources.clear()
 	_built.clear()
-	for m in materials:
-		_built.append([m, m.shader if m != null else null, pass_counts(m)])
-		if m != null and m.shader != null:
+	_mix_of.clear()
+	for i in materials.size():
+		var m := materials[i]
+		var mx := _mixing(i)
+		_built.append([m, m.shader if m != null else null, pass_counts(m), _mix_flags(mx)])
+		if m != null and m.shader != null and mx[1] > 0.0:
 			_sources.append(m)
+			_mix_of[m] = mx
 	_margin_from = -1
 	for i in _sources.size():
 		if _expression(_sources[i].shader, "reach") != null:
@@ -67,21 +81,24 @@ func build(src: Texture2D, materials: Array[ShaderMaterial], px: Vector2i, aspec
 		if i == _margin_from:
 			tex = _add_pass(null, tex, false)
 		var counts := pass_counts(m)
+		var before := tex
 		if counts[0] > 1:
 			var input := tex
 			for s in counts[0]:
 				tex = _add_pass(m, tex, false, s, counts[0])
 				_passes[-1].material.set_shader_parameter("pass_source_tex", input)
-			continue
-		var pre: Texture2D = null
-		if m.shader.code.contains("prepass_tex"):
-			pre = _add_pass(m, tex, true, 0, counts[1])
-			for s in range(1, counts[1]):
-				pre = _add_pass(m, pre, true, s, counts[1])
-		var out := _add_pass(m, tex, false)
-		if pre != null:
-			_passes[-1].material.set_shader_parameter("prepass_tex", pre)
-		tex = out
+		else:
+			var pre: Texture2D = null
+			if m.shader.code.contains("prepass_tex"):
+				pre = _add_pass(m, tex, true, 0, counts[1])
+				for s in range(1, counts[1]):
+					pre = _add_pass(m, pre, true, s, counts[1])
+			var out := _add_pass(m, tex, false)
+			if pre != null:
+				_passes[-1].material.set_shader_parameter("prepass_tex", pre)
+			tex = out
+		if _mix_flags(_mix_of[m])[1]:
+			tex = _add_blend_pass(m, before, tex)
 	sync(px, aspect)
 	return tex
 
@@ -108,8 +125,41 @@ func _add_pass(source: ShaderMaterial, input: Texture2D, prepass: bool, step: in
 	vp.add_child(rect)
 	add_child(vp)
 	_passes.append({"material": mat, "viewport": vp, "source": source, "prepass": prepass,
-			"step": step, "count": count})
+			"blend": false, "step": step, "count": count})
 	return vp.get_texture()
+
+
+## The EffectBlend pass after `source`'s: `input` its input, `output` its
+## result.
+func _add_blend_pass(source: ShaderMaterial, input: Texture2D, output: Texture2D) -> Texture2D:
+	var vp := SubViewport.new()
+	vp.transparent_bg = true
+	vp.disable_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	var rect := ColorRect.new()
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mat := ShaderMaterial.new()
+	mat.shader = EffectBlend.pass_shader()
+	mat.set_shader_parameter("input_tex", input)
+	mat.set_shader_parameter("effect_tex", output)
+	rect.material = mat
+	vp.add_child(rect)
+	add_child(vp)
+	_passes.append({"material": mat, "viewport": vp, "source": source, "prepass": false,
+			"blend": true, "step": -1, "count": 1})
+	return vp.get_texture()
+
+
+## mixing[i], or [0, 1] (normal, all of it).
+func _mixing(i: int) -> Array:
+	var mx = mixing[i] if i < mixing.size() else null
+	return [int(mx[0]), clampf(float(mx[1]), 0.0, 1.0)] if typeof(mx) == TYPE_ARRAY and mx.size() >= 2 else [0, 1.0]
+
+
+## [shows at all, needs a blend pass] for a [mode, amount].
+static func _mix_flags(mx: Array) -> Array:
+	return [mx[1] > 0.0, mx[1] > 0.0 and (mx[0] != 0 or mx[1] < 1.0)]
 
 
 ## Whether `materials` still matches what was built (same materials in the
@@ -120,7 +170,7 @@ func is_current(materials: Array[ShaderMaterial]) -> bool:
 	for i in materials.size():
 		var m := materials[i]
 		if m != _built[i][0] or (m.shader if m != null else null) != _built[i][1] \
-				or pass_counts(m) != _built[i][2]:
+				or pass_counts(m) != _built[i][2] or _mix_flags(_mixing(i)) != _built[i][3]:
 			return false
 	return true
 
@@ -136,10 +186,19 @@ func sync(px: Vector2i, aspect: float) -> void:
 	var h := 1.0
 	var size := Vector2(px)
 	var shape := Vector2.ZERO
+	var index_of := {}
+	for i in _built.size():
+		index_of[_built[i][0]] = i
 	for p in _passes:
 		var src: ShaderMaterial = p.source
 		var mat: ShaderMaterial = p.material
 		var vp: SubViewport = p.viewport
+		if p.blend:
+			var mx := _mixing(int(index_of.get(src, -1)))
+			mat.set_shader_parameter("blend_mode", mx[0])
+			mat.set_shader_parameter("mix_amount", mx[1])
+			vp.size = _fit(size)
+			continue
 		if src == null:
 			w = aspect + 2.0 * margin.x
 			h = 1.0 + 2.0 * margin.y

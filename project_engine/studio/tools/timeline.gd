@@ -235,14 +235,20 @@ static func property_rows(model: EditModel, id: String) -> Array:
 		if t.get("type") == ScriptFormat.TRACK_TRANSFORM and target == id:
 			label = {"position": "Position", "rotation_deg": "Rotation", "scale": "Scale"}.get(t.get("channel"), str(t.get("channel")))
 		elif t.get("type") == ScriptFormat.TRACK_SHADER_PARAM and target.begins_with(id + "."):
-			label = "%s %s" % [_slot_label(target.substr(id.length() + 1), effects, model, camera), String(t.get("param", "")).replace("_", " ")]
+			var param := String(t.get("param", ""))
+			label = "%s %s" % [_slot_label(target.substr(id.length() + 1), effects, model, camera),
+					"on / off" if param == EffectSwitch.PARAM else param.replace("_", " ")]
 		else:
 			continue
 		var keys: Array = []
 		var kfs: Array = t.get("keyframes", [])
 		for ki in kfs.size():
 			keys.append({"ki": ki, "t": float(kfs[ki].get("t", 0.0)), "interp": String(kfs[ki].get("interp", "linear"))})
-		rows.append({"ti": ti, "label": label, "keys": keys, "transform": t.get("type") == ScriptFormat.TRACK_TRANSFORM})
+		# An on / off track (EffectSwitch): the ribbon draws where it's on,
+		# and its keys take a fade instead of an interpolation.
+		var switch: bool = t.get("type") == ScriptFormat.TRACK_SHADER_PARAM and t.get("param") == EffectSwitch.PARAM
+		rows.append({"ti": ti, "label": label, "keys": keys, "transform": t.get("type") == ScriptFormat.TRACK_TRANSFORM,
+				"switch": switch})
 	rows.sort_custom(func(a, b): return a.transform and not b.transform or (a.transform == b.transform and a.ti < b.ti))
 	return rows
 

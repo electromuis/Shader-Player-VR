@@ -829,8 +829,9 @@ func _add_effect_row(body: VBoxContainer, list: String, s: Dictionary, open: boo
 	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name.add_theme_color_override("font_color", Color.WHITE if s.enabled else DIM)
 	row.add_child(name)
-	var on := _pill(s.enabled, func(v: bool): _effect_op(func(): return edits.model.set_effect_enabled(_id, i, v, list)))
-	on.tooltip_text = "On / off (off keeps its place and settings)"
+	var on := _pill(edits.switch_on(_id, i, _playhead(), list), func(v: bool):
+		_label_op(func(): return edits.set_switch(_id, i, v, _playhead(), tools.auto_key, list)))
+	on.tooltip_text = "On / off (off keeps its place and settings). With auto-key, or once it has on / off keys, it keys at the playhead"
 	row.add_child(on)
 	var glyph := _label(row, _fs, DIM)
 	glyph.custom_minimum_size.x = _diamond_w
@@ -1140,8 +1141,13 @@ func _refresh_values() -> void:
 				_show_choice(r, value)
 		_show_value(r, value)
 	for fx in _fx_rows:
-		fx.glyph.text = {"key": "◆", "animated": "◇", "static": "•"}.get(_effects_state(fx.fields, t), "")
+		var state := _effects_state(fx.fields, t)
+		var switch := edits.switch_state(_id, fx.index, t, fx.list)
+		if switch == "key" or (switch == "animated" and state != "key"):
+			state = switch
+		fx.glyph.text = {"key": "◆", "animated": "◇", "static": "•"}.get(state, "")
 		fx.glyph.add_theme_color_override("font_color", DIM if fx.glyph.text == "•" else RECORD)
+		_show_pill(fx.switch, edits.switch_on(_id, fx.index, t, fx.list))
 
 
 ## An effect's key state from its fields': a key at `t` on any, else

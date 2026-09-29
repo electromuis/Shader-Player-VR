@@ -32,10 +32,11 @@ vec3 deform(vec3 p, vec2 uv, vec2 half_m) {
 static func test_build_shader_runs_stages_in_order(t: TestCase) -> void:
 	var shader := ScreenGeometry.build_shader([ScreenGeometry.RIPPLE, ScreenGeometry.TWIST], ScreenGeometry.DOME)
 	var code := shader.code
-	var a := code.find("p = vfx0_deform(")
-	var b := code.find("p = vfx1_deform(")
+	var a := code.find("p = mix(p, vfx0_deform(p, UV, half_m), vfx0_mix);")
+	var b := code.find("p = mix(p, vfx1_deform(p, UV, half_m), vfx1_mix);")
 	var c := code.find("p = srf_surface(")
-	t.assert_true(a > 0 and a < b and b < c, "vertex effects in order, then the surface")
+	t.assert_true(a > 0 and a < b and b < c, "vertex effects in order (each by its mix), then the surface")
+	t.assert_true(code.contains("uniform float vfx1_mix = 1.0;"), "each vertex effect has a mix")
 	t.assert_true(ScreenGeometry.build_shader([ScreenGeometry.RIPPLE, ScreenGeometry.TWIST], ScreenGeometry.DOME) == shader,
 			"same stages share the shader")
 	t.assert_false(ScreenGeometry.build_shader(["C:/nope.gdshaderinc"], ScreenGeometry.PILLOW).code.contains("vfx0_"),

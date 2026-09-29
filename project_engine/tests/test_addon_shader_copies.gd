@@ -76,6 +76,7 @@ const COPIES := {
 	"player/visualizer/effects/prism_mosaic.gdshader": "visualizer/effects/prism_mosaic.gdshader",
 	"player/visualizer/effects/alpha_threshold.gdshader": "visualizer/effects/alpha_threshold.gdshader",
 	"player/prefabs/screen_shader_code.gd": "builtin_prefabs/screen_shader_code.gd",
+	"player/visualizer/effect_blend.gd": "builtin_prefabs/effect_blend.gd",
 	"player/prefabs/screen_display.gdshaderinc": "builtin_prefabs/screen_display.gdshaderinc",
 	"player/visualizer/surfaces/pillow.gdshaderinc": "visualizer/surfaces/pillow.gdshaderinc",
 	"player/visualizer/surfaces/dome.gdshaderinc": "visualizer/surfaces/dome.gdshaderinc",

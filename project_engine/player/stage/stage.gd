@@ -444,7 +444,8 @@ func _update_camera_fx() -> void:
 		return
 	var from_script := runner.camera_effect()
 	if not from_script.is_empty():
-		camera_fx.show_effect(from_script.key, from_script.params, from_script.strength)
+		camera_fx.show_effect(from_script.key, from_script.params, from_script.strength,
+				String(from_script.get("blend", "normal")))
 	else:
 		var fx := layers.camera_fx
 		camera_fx.show_effect(fx.shader, fx.params, fx.strength)

@@ -8,7 +8,7 @@ extends Node3D
 ##
 ## Two modes, one button: Play is the audience view with no UI; Edit shows
 ## the tools: the status and palette on the left wrist (the status in the
-## desktop corner), picking, grabbing, snapping and flight (StudioEditTools,
+## desktop corner, and the palette on P or its Wrist button), picking, grabbing, snapping and flight (StudioEditTools,
 ## StudioFlight). Switching keeps the playhead.
 ##
 ## Editing by hand: the right trigger selects what the laser points at; a
@@ -84,6 +84,11 @@ const WRIST_SCENE := preload("res://studio/ui/wrist_palette.tscn")
 ## wrist HUD: it has two pages of tiles), 3000 pixels a metre.
 const WRIST_SIZE := Vector2(0.3, 0.35)
 const WRIST_PIXELS := Vector2(900, 1050)
+## The desktop's wrist palette: the same palette at this scale (smaller in
+## a window too short for it), left of the inspector, above the timeline.
+const WRIST_DESKTOP_SCALE := 0.6
+## Smaller than this it goes over the status rather than beside or under it.
+const WRIST_DESKTOP_MIN := 0.4
 ## A cut made with Cut here fades this long.
 const CUT_FADE := 0.5
 ## Push / pull speed with the right stick while grabbing (m/s at full push).
@@ -159,6 +164,10 @@ var _cli_start: float = 0.0
 var _cli_vr: bool = false
 var _cli_desktop: bool = false
 var _wrist: StudioWristPalette
+## The desktop's wrist palette (P, the status's Wrist button), and whether
+## it's open (in Edit, off the headset).
+var wrist_2d: StudioWristPalette
+var wrist_on := false
 var tools: StudioEditTools
 var flight: StudioFlight
 var edits: StudioConfigEdits
@@ -292,6 +301,7 @@ func _ready() -> void:
 	for helper in [tools, _ghost, floor_grid, inspector_panel, ribbon_panel, shelf_panel]:
 		StudioThumbnailer.mark_helper(helper)
 	_library_signature = library.signature()
+	_make_wrist_2d()
 	_make_menu()
 	studio_settings.changed.connect(_apply_studio_settings)
 	_settings.changed.connect(_apply_player_settings)
@@ -506,6 +516,7 @@ func _apply_mode() -> void:
 		_show_inspector()
 		_show_ribbon()
 		_show_shelf()
+		_show_wrist()
 		_show_menu()
 
 
@@ -653,6 +664,11 @@ func _on_command(id: StringName) -> void:
 					_say("Deleted %s (undo brings it back)." % gone)
 		&"studio_toggle_hints":
 			status_view.show_hints(not status_view.hints_on)
+		&"studio_toggle_wrist":
+			wrist_on = not wrist_on
+			_show_wrist()
+			if stage.xr_mode.is_in_vr():
+				_say("The wrist palette is on your %s wrist; P shows it on the desktop." % ("right" if _main_hand() == "L" else "left"))
 		&"studio_toggle_timeline":
 			timeline_on = not timeline_on
 			if timeline_on:
@@ -1429,7 +1445,7 @@ func _drop_hint(asset: Dictionary, where: Dictionary) -> String:
 ## Desktop: whether the mouse is over one of Studio's panels.
 func _mouse_over_ui() -> bool:
 	var at := get_viewport().get_mouse_position()
-	for panel in [shelf, inspector, ribbon, status_view]:
+	for panel in [shelf, inspector, ribbon, status_view, wrist_2d]:
 		if panel != null and panel.visible and panel.get_global_rect().has_point(at):
 			return true
 	return menu_2d != null and menu_2d.visible and menu_2d.get_global_rect().has_point(at)
@@ -1584,9 +1600,14 @@ func _show_status() -> void:
 		if _wrist != null:
 			_wrist.action.connect(_on_command)
 			_wrist.show_fps(_settings.show_fps)
-	if _wrist != null and stage.xr_rig.wrist_panel.visible:
-		_wrist.show_state(_wrist_state(args))
-		_wrist.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer, miniature_on)
+	status_view.show_wrist(wrist_2d.visible)
+	for view in [_wrist if _wrist != null and stage.xr_rig.wrist_panel.visible else null,
+			wrist_2d if wrist_2d.visible else null]:
+		if view != null:
+			view.show_state(_wrist_state(args))
+			view.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer, miniature_on)
+	if wrist_2d.visible:
+		_place_wrist_2d()
 
 
 ## The wrist palette's state: the status's, plus the bar and the autosave.
@@ -1662,6 +1683,46 @@ func _parse_cli_args() -> void:
 
 
 # ---------- the menu and settings ----------
+
+# ---------- the desktop's wrist palette ----------
+
+func _make_wrist_2d() -> void:
+	wrist_2d = WRIST_SCENE.instantiate()
+	wrist_2d.name = "Wrist"
+	wrist_2d.visible = false
+	$UI.add_child(wrist_2d)
+	wrist_2d.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	wrist_2d.size = WRIST_PIXELS
+	wrist_2d.action.connect(_on_command)
+
+
+## In Edit while it's on, off the headset (which has it on the wrist).
+func _show_wrist() -> void:
+	if wrist_2d == null:
+		return
+	wrist_2d.visible = wrist_on and mode == Mode.EDIT and not stage.xr_mode.is_in_vr()
+	if wrist_2d.visible:
+		_place_wrist_2d()
+
+
+## Above the timeline strip (or the window's foot without it), left of the
+## inspector's place (or at the right edge while it's folded: it doesn't
+## jump as things are selected); under the status or beside it, whichever
+## leaves it bigger, else over the status's corner.
+func _place_wrist_2d() -> void:
+	var view := get_viewport().get_visible_rect().size
+	var bottom := view.y - (256.0 if timeline_on else 12.0)
+	var right := view.x - (464.0 if inspector_on else 12.0)
+	var status := status_view.get_global_rect() if status_view.visible else Rect2()
+	var under := (bottom - status.end.y - 10.0) / WRIST_PIXELS.y
+	var beside := minf((right - status.end.x - 10.0) / WRIST_PIXELS.x, (bottom - 12.0) / WRIST_PIXELS.y)
+	var k := minf(maxf(under, beside), WRIST_DESKTOP_SCALE)
+	if k < WRIST_DESKTOP_MIN:
+		# Too tight around the status: over its corner, drawn on top.
+		k = clampf((bottom - 12.0) / WRIST_PIXELS.y, 0.25, WRIST_DESKTOP_SCALE)
+	wrist_2d.scale = Vector2(k, k)
+	wrist_2d.position = Vector2(right - WRIST_PIXELS.x * k, bottom - WRIST_PIXELS.y * k).round().max(Vector2(12, 12))
+
 
 ## The desktop's menu size (UI pixels) and the headset panel's.
 const MENU_SIZE := Vector2(900, 620)
@@ -1772,6 +1833,7 @@ func _apply_player_settings() -> void:
 	status_view.show_fps(_settings.show_fps)
 	if _wrist != null and is_instance_valid(_wrist):
 		_wrist.show_fps(_settings.show_fps)
+	wrist_2d.show_fps(_settings.show_fps)
 	if DisplayServer.get_name() == "headless" or stage.xr_mode.is_in_vr():
 		return
 	var mode_now := DisplayServer.window_get_mode()

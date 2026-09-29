@@ -13,7 +13,9 @@ extends PanelContainer
 ## laser. Each tile asks Studio to run a command (`action`, the router's
 ## Studio command ids); toggles are lit while on (show_toggles): auto-key,
 ## a take and an armed ride red, the rest blue. The panel buttons
-## (inspector, timeline, shelf) are the folded panels' tabs.
+## (inspector, timeline, shelf) are the folded panels' tabs. The desktop
+## shows it too, scaled down, on P or the status's Wrist button (the mouse
+## presses and swipes).
 
 signal action(id: StringName)
 
@@ -257,11 +259,15 @@ func tile(id: StringName) -> StudioWristTile:
 
 
 ## Swipes: a press and let-go far enough sideways turns the page; a press
-## that moved isn't a tile press (see _press).
+## that moved isn't a tile press (see _press). Only presses on the palette
+## count: on the desktop it shares the window with the 3D view (scaled
+## down), so positions are taken in its own pixels.
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		event = make_input_local(event)
 		if event.pressed:
-			_press_at = event.position
+			if is_visible_in_tree() and Rect2(Vector2.ZERO, size).has_point(event.position):
+				_press_at = event.position
 		elif _press_at != Vector2.INF:
 			var d: Vector2 = event.position - _press_at
 			if d.length() > DRAG:

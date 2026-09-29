@@ -9,11 +9,10 @@ extends PanelContainer
 ## keyboard shortcuts; the headset on the left wrist (compact: no hints).
 ## On the desktop it also holds the tabs of folded panels (– on a panel, or
 ## its key): press one to bring the panel back. In the headset the wrist
-## palette's panel buttons are those tabs. Its Wrist button (P) shows the
-## wrist palette on the desktop.
+## palette's panel buttons are those tabs. On the desktop it shares its
+## corner with the wrist palette (Studio's Status / Wrist tabs over it, P).
 
-## A folded panel's tab was pressed: the command that shows it again (or
-## the Wrist button: studio_toggle_wrist).
+## A folded panel's tab was pressed: the command that shows it again.
 signal tab_pressed(id: StringName)
 
 const ACCENT := Color(0.3, 0.79, 0.94)
@@ -44,8 +43,6 @@ const TABS := [
 	[&"studio_toggle_timeline", "Timeline", "T"],
 	[&"studio_toggle_shelf", "Shelf", "B"],
 ]
-## The desktop's button for the wrist palette, always there.
-const WRIST_BUTTON := [&"studio_toggle_wrist", "Wrist", "P"]
 
 ## Wrist layout: bigger text, no keyboard hints.
 @export var compact: bool = false
@@ -68,7 +65,6 @@ var _key_animated: Label
 var _fps: Label
 var _fps_clock := 0.0
 var _tabs: Dictionary = {}  # command -> Button
-var _wrist_button: Button
 
 
 func _ready() -> void:
@@ -124,10 +120,6 @@ func _ready() -> void:
 		toggles.add_child(_spacer())
 		for t in TABS:
 			_tabs[t[0]] = _tab(toggles, size, t)
-		_wrist_button = _tab(toggles, size, WRIST_BUTTON)
-		_wrist_button.text = "▦ Wrist"
-		_wrist_button.tooltip_text = "Show / hide the wrist palette (P)"
-		_wrist_button.visible = true
 	_ride_help = _label(rows, int(size * 0.85), RECORD)
 	_ride_help.text = "Ride armed: the next take (● Rec, Shift+R) also records where you fly, as the viewer's path."
 	_ride_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -146,18 +138,6 @@ func _ready() -> void:
 func show_tabs(folded: Array) -> void:
 	for id in _tabs:
 		_tabs[id].visible = id in folded
-
-
-## The Wrist button lit while the desktop's wrist palette is open.
-func show_wrist(open: bool) -> void:
-	if _wrist_button == null or _wrist_button.get_meta("open", false) == open:
-		return
-	_wrist_button.set_meta("open", open)
-	for state in ["normal", "hover", "pressed"]:
-		var sb := _wrist_button.get_theme_stylebox(state).duplicate() as StyleBoxFlat
-		sb.bg_color = Color(ACCENT, (0.45 if open else 0.1) + (0.15 if state == "hover" else 0.0))
-		_wrist_button.add_theme_stylebox_override(state, sb)
-	_wrist_button.add_theme_color_override("font_color", Color.WHITE if open else ACCENT)
 
 
 ## Shows or hides the frames per second (the player's FPS setting).
@@ -281,7 +261,8 @@ func show_state(mode: String, title: String, dirty: bool, t: float, duration: fl
 		reset_size.call_deferred()
 	_rec.visible = recording != ""
 	_rec.text = recording
-	_auto_key.get_parent().visible = _auto_key.visible or _snap.visible or _rec.visible or _ride.visible or _key_animated.visible 			or _wrist_button != null
+	_auto_key.get_parent().visible = _auto_key.visible or _snap.visible or _rec.visible or _ride.visible or _key_animated.visible \
+			or _tabs.values().any(func(b): return b.visible)
 	_mode.text = mode
 	_title.text = title
 	_dirty.text = "● unsaved" if dirty else ""

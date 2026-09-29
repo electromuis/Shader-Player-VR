@@ -8,8 +8,8 @@ extends Node3D
 ##
 ## Two modes, one button: Play is the audience view with no UI; Edit shows
 ## the tools: the status and palette on the left wrist (the status in the
-## desktop corner, and the palette on P or its Wrist button), picking, grabbing, snapping and flight (StudioEditTools,
-## StudioFlight). Switching keeps the playhead.
+## desktop corner, or the palette there: P or the corner's tabs), picking,
+## grabbing, snapping and flight (StudioEditTools, StudioFlight). Switching keeps the playhead.
 ##
 ## Editing by hand: the right trigger selects what the laser points at; a
 ## grip grabs it (the right stick pushes / pulls it along the laser); the
@@ -84,11 +84,15 @@ const WRIST_SCENE := preload("res://studio/ui/wrist_palette.tscn")
 ## wrist HUD: it has two pages of tiles), 3000 pixels a metre.
 const WRIST_SIZE := Vector2(0.3, 0.35)
 const WRIST_PIXELS := Vector2(900, 1050)
-## The desktop's wrist palette: the same palette at this scale (smaller in
-## a window too short for it), left of the inspector, above the timeline.
-const WRIST_DESKTOP_SCALE := 0.6
-## Smaller than this it goes over the status rather than beside or under it.
-const WRIST_DESKTOP_MIN := 0.4
+## The desktop's wrist palette: the same palette at this scale (as wide as
+## the shelf; smaller in a window too short for it), in the top left corner.
+const WRIST_DESKTOP_SCALE := 440.0 / 900.0
+## The desktop's top left corner: tabs for the status and the wrist palette
+## (one shows at a time), which start under them.
+const CORNER_TABS_HEIGHT := 30.0
+const CORNER_TOP := 12.0 + CORNER_TABS_HEIGHT + 6.0
+## Under the palette the shelf keeps at least this much height (pixels).
+const WRIST_SHELF_ROOM := 300.0
 ## A cut made with Cut here fades this long.
 const CUT_FADE := 0.5
 ## Push / pull speed with the right stick while grabbing (m/s at full push).
@@ -164,9 +168,11 @@ var _cli_start: float = 0.0
 var _cli_vr: bool = false
 var _cli_desktop: bool = false
 var _wrist: StudioWristPalette
-## The desktop's wrist palette (P, the status's Wrist button), and whether
-## it's open (in Edit, off the headset).
+## The desktop's wrist palette, and whether it's open in the top left
+## corner instead of the status (P, or the corner's tabs; in Edit, off the
+## headset).
 var wrist_2d: StudioWristPalette
+var corner_tabs: HBoxContainer
 var wrist_on := false
 var tools: StudioEditTools
 var flight: StudioFlight
@@ -1229,9 +1235,13 @@ func _refresh_shelf() -> void:
 
 
 ## Desktop: the shelf starts under the status, whose height changes with
-## what it says (and ends above the timeline strip: _show_ribbon).
+## what it says, or under the wrist palette in its place (and ends above
+## the timeline strip: _show_ribbon).
 func _fit_shelf() -> void:
-	shelf.offset_top = status_view.position.y + status_view.size.y + 10.0
+	if wrist_2d != null and wrist_2d.visible:
+		shelf.offset_top = wrist_2d.position.y + WRIST_PIXELS.y * wrist_2d.scale.y + 10.0
+	else:
+		shelf.offset_top = status_view.position.y + status_view.size.y + 10.0
 
 
 func _make_shelf_panel() -> void:
@@ -1445,7 +1455,7 @@ func _drop_hint(asset: Dictionary, where: Dictionary) -> String:
 ## Desktop: whether the mouse is over one of Studio's panels.
 func _mouse_over_ui() -> bool:
 	var at := get_viewport().get_mouse_position()
-	for panel in [shelf, inspector, ribbon, status_view, wrist_2d]:
+	for panel in [shelf, inspector, ribbon, status_view, wrist_2d, corner_tabs]:
 		if panel != null and panel.visible and panel.get_global_rect().has_point(at):
 			return true
 	return menu_2d != null and menu_2d.visible and menu_2d.get_global_rect().has_point(at)
@@ -1600,7 +1610,6 @@ func _show_status() -> void:
 		if _wrist != null:
 			_wrist.action.connect(_on_command)
 			_wrist.show_fps(_settings.show_fps)
-	status_view.show_wrist(wrist_2d.visible)
 	for view in [_wrist if _wrist != null and stage.xr_rig.wrist_panel.visible else null,
 			wrist_2d if wrist_2d.visible else null]:
 		if view != null:
@@ -1687,41 +1696,77 @@ func _parse_cli_args() -> void:
 # ---------- the desktop's wrist palette ----------
 
 func _make_wrist_2d() -> void:
+	corner_tabs = HBoxContainer.new()
+	corner_tabs.name = "CornerTabs"
+	corner_tabs.position = Vector2(12, 12)
+	corner_tabs.add_theme_constant_override("separation", 4)
+	$UI.add_child(corner_tabs)
+	for t in [[false, "Status"], [true, "▦ Wrist palette"]]:
+		var b := Button.new()
+		b.text = t[1]
+		b.tooltip_text = "P switches between the status and the wrist palette"
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0, CORNER_TABS_HEIGHT)
+		b.add_theme_font_size_override("font_size", 14)
+		b.pressed.connect(func():
+			if wrist_on != t[0]:
+				_on_command(&"studio_toggle_wrist"))
+		corner_tabs.add_child(b)
+	status_view.offset_top = CORNER_TOP
+	status_view.offset_bottom = CORNER_TOP + 48.0
 	wrist_2d = WRIST_SCENE.instantiate()
 	wrist_2d.name = "Wrist"
 	wrist_2d.visible = false
 	$UI.add_child(wrist_2d)
 	wrist_2d.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	wrist_2d.size = WRIST_PIXELS
+	wrist_2d.position = Vector2(12, CORNER_TOP)
 	wrist_2d.action.connect(_on_command)
+	_style_corner_tabs()
 
 
-## In Edit while it's on, off the headset (which has it on the wrist).
+## The top left corner shows the status or the wrist palette (in Edit, off
+## the headset, which has the palette on the wrist).
 func _show_wrist() -> void:
 	if wrist_2d == null:
 		return
-	wrist_2d.visible = wrist_on and mode == Mode.EDIT and not stage.xr_mode.is_in_vr()
+	var desk := mode == Mode.EDIT and not stage.xr_mode.is_in_vr()
+	wrist_2d.visible = wrist_on and desk
+	status_view.visible = mode == Mode.EDIT and not wrist_2d.visible
+	corner_tabs.visible = desk
+	_style_corner_tabs()
 	if wrist_2d.visible:
 		_place_wrist_2d()
+	_fit_shelf()
 
 
-## Above the timeline strip (or the window's foot without it), left of the
-## inspector's place (or at the right edge while it's folded: it doesn't
-## jump as things are selected); under the status or beside it, whichever
-## leaves it bigger, else over the status's corner.
+## The open one filled, the other outlined (as the status's tabs).
+func _style_corner_tabs() -> void:
+	for i in corner_tabs.get_child_count():
+		var b := corner_tabs.get_child(i) as Button
+		var on := (i == 1) == wrist_on
+		for state in ["normal", "hover", "pressed"]:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color(StudioStatus.ACCENT, 0.85 if on else (0.25 if state == "hover" else 0.1))
+			sb.border_color = Color(StudioStatus.ACCENT, 0.6)
+			sb.set_border_width_all(1)
+			sb.set_corner_radius_all(6)
+			sb.content_margin_left = 12
+			sb.content_margin_right = 12
+			b.add_theme_stylebox_override(state, sb)
+		for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+			b.add_theme_color_override(c, Color("0b1320") if on else StudioStatus.ACCENT)
+
+
+## In the status's place, as wide as the shelf under it; smaller when the
+## window is too short to leave the shelf WRIST_SHELF_ROOM.
 func _place_wrist_2d() -> void:
 	var view := get_viewport().get_visible_rect().size
-	var bottom := view.y - (256.0 if timeline_on else 12.0)
-	var right := view.x - (464.0 if inspector_on else 12.0)
-	var status := status_view.get_global_rect() if status_view.visible else Rect2()
-	var under := (bottom - status.end.y - 10.0) / WRIST_PIXELS.y
-	var beside := minf((right - status.end.x - 10.0) / WRIST_PIXELS.x, (bottom - 12.0) / WRIST_PIXELS.y)
-	var k := minf(maxf(under, beside), WRIST_DESKTOP_SCALE)
-	if k < WRIST_DESKTOP_MIN:
-		# Too tight around the status: over its corner, drawn on top.
-		k = clampf((bottom - 12.0) / WRIST_PIXELS.y, 0.25, WRIST_DESKTOP_SCALE)
-	wrist_2d.scale = Vector2(k, k)
-	wrist_2d.position = Vector2(right - WRIST_PIXELS.x * k, bottom - WRIST_PIXELS.y * k).round().max(Vector2(12, 12))
+	var bottom := view.y - (256.0 if timeline_on else 12.0) - (WRIST_SHELF_ROOM if shelf_on else 0.0)
+	var k := clampf((bottom - CORNER_TOP) / WRIST_PIXELS.y, 0.3, WRIST_DESKTOP_SCALE)
+	if wrist_2d.scale.x != k:
+		wrist_2d.scale = Vector2(k, k)
+		_fit_shelf()
 
 
 ## The desktop's menu size (UI pixels) and the headset panel's.

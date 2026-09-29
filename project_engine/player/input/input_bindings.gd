@@ -102,7 +102,7 @@ const COMMANDS := {
 	"studio_toggle_timeline": {"label": "Show / hide the timeline", "context": "studio_edit", "app": "studio"},
 	"studio_toggle_shelf": {"label": "Show / hide the asset shelf", "context": "studio_edit", "app": "studio"},
 	"studio_toggle_hints": {"label": "Show / hide the keyboard shortcuts (desktop)", "context": "studio", "app": "studio"},
-	"studio_toggle_wrist": {"label": "Show / hide the wrist palette (desktop)", "context": "studio_edit", "app": "studio"},
+	"studio_toggle_wrist": {"label": "Status / wrist palette in the corner (desktop)", "context": "studio_edit", "app": "studio"},
 	"studio_menu": {"label": "Open / close the menu (settings, controls)", "context": "studio", "app": "studio"},
 	"studio_record": {"label": "Record / stop recording", "context": "studio_edit", "app": "studio"},
 	"studio_key_viewer": {"label": "Key the viewer here (the ride glides here)", "context": "studio_edit", "app": "studio"},

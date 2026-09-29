@@ -1,6 +1,6 @@
 extends RefCounted
 
-## Shadertoy shaders as layers: reading the site's JSON (ShadertoyShader),
+## Shadertoy shaders as layers and effects: reading the site's JSON (ShadertoyShader),
 ## what runs and what's lost, the fixes for Godot's shading language, the
 ## .gdshader it writes, the collection (ShadertoyLibrary) and the receiver
 ## the Chrome extension posts to (ShadertoyReceiver). Whether the result
@@ -61,6 +61,69 @@ static func test_analyze(tc: TestCase) -> void:
 	tc.assert_has(" ".join(ShadertoyShader.analyze(ShadertoyShader.parse(no_image)).errors), "no Image pass")
 	var mouse := ShadertoyShader.parse(ShadertoyShader.from_code("void mainImage(out vec4 o, in vec2 u) { o = iMouse; }"))
 	tc.assert_has(" ".join(ShadertoyShader.analyze(mouse).warnings), "iMouse")
+
+
+## A post-process: iChannel0 is a texture (the picture, as an effect),
+## iChannel1 music.
+const POST := {
+	"info": {"id": "Post12", "name": "Scanlines", "username": "me"},
+	"renderpass": [{"type": "image", "name": "Image",
+		"code": "void mainImage(out vec4 o, in vec2 f) {
+	vec2 uv = f / iResolution.xy;
+	vec3 c = texture(iChannel0, uv).rgb * (0.8 + 0.2 * sin(f.y));
+	vec4 m = texture(iChannel1, uv);
+	ivec2 s = textureSize(iChannel0, 0);
+	o = vec4(c + texelFetch(iChannel0, ivec2(f), 0).rgb * 0.0 + m.rgb * float(s.x) * 0.0, 1.0);
+}",
+		"inputs": [{"channel": 0, "type": "texture"}, {"channel": 1, "type": "music"}]}],
+}
+
+
+static func test_as_an_effect(tc: TestCase) -> void:
+	var st := ShadertoyShader.parse(POST)
+	tc.assert_eq(ShadertoyShader.input_channel(st), 0, "the texture is the picture")
+	tc.assert_eq(ShadertoyShader.input_channel(ShadertoyShader.parse(SHADER)), 3, "a video before a texture")
+	var a := ShadertoyShader.analyze(st, true)
+	tc.assert_true(a.ok)
+	tc.assert_eq(a.warnings, ["iChannel1 (music) isn't available in an effect: it reads black"])
+	tc.assert_eq(a.channels, {})
+	var code := ShadertoyShader.to_effect_gdshader(st, "res://player/visualizer")
+	tc.assert_true(code.begins_with("// Scanlines by me
+"))
+	tc.assert_has(code, "// @title Scanlines
+// @shadertoy Post12
+// Note: iChannel1 (music)")
+	tc.assert_has(code, 'shader_type canvas_item;
+#include "res://player/visualizer/effect_prelude.gdshaderinc"')
+	tc.assert_has(code, "vec3 c = _st_input(uv).rgb")
+	tc.assert_has(code, "_st_input_fetch(ivec2(f), 0)")
+	tc.assert_has(code, "ivec2 s = textureSize(input_tex, 0);")
+	tc.assert_false(code.contains("iChannel0"), "the picture's channel is gone")
+	tc.assert_has(code, "uniform sampler2D iChannel1 : repeat_enable, filter_linear;")
+	tc.assert_has(code, "vec4 m = texture(iChannel1, uv);", "other channels stay (an image param)")
+	tc.assert_true(code.ends_with("COLOR = vec4(st_color.rgb, texture(input_tex, UV).a);
+}
+"))
+	tc.assert_true(VisualizerShaders.is_effect_code(code), "the player takes it for an effect")
+	tc.assert_eq(VisualizerShaders.title_of(code, "x.gdshader"), "Scanlines")
+	# Pasted code says nothing about its inputs: the first channel it reads.
+	var pasted := ShadertoyShader.parse(ShadertoyShader.from_code(
+			"void mainImage(out vec4 o, in vec2 f) { o = texture(iChannel2, f / iResolution.xy).bgra; }"))
+	tc.assert_eq(ShadertoyShader.input_channel(pasted), 2)
+	tc.assert_eq(ShadertoyShader.analyze(pasted, true).warnings, [])
+	var plain := ShadertoyShader.parse(ShadertoyShader.from_code("void mainImage(out vec4 o, in vec2 f) { o = vec4(1.0); }"))
+	tc.assert_eq(ShadertoyShader.input_channel(plain), -1)
+	tc.assert_has(" ".join(ShadertoyShader.analyze(plain, true).warnings), "doesn't read a picture")
+	tc.assert_false(ShadertoyShader.to_effect_gdshader(plain, "res://player/visualizer").contains("uniform sampler2D iChannel"))
+
+
+static func test_links(tc: TestCase) -> void:
+	tc.assert_eq(ShadertoyShader.id_from_link("https://www.shadertoy.com/view/XsXXDn"), "XsXXDn")
+	tc.assert_eq(ShadertoyShader.id_from_link("  shadertoy.com/embed/4sfGzn?gui=true
+"), "4sfGzn")
+	tc.assert_eq(ShadertoyShader.id_from_link("http://shadertoy.com/view/ab12CD#comments"), "ab12CD")
+	tc.assert_eq(ShadertoyShader.id_from_link("Tunnel"), "")
+	tc.assert_eq(ShadertoyShader.id_from_link("see https://www.shadertoy.com/view/XsXXDn"), "", "a link, not text with one")
 
 
 static func test_fix_matrices(tc: TestCase) -> void:
@@ -125,7 +188,9 @@ static func test_to_gdshader(tc: TestCase) -> void:
 	var code := ShadertoyShader.to_gdshader(ShadertoyShader.parse(SHADER), "res://player/visualizer")
 	tc.assert_true(code.begins_with("// Beat Tunnel! by someone\n// https://www.shadertoy.com/view/AbC123\n"))
 	tc.assert_has(code, "CC BY-NC-SA")
-	tc.assert_has(code, "// @shadertoy AbC123")
+	tc.assert_has(code, "// @title Beat Tunnel!
+// @shadertoy AbC123")
+	tc.assert_eq(VisualizerShaders.title_of(code, "beat_tunnel_AbC123.gdshader"), "Beat Tunnel!", "named as on the site")
 	tc.assert_has(code, "// @iChannel1 audio\n// @iChannel3 video\nshader_type canvas_item;")
 	tc.assert_has(code, "// Note: iChannel2 (texture) isn't available")
 	tc.assert_has(code, '#include "res://player/visualizer/shadertoy_prelude.gdshaderinc"')

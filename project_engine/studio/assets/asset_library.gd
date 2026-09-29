@@ -5,10 +5,11 @@ extends RefCounted
 ## Assets). Pure: it only lists files, so tests drive it headless.
 ##
 ## An asset: {id (unique: type + path), type ("object" / "layer" /
-##   "effect" / "vertex" / "look"), kind ("screen" / "cube" / "prefab" /
-##   "layer" / "effect" / "vertex"; a look's: "screen" / "layer" /
-##   "object"), label, path (the prefab for objects, the shader for layers
-##   and effects, the snippet for vertex effects, the file for looks),
+##   "effect" / "vertex" / "look" / "shadertoy"), kind ("screen" / "cube" /
+##   "prefab" / "layer" / "effect" / "vertex" / "shadertoy"; a look's:
+##   "screen" / "layer" / "object"), label, path (the prefab for objects,
+##   the shader for layers and effects, the snippet for vertex effects, the
+##   file for looks, the site's JSON for Shadertoy shaders),
 ##   source ("builtin", "user" or "piece"), in_piece (a user asset the
 ##   piece has a copy of), scale (the size it's dropped at)}.
 ## A user asset the piece already has a copy of (the same file name and
@@ -25,12 +26,17 @@ extends RefCounted
 ##   piece    — the piece's own: prefabs next to its .json and in its
 ##              prefabs/ folder, shaders in its shaders/ folder
 ## Looks (StudioLooks) are the user's: in each library folder's looks/.
+## Shadertoy shaders are the collection the Chrome extension fills
+## (ShadertoyLibrary, in shadertoy_dir), newest first; they carry
+## `picture` (the site's thumbnail, "" if none), `author` and `tags`, and
+## become a layer or an effect with StudioShadertoy.make.
 ## Camera effects (`// @camera`) aren't offered: they're not objects.
 ## signature() changes when any of those folders' files do, so the shelf can
 ## watch them.
 
-const TYPES := ["object", "layer", "effect", "vertex", "look"]
-const TYPE_LABELS := {"object": "Objects", "layer": "Layers", "effect": "Effects", "vertex": "Vertex", "look": "Looks"}
+const TYPES := ["object", "layer", "effect", "vertex", "look", "shadertoy"]
+const TYPE_LABELS := {"object": "Objects", "layer": "Layers", "effect": "Effects", "vertex": "Vertex", "look": "Looks",
+		"shadertoy": "Shadertoy"}
 const PREFAB_EXTENSIONS := ["tscn", "scn"]
 const LAYER_PREFAB := "res://player/prefabs/layer.tscn"
 ## Built-in screens and layers are 32 × 18 m at scale 1: dropped at this
@@ -48,6 +54,9 @@ var library_dirs: Array[String] = []
 var shader_dirs: Array[String] = []
 ## The piece's folder ("" with no piece open).
 var piece_dir: String = ""
+## The Shadertoy collection's folder (ShadertoyLibrary; shared with the
+## authoring addon's dock).
+var shadertoy_dir: String = ShadertoyLibrary.default_dir()
 
 
 static func default_library_dirs() -> Array[String]:
@@ -89,6 +98,10 @@ func assets() -> Array:
 					var sc = look.get("scale", [1.0])
 					_add(out, seen, "look", String(look.kind), String(look.get("label", f.get_basename())), dir.path_join(f), "user",
 							float(sc[0]) if typeof(sc) == TYPE_ARRAY and not sc.is_empty() else 1.0)
+	for e in ShadertoyLibrary.new(shadertoy_dir).entries():
+		var st: Dictionary = e.shader
+		_add(out, seen, "shadertoy", "shadertoy", st.name, e.json, "user", SCREEN_SCALE)
+		out[-1].merge({"picture": e.thumbnail, "author": st.author, "tags": st.tags})
 	return _merge_copies(out)
 
 
@@ -128,7 +141,8 @@ func signature() -> String:
 	var parts: Array = []
 	var shader_exts: Array = VisualizerShaders.GODOT_EXTENSIONS + VisualizerShaders.SHADERTOY_EXTENSIONS
 	for pair in [[_shader_scan_dirs(), shader_exts], [vertex_dirs(), [ScreenGeometry.EXTENSION]],
-			[_prefab_scan_dirs(), PREFAB_EXTENSIONS], [_look_dirs(), ["json"]]]:
+			[_prefab_scan_dirs(), PREFAB_EXTENSIONS], [_look_dirs(), ["json"]],
+			[[shadertoy_dir] if DirAccess.dir_exists_absolute(shadertoy_dir) else [], ["json", "jpg"]]]:
 		for dir in pair[0]:
 			for f in _sorted_files(dir):
 				if String(f).get_extension().to_lower() in pair[1]:

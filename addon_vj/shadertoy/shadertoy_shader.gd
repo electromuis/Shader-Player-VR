@@ -18,10 +18,44 @@ extends RefCounted
 ## Audio inputs (music, soundcloud, mic) read the player's audio texture and
 ## video / webcam the playing video (`// @iChannelN audio|video`); textures,
 ## keyboard, cubemaps and buffers aren't available (analyze() says which).
+##
+## A shader can be an effect instead (to_effect_gdshader): a post-process
+## that reads a picture (its video, webcam or texture channel) gets the
+## picture of the screen or layer it's on there, the right way up.
 
 const SITE := "https://www.shadertoy.com"
 const PRELUDE_FILE := "shadertoy_prelude.gdshaderinc"
 const MAIN_FILE := "shadertoy_main.gdshaderinc"
+const EFFECT_PRELUDE_FILE := "effect_prelude.gdshaderinc"
+## What an effect gets of Shadertoy's inputs, after the effect prelude
+## (which has input_tex, the picture, and TIME following the video).
+const EFFECT_INPUTS := """uniform vec4 iMouse = vec4(0.0);
+uniform vec4 iDate = vec4(0.0);
+uniform float iSampleRate = 44100.0;
+uniform vec3 iChannelResolution[4];
+#define iResolution vec3(vec2(textureSize(input_tex, 0)), 1.0)
+#define iTime TIME
+#define iGlobalTime TIME
+#define iTimeDelta (1.0 / 60.0)
+#define iFrameRate 60.0
+#define iFrame int(TIME * 60.0)
+#define texture2D texture
+
+// The picture, as Shadertoy has it: the bottom row at v = 0.
+vec4 _st_input(vec2 uv) { return texture(input_tex, vec2(uv.x, 1.0 - uv.y)); }
+vec4 _st_input(vec2 uv, float bias) { return texture(input_tex, vec2(uv.x, 1.0 - uv.y), bias); }
+vec4 _st_input_lod(vec2 uv, float lod) { return textureLod(input_tex, vec2(uv.x, 1.0 - uv.y), lod); }
+vec4 _st_input_fetch(ivec2 p, int lod) {
+	ivec2 s = textureSize(input_tex, lod);
+	return texelFetch(input_tex, ivec2(p.x, s.y - 1 - p.y), lod);
+}"""
+const EFFECT_MAIN := """void fragment() {
+	vec4 st_color = vec4(0.0, 0.0, 0.0, 1.0);
+	mainImage(st_color, vec2(UV.x, 1.0 - UV.y) * iResolution.xy);
+	COLOR = vec4(st_color.rgb, texture(input_tex, UV).a);
+}"""
+## The input types an effect can take its picture from, best first.
+const PICTURE_TYPES := ["video", "webcam", "texture"]
 const AUDIO_TYPES := ["music", "musicstream", "mic"]
 const VIDEO_TYPES := ["video", "webcam"]
 ## Words Godot's shading language keeps for itself that GLSL doesn't; a
@@ -104,6 +138,13 @@ static func view_url(id: String) -> String:
 	return "%s/view/%s" % [SITE, id]
 
 
+## The shader id in a link to its page (`…shadertoy.com/view/<id>`, or
+## /embed/); "" if `text` isn't one.
+static func id_from_link(text: String) -> String:
+	var m := RegEx.create_from_string("^\\s*(?:https?://)?(?:www\\.)?shadertoy\\.com/(?:view|embed)/([A-Za-z0-9]+)").search(text)
+	return m.get_string(1) if m != null else ""
+
+
 static func thumbnail_url(id: String) -> String:
 	return "%s/media/shaders/%s.jpg" % [SITE, id]
 
@@ -112,8 +153,11 @@ static func thumbnail_url(id: String) -> String:
 ## warnings, channels: {N: "audio" | "video"}}. Errors mean it can't work
 ## (no Image pass, or it needs a buffer pass); edits, that it won't compile
 ## until the .gdshader is edited by hand; warnings, that it runs without
-## something.
-static func analyze(st: Dictionary) -> Dictionary:
+## something. `as_effect`: the same for it as an effect
+## (to_effect_gdshader); `channels` is then empty.
+static func analyze(st: Dictionary, as_effect: bool = false) -> Dictionary:
+	if as_effect:
+		return _analyze_effect(st)
 	var out := {"ok": true, "errors": [], "edits": [], "warnings": [], "channels": {}}
 	var image := _pass(st, "image")
 	if image.is_empty():
@@ -146,6 +190,58 @@ static func analyze(st: Dictionary) -> Dictionary:
 		if not globals.is_empty():
 			out.edits.append("it changes global variables (%s), which Godot shaders can't have: pass them to the functions that use them, or make them const" % ", ".join(globals))
 	out.ok = out.errors.is_empty()
+	return out
+
+
+static func _analyze_effect(st: Dictionary) -> Dictionary:
+	var layer := analyze(st)
+	var out := {"ok": layer.ok, "errors": layer.errors, "edits": layer.edits, "warnings": [], "channels": {}}
+	for w in layer.warnings:
+		if not String(w).begins_with("iChannel"):
+			out.warnings.append(w)
+	var input := input_channel(st)
+	if input < 0:
+		out.warnings.append("it doesn't read a picture: as an effect it covers the one beneath")
+	var types := {}
+	for inp in _pass(st, "image").get("inputs", []):
+		types[inp.channel] = inp.type
+	for ch in _channels_used(source_code(st)):
+		if ch == input:
+			continue
+		var type: String = types.get(ch, "")
+		if type in AUDIO_TYPES:
+			out.warnings.append("iChannel%d (%s) isn't available in an effect: it reads black" % [ch, type])
+		elif type != "buffer":
+			out.warnings.append("iChannel%d%s is an image you pick in the effect's controls (black until you do)"
+					% [ch, " (%s)" % type if type != "" else ""])
+	return out
+
+
+## The channel an effect reads its picture from: the Image pass's video or
+## webcam input, else its first texture; for pasted code (which says
+## nothing about its inputs) the first channel it reads. -1 if none.
+static func input_channel(st: Dictionary) -> int:
+	var image := _pass(st, "image")
+	if image.is_empty():
+		return -1
+	for type in PICTURE_TYPES:
+		for inp in image.inputs:
+			if inp.type == type:
+				return inp.channel
+	if image.inputs.is_empty():
+		var used := _channels_used(source_code(st))
+		return used[0] if not used.is_empty() else -1
+	return -1
+
+
+## The iChannelN numbers the code mentions, in order.
+static func _channels_used(code: String) -> Array:
+	var out: Array = []
+	for m in RegEx.create_from_string("\\biChannel([0-3])\\b").search_all(_blank_comments(code)):
+		var ch := int(m.get_string(1))
+		if not ch in out:
+			out.append(ch)
+	out.sort()
 	return out
 
 
@@ -561,19 +657,7 @@ static func _split_args(s: String) -> Array:
 ## in `include_dir` (e.g. "res://addons/vj_editor/visualizer").
 static func to_gdshader(st: Dictionary, include_dir: String) -> String:
 	var a := analyze(st)
-	var lines: Array = []
-	lines.append("// %s%s" % [st.get("name", "Shadertoy shader"), " by " + st.author if st.get("author", "") != "" else ""])
-	if st.get("url", "") != "":
-		lines.append("// " + st.url)
-		lines.append("// Licence: the author's. Shadertoy's default is CC BY-NC-SA 3.0 (credit")
-		lines.append("// them, no commercial use, share alike) unless the page says otherwise.")
-	lines.append("// @shadertoy " + String(st.get("id", "")))
-	for w in a.warnings:
-		lines.append("// Note: " + w)
-	for e in a.edits:
-		lines.append("// Needs editing: " + e)
-	for e in a.errors:
-		lines.append("// Won't run: " + e)
+	var lines := _header(st, a)
 	var channels: Dictionary = a.channels
 	var keys := channels.keys()
 	keys.sort()
@@ -587,6 +671,65 @@ static func to_gdshader(st: Dictionary, include_dir: String) -> String:
 	lines.append("")
 	lines.append('#include "%s"' % include_dir.path_join(MAIN_FILE))
 	return "\n".join(lines) + "\n"
+
+
+## The .gdshader for an effect (see the top of this file): the same header,
+## the code after the effect prelude in `include_dir` with Shadertoy's
+## inputs (EFFECT_INPUTS), and its reads of the picture's channel
+## (input_channel) turned into reads of the picture. Other channels it reads
+## become image params (black until one is picked).
+static func to_effect_gdshader(st: Dictionary, include_dir: String) -> String:
+	var lines := _header(st, analyze(st, true))
+	var code := source_code(st)
+	var input := input_channel(st)
+	lines.append("shader_type canvas_item;")
+	lines.append('#include "%s"' % include_dir.path_join(EFFECT_PRELUDE_FILE))
+	lines.append("")
+	lines.append(EFFECT_INPUTS)
+	for ch in _channels_used(code):
+		if ch != input:
+			lines.append("uniform sampler2D iChannel%d : repeat_enable, filter_linear;" % ch)
+	lines.append("")
+	lines.append(_read_picture(code, input))
+	lines.append("")
+	lines.append(EFFECT_MAIN)
+	return "\n".join(lines) + "\n"
+
+
+## `code` with its reads of iChannel`ch` made reads of the picture
+## (EFFECT_INPUTS' _st_input functions, which turn it the Shadertoy way up).
+static func _read_picture(code: String, ch: int) -> String:
+	if ch < 0:
+		return code
+	var c := "iChannel%d" % ch
+	for pair in [["\\btexture(?:2D)?\\s*\\(\\s*%s\\s*,\\s*" % c, "_st_input("],
+			["\\btextureLod\\s*\\(\\s*%s\\s*,\\s*" % c, "_st_input_lod("],
+			["\\btexelFetch\\s*\\(\\s*%s\\s*,\\s*" % c, "_st_input_fetch("],
+			["\\biChannelResolution\\s*\\[\\s*%d\\s*\\]" % ch, "iResolution"],
+			["\\b%s\\b" % c, "input_tex"]]:
+		code = RegEx.create_from_string(pair[0]).sub(code, pair[1], true)
+	return code
+
+
+## The comment lines a converted shader starts with: its name, author, page
+## and licence, its title for pickers, its id and what analyze() found.
+static func _header(st: Dictionary, a: Dictionary) -> Array:
+	var lines: Array = []
+	var name := String(st.get("name", "Shadertoy shader"))
+	lines.append("// %s%s" % [name, " by " + st.author if st.get("author", "") != "" else ""])
+	if st.get("url", "") != "":
+		lines.append("// " + st.url)
+		lines.append("// Licence: the author's. Shadertoy's default is CC BY-NC-SA 3.0 (credit")
+		lines.append("// them, no commercial use, share alike) unless the page says otherwise.")
+	lines.append("// @title " + name)
+	lines.append("// @shadertoy " + String(st.get("id", "")))
+	for w in a.warnings:
+		lines.append("// Note: " + w)
+	for e in a.edits:
+		lines.append("// Needs editing: " + e)
+	for e in a.errors:
+		lines.append("// Won't run: " + e)
+	return lines
 
 
 ## A file name for the shader: its name in snake case plus the id, so two

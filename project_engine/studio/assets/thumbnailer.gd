@@ -26,7 +26,11 @@ extends Node
 ##
 ## A look's picture is different: a snapshot of the object on stage when
 ## the look was saved (snapshot()), kept next to the look's file
-## (StudioLooks.picture_path). Studio's own helpers (lines, panels, the
+## (StudioLooks.picture_path). A Shadertoy shader's is the site's thumbnail,
+## which the extension sent along (StudioAssetLibrary: `picture`); one
+## without (pasted code) is drawn, as is its loop, from a converted copy
+## kept with the pictures (preview_shader): as a layer, or as an effect on
+## the test card when it reads a picture (a post-process). Studio's own helpers (lines, panels, the
 ## carried card) are on HELPER_LAYER, which snapshots leave out.
 
 ## A thumbnail is ready (or came off the disk).
@@ -43,7 +47,7 @@ const CACHE_DIR := "user://thumbnails"
 ## a snapshot's.
 const HELPER_LAYER := 20
 ## The asset types that get a loop.
-const LOOP_TYPES := ["layer", "effect", "vertex"]
+const LOOP_TYPES := ["layer", "effect", "vertex", "shadertoy"]
 const LOOP_FRAMES := 20
 const LOOP_FPS := 10.0
 ## Loops kept in memory (a strip is about 3 MB), the least recently asked
@@ -52,6 +56,9 @@ const LOOP_KEEP := 24
 ## A loop whose frames all differ from its first by less than this
 ## (difference()) is kept as a still.
 const STILL_DIFFERENCE := 0.002
+## Where a Shadertoy shader's pictures start on its clock: many fade in
+## over their first seconds.
+const SHADERTOY_START := 12.0
 ## The uniform a preview copy's TIME reads.
 const PREVIEW_TIME := &"vj_preview_time"
 const SCREEN_SCENE := preload("res://player/prefabs/screen.tscn")
@@ -78,6 +85,13 @@ func thumbnail(asset: Dictionary) -> Texture2D:
 			return null  # none (saved headless): the placeholder
 		_textures[asset.id] = ImageTexture.create_from_image(shot)
 		return _textures[asset.id]
+	if asset.type == "shadertoy":
+		var picture := ShadertoyLibrary.load_thumbnail(asset.get("picture", ""))
+		if picture != null:
+			_textures[asset.id] = picture
+			return picture  # the site's
+		if _drawable(asset).is_empty():
+			return null  # it won't run: the placeholder
 	var file := cache_path(asset)
 	if FileAccess.file_exists(file):
 		var img := Image.load_from_file(ProjectSettings.globalize_path(file))
@@ -93,7 +107,7 @@ func thumbnail(asset: Dictionary) -> Texture2D:
 ## shader that turned out not to move) if there is one yet; otherwise null,
 ## and it's drawn (loop_ready says when). Null for other asset types.
 func loop(asset: Dictionary) -> Texture2D:
-	if not String(asset.type) in LOOP_TYPES:
+	if not String(asset.type) in LOOP_TYPES or _drawable(asset).is_empty():
 		return null
 	if _loops.has(asset.id):
 		var strip: Texture2D = _loops[asset.id]
@@ -139,6 +153,50 @@ static func loop_path(asset: Dictionary) -> String:
 	return cache_path(asset).trim_suffix(".png") + "_loop.png"
 
 
+## What's drawn for `asset`: itself, or for a Shadertoy shader the layer or
+## effect it makes (preview_shader); {} if that won't run or needs editing.
+static func _drawable(asset: Dictionary) -> Dictionary:
+	if asset.type != "shadertoy":
+		return asset
+	var path := preview_shader(asset)
+	if path == "":
+		return {}
+	var type := "effect" if path.get_basename().ends_with(StudioShadertoy.EFFECT_SUFFIX) else "layer"
+	return {"id": asset.id, "type": type, "kind": type, "path": path}
+
+
+## A Shadertoy asset's shader for its pictures, kept with them and named
+## after its file and when that changed: an effect (its name ending in
+## StudioShadertoy.EFFECT_SUFFIX) for one whose inputs include a picture,
+## else a layer; "" if it won't run as it is.
+static func preview_shader(asset: Dictionary) -> String:
+	var json := String(asset.path)
+	var base := ProjectSettings.globalize_path(CACHE_DIR.path_join("shadertoy")).path_join(
+			("%s|%d" % [json, FileAccess.get_modified_time(json)]).md5_text())
+	for suffix in ["", StudioShadertoy.EFFECT_SUFFIX]:
+		if FileAccess.file_exists(base + suffix + ".gdshader"):
+			return base + suffix + ".gdshader"
+	var st := ShadertoyShader.parse(FileAccess.get_file_as_string(json))
+	if st.is_empty():
+		return ""
+	var picture := false
+	for p in st.passes:
+		if p.type == "image":
+			picture = p.inputs.any(func(i): return i.type in ShadertoyShader.PICTURE_TYPES)
+	var a := ShadertoyShader.analyze(st, picture)
+	if not a.ok or not a.edits.is_empty():
+		return ""
+	var path := base + (StudioShadertoy.EFFECT_SUFFIX if picture else "") + ".gdshader"
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return ""
+	f.store_string(ShadertoyShader.to_effect_gdshader(st, StudioShadertoy.INCLUDE_DIR) if picture
+			else ShadertoyShader.to_gdshader(st, StudioShadertoy.INCLUDE_DIR))
+	f.close()
+	return path
+
+
 func is_busy() -> bool:
 	return _busy or not _queue.is_empty() or not _loop_queue.is_empty()
 
@@ -154,10 +212,13 @@ func _process(_delta: float) -> void:
 
 func _render(asset: Dictionary) -> void:
 	_busy = true
-	var vp: SubViewport = _set_up(asset).viewport
+	var drawn := _drawable(asset)
+	var vp: SubViewport = _set_up(drawn).viewport
 	for i in 2:
 		await get_tree().process_frame
-	_frame_asset(vp, asset)
+	_frame_asset(vp, drawn)
+	if asset.type == "shadertoy":
+		use_preview_time(vp, SHADERTOY_START, {})
 	for i in FRAMES:
 		await get_tree().process_frame
 	var img := vp.get_texture().get_image()
@@ -176,17 +237,19 @@ func _render(asset: Dictionary) -> void:
 ## one is kept.
 func _render_loop(asset: Dictionary) -> void:
 	_busy = true
-	var set := _set_up(asset)
+	var drawn := _drawable(asset)
+	var set := _set_up(drawn)
 	var vp: SubViewport = set.viewport
 	var audio: FakeAudio = set.audio
 	for i in 2:
 		await get_tree().process_frame
-	_frame_asset(vp, asset)
+	_frame_asset(vp, drawn)
 	var copies := {}
 	var frames: Array[Image] = []
 	var moves := false
+	var start := SHADERTOY_START if asset.type == "shadertoy" else 0.0
 	for i in LOOP_FRAMES:
-		var t := i / LOOP_FPS
+		var t := start + i / LOOP_FPS
 		if audio != null:
 			audio.clock = t
 		use_preview_time(vp, t, copies)

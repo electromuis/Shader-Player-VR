@@ -354,11 +354,16 @@ static func _color(key: String, label: String, alpha: bool, default: Color, conf
 		"config": config, "slot": slot, "param": key}
 
 
-## An effect's name for people: the built-in's label, else its key.
+## An effect's name for people: the built-in's label, a file's `@title`,
+## else its key.
 static func effect_label(key: String, path: String) -> String:
 	for b in VisualizerShaders.builtins(true):
 		if b.key == path:
 			return b.label
+	if path != "" and not path.begins_with("res://") and FileAccess.file_exists(path):
+		var code := FileAccess.get_file_as_string(path)
+		if code.contains("@title"):
+			return VisualizerShaders.title_of(code, path)  # e.g. a Shadertoy shader's name
 	return key.capitalize()
 
 

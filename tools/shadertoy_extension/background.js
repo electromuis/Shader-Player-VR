@@ -22,7 +22,7 @@ async function findGodot() {
 
 async function send(shader, thumbnail) {
   const godot = await findGodot();
-  if (!godot) return {ok: false, error: "Godot isn't running (open the VJ editor)"};
+  if (!godot) return {ok: false, error: "Godot isn't running (open the VJ editor or Studio)"};
   try {
     const r = await fetch(`http://127.0.0.1:${godot.port}/vj/shadertoy`, {
       method: 'POST',

@@ -36,7 +36,10 @@ extends Node3D
 ## Press a card to pick it up and let go where it should go in the world
 ## (or click the card, then click the spot); StudioAssetDrop writes it, and
 ## bundles a user asset into the piece's folder (StudioBundle). Its Open tab
-## opens pieces, or a video to start a new piece. On the desktop it's a
+## opens pieces, or a video to start a new piece. Its Shadertoy tab has the
+## shaders collected from shadertoy.com (StudioShadertoy): Studio runs a
+## ShadertoyReceiver, as the authoring addon does, for the Chrome extension
+## to send them to, and a card becomes a layer or an effect when taken. On the desktop it's a
 ## panel on the left; in the headset a panel to your front left. Files
 ## dropped on the window: a piece or video opens, a shader or prefab goes
 ## into the piece.
@@ -68,7 +71,9 @@ extends Node3D
 ##
 ## Command line (after `--`): --piece <script.json, or a video: its
 ## same-name .json, made empty if there's none>, --start <seconds>, --vr,
-## --desktop, --library <folder> (more assets for the shelf; repeatable).
+## --desktop, --library <folder> (more assets for the shelf; repeatable),
+## --shadertoy <folder> (the Shadertoy collection, instead of the one
+## shared with the authoring addon; ShadertoyLibrary.default_dir).
 
 ## Scrubbing speed at full stick, in seconds of timeline per second.
 const SCRUB_SPEED := 20.0
@@ -177,6 +182,8 @@ var recorder := StudioRecorder.new()
 var _beats_applied := ""
 var thumbnailer: StudioThumbnailer
 var dropper := StudioAssetDrop.new()
+## Where the Chrome extension sends Shadertoy shaders (the Shadertoy tab).
+var shadertoy_receiver: ShadertoyReceiver
 ## Pulses on the controllers confirming grabs, snaps, keys, drops, takes.
 var haptics := StudioHaptics.new()
 ## The take being recorded has been felt starting (after its pre-roll).
@@ -269,6 +276,13 @@ func _ready() -> void:
 	thumbnailer.name = "Thumbnailer"
 	add_child(thumbnailer)
 	dropper.edits = edits
+	shadertoy_receiver = ShadertoyReceiver.new()
+	shadertoy_receiver.name = "ShadertoyReceiver"
+	shadertoy_receiver.app_name = "VJ Studio"
+	shadertoy_receiver.library = ShadertoyLibrary.new(library.shadertoy_dir)
+	shadertoy_receiver.received.connect(_on_shadertoy_received)
+	add_child(shadertoy_receiver)
+	shadertoy_receiver.start()
 	_bind_shelf(shelf)
 	_make_shelf_panel()
 	add_child(_ghost)
@@ -1177,6 +1191,7 @@ func _bind_shelf(view: StudioAssetShelf) -> void:
 	view.library = library
 	view.thumbnailer = thumbnailer
 	view.runner = runner
+	view.receiver = shadertoy_receiver
 	view.said.connect(_say)
 	view.taken.connect(_on_taken.bind(view))
 	view.open_requested.connect(func(path: String): open_piece(path))
@@ -1282,8 +1297,25 @@ func _on_taken(asset: Dictionary, view: StudioAssetShelf) -> void:
 	for other in _shelves():
 		other.show_held(asset.id)
 	var tex := thumbnailer.thumbnail(asset)
+	if tex == null and asset.get("picture", "") != "":
+		tex = ShadertoyLibrary.load_thumbnail(asset.picture)  # a Shadertoy card's, until it's drawn
 	_ghost.set_picture(tex)
 	_say("Carrying %s: let go where it goes (Esc puts it back)." % asset.label)
+
+
+## The Chrome extension sent a shader: it's on the Shadertoy tab.
+func _on_shadertoy_received(st: Dictionary) -> void:
+	_library_signature = library.signature()
+	for view in _shelves():
+		view.show_tab(StudioAssetShelf.SHADERTOY_TAB)
+	_say("From Shadertoy: %s. It's on the shelf's Shadertoy tab." % st.name)
+
+
+## Use `dir` for the Shadertoy collection (the --shadertoy option; checks).
+func set_shadertoy_dir(dir: String) -> void:
+	library.shadertoy_dir = dir
+	shadertoy_receiver.library = ShadertoyLibrary.new(dir)
+	_refresh_shelf()
 
 
 ## Save the selection's setup (prefab, config, size) as a look on the
@@ -1620,6 +1652,8 @@ func _parse_cli_args() -> void:
 			_cli_desktop = true
 		elif a == "--library" and i + 1 < args.size():
 			library.library_dirs.append(args[i + 1])
+		elif a == "--shadertoy" and i + 1 < args.size():
+			library.shadertoy_dir = args[i + 1]
 	# "Open with" / dropping a file on the .exe.
 	if _cli_piece == "":
 		for a in OS.get_cmdline_args():

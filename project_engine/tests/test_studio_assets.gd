@@ -57,6 +57,7 @@ static func _library(root: String) -> StudioAssetLibrary:
 	lib.shader_dirs = []  # not the user's real folders
 	lib.library_dirs = [root.path_join("lib")]
 	lib.piece_dir = root.path_join("piece")
+	lib.shadertoy_dir = root.path_join("shadertoy")  # not the user's collection
 	return lib
 
 

@@ -164,7 +164,7 @@ func _initialize() -> void:
 	var lane_at: int = ribbon._lanes.map(func(l): return l.id).find("switched")
 	ribbon._vscroll = maxf(lane_at - 1, 0) * ribbon._lane
 	await frames(6)
-	print("timeline rows: ", ribbon._rows.map(func(r): return "%s%s" % [r.label, " (switch)" if r.get("switch") else ""]))
+	print("timeline rows: ", ribbon._rows.get(studio.tools.selected, []).map(func(r): return "%s%s" % [r.label, " (switch)" if r.get("switch") else ""]))
 	var switched_ins := ins._fx_rows.map(func(r): return r.switch.button_pressed)
 	print("inspector switch at 5 s (fading, still on): %s" % switched_ins)
 	await shot_panel("timeline", ribbon)

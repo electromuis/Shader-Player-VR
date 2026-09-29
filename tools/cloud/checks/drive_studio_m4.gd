@@ -133,7 +133,7 @@ func _initialize() -> void:
 	tools.select("cube_1")
 	await key(KEY_I)
 	await frames(3)
-	print("rows: ", ribbon._rows.map(func(r): return "%s (%d)" % [r.label, r.keys.size()]))
+	print("rows: ", ribbon._rows.get(tools.selected, []).map(func(r): return "%s (%d)" % [r.label, r.keys.size()]))
 	await key(KEY_G, false, true)  # snapping on: keys land on beats
 	var from := row_point("Position", 5.3)
 	await pointer(from)

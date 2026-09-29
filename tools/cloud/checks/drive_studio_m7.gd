@@ -114,7 +114,7 @@ func _initialize() -> void:
 	await frames(6)
 	print("selected: ", tools.selected, ", inspector: '", studio.inspector._title.text, "' — ",
 			studio.inspector._viewer_state.text.replace("\n", " / ") if studio.inspector._viewer_state != null else "")
-	print("ribbon rows: ", rb._rows.map(func(r): return "%s (%d)" % [r.label, r.keys.size()]))
+	print("ribbon rows: ", rb._rows.get(tools.selected, []).map(func(r): return "%s (%d)" % [r.label, r.keys.size()]))
 	# Grab the 48 s key on the path and carry it 3 m to the left.
 	var from := Vector3(6, 4, -20)
 	var k: Dictionary = tools.pick_key(from, Vector3(0, 3, -30) - from)

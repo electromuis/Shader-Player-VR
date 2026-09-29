@@ -2,7 +2,8 @@ extends VBoxContainer
 
 ## Config tab of the F2 floating panel: app-wide viewer preferences backed
 ## by PlayerSettings (saved on every change). Controls are built in code —
-## it's a flat list of labelled rows.
+## it's a flat list of labelled rows, each with ↺ back to its default
+## (disabled while at it). Studio shows this tab too, so the same ↺ there.
 
 const LABEL_WIDTH := 190
 
@@ -29,6 +30,8 @@ var _decoder: OptionButton
 var _renderer: OptionButton  # null off Windows
 var _renderer_note: Label
 var _rows: Dictionary = {}  # label -> its row
+var _resets: Dictionary = {}  # ↺ button -> the PlayerSettings fields it resets
+var _renderer_reset: Button
 
 
 func _ready() -> void:
@@ -39,7 +42,7 @@ func _ready() -> void:
 	_locomotion.add_item("Free — walk and snap-turn", PlayerSettings.Locomotion.FREE)
 	_locomotion.item_selected.connect(func(idx: int):
 		_apply_ui(func(): _settings.locomotion = _locomotion.get_item_id(idx)))
-	_row("Movement", _locomotion)
+	_row("Movement", _locomotion, ["locomotion"])
 
 	# Scripts may move the viewer: smoothly (rides), only in cuts (a fade
 	# at each key, for viewers who get motion sick), or not at all.
@@ -51,7 +54,7 @@ func _ready() -> void:
 		_apply_ui(func():
 			_settings.allow_script_camera = idx != 2
 			_settings.script_camera_cuts_only = idx == 1))
-	_row("Script camera", _script_camera)
+	_row("Script camera", _script_camera, ["allow_script_camera", "script_camera_cuts_only"])
 
 	_skybox = OptionButton.new()
 	_skybox.item_selected.connect(func(idx: int):
@@ -60,31 +63,31 @@ func _ready() -> void:
 	rescan.text = "Rescan"
 	rescan.tooltip_text = "Look for new panoramas in the skyboxes folders"
 	rescan.pressed.connect(_refresh_skybox_list)
-	_row("Skybox", _skybox, rescan)
+	_row("Skybox", _skybox, ["skybox"], rescan)
 
 	_floor = CheckButton.new()
 	_floor.text = "Show floor"
 	_floor.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.show_floor = on))
-	_row("Floor", _floor)
+	_row("Floor", _floor, ["show_floor"])
 
 	_fps = CheckButton.new()
 	_fps.text = "Show frames per second"
 	_fps.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.show_fps = on))
-	_row("FPS", _fps)
+	_row("FPS", _fps, ["show_fps"])
 
 	_fullscreen = CheckButton.new()
 	_fullscreen.text = "Fill the screen (F11)"
 	_fullscreen.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.fullscreen = on))
-	_row("Fullscreen", _fullscreen)
+	_row("Fullscreen", _fullscreen, ["fullscreen"])
 
 	_play_bar = CheckButton.new()
 	_play_bar.text = "Show the desktop play bar (H)"
 	_play_bar.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.show_play_bar = on))
-	_row("Play bar", _play_bar)
+	_row("Play bar", _play_bar, ["show_play_bar"])
 
 	_ui_scale = OptionButton.new()
 	for s in PlayerSettings.UI_SCALES:
@@ -92,14 +95,14 @@ func _ready() -> void:
 	_ui_scale.tooltip_text = "Size of the desktop window's text and controls (also Studio's). Panels in the headset keep their size."
 	_ui_scale.item_selected.connect(func(idx: int):
 		_apply_ui(func(): _settings.ui_scale = PlayerSettings.UI_SCALES[idx]))
-	_row("UI scale", _ui_scale)
+	_row("UI scale", _ui_scale, ["ui_scale"])
 
 	_camera_fx = CheckButton.new()
 	_camera_fx.text = "Allow full-view effects"
 	_camera_fx.tooltip_text = "Camera effects (kaleidoscopes, colour cycling, warps) from presets and scripts"
 	_camera_fx.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.camera_fx = on))
-	_row("Camera effects", _camera_fx)
+	_row("Camera effects", _camera_fx, ["camera_fx"])
 	_camera_fx_max = HSlider.new()
 	_camera_fx_max.min_value = 0.0
 	_camera_fx_max.max_value = 1.0
@@ -112,7 +115,7 @@ func _ready() -> void:
 	_camera_fx_max.value_changed.connect(func(v: float):
 		_camera_fx_max_value.text = "%d%%" % roundi(v * 100.0)
 		_apply_ui(func(): _settings.camera_fx_max = v))
-	_row("Effects at most", _camera_fx_max, _camera_fx_max_value)
+	_row("Effects at most", _camera_fx_max, ["camera_fx_max"], _camera_fx_max_value)
 
 	_volume = HSlider.new()
 	_volume.min_value = 0.0
@@ -125,7 +128,7 @@ func _ready() -> void:
 	_volume.value_changed.connect(func(v: float):
 		_volume_value.text = "%d%%" % roundi(v * 100.0)
 		_apply_ui(func(): _settings.volume = v))
-	_row("Volume", _volume, _volume_value)
+	_row("Volume", _volume, ["volume"], _volume_value)
 
 	_end_action = OptionButton.new()
 	for key in PlayerSettings.END_ACTIONS:
@@ -133,7 +136,7 @@ func _ready() -> void:
 	_end_action.tooltip_text = "Next follows the order of the Files / Network list the video was picked from"
 	_end_action.item_selected.connect(func(idx: int):
 		_apply_ui(func(): _settings.end_action = PlayerSettings.END_ACTIONS[idx]))
-	_row("At video end", _end_action)
+	_row("At video end", _end_action, ["end_action"])
 
 	_decoder = OptionButton.new()
 	for key in PlayerSettings.VIDEO_DECODERS:
@@ -146,7 +149,7 @@ func _ready() -> void:
 	_decoder.tooltip_text = "Videos the chosen decoder can't open play with the other one. Changing it reopens the current video."
 	_decoder.item_selected.connect(func(idx: int):
 		_apply_ui(func(): _settings.video_decoder = PlayerSettings.VIDEO_DECODERS[idx]))
-	_row("Video decoder", _decoder)
+	_row("Video decoder", _decoder, ["video_decoder"])
 
 	if RendererSetting.applies():
 		_renderer = OptionButton.new()
@@ -159,14 +162,20 @@ func _ready() -> void:
 				_refresh_renderer_note())
 		_renderer_note = Label.new()
 		_renderer_note.add_theme_color_override("font_color", Color(0.9, 0.75, 0.4))
-		_row("Renderer", _renderer, _renderer_note)
+		# Not a PlayerSettings field (it's read before any script runs):
+		# its ↺ chooses the project's driver.
+		_row("Renderer", _renderer, [], _renderer_note)
+		_renderer_reset = _rows["Renderer"].get_child(-1)
+		_renderer_reset.pressed.connect(func():
+			RendererSetting.choose(RendererSetting.default())
+			_refresh())
 
 	_live_sync = CheckButton.new()
 	_live_sync.text = "Follow the authoring editor"
 	_live_sync.tooltip_text = "When the player was started from the editor's Preview button, or DaVinci Resolve's VJ Sync script is running: scrubbing and playing there drive this player, and pausing here moves the editor's playhead"
 	_live_sync.toggled.connect(func(on: bool):
 		_apply_ui(func(): _settings.live_sync = on))
-	_row("Editor sync", _live_sync)
+	_row("Editor sync", _live_sync, ["live_sync"])
 
 	var hint := Label.new()
 	hint.text = "Panoramas: put .jpg/.png/.hdr files in %s" % " or ".join(SkyboxLibrary.search_dirs())
@@ -220,6 +229,8 @@ func _refresh() -> void:
 	if _renderer != null:
 		_renderer.select(RendererSetting.DRIVERS.find(RendererSetting.chosen()))
 		_refresh_renderer_note()
+	for reset in _resets:
+		reset.disabled = (_resets[reset] as Array).all(func(f): return _settings.is_default(f))
 	_refreshing = false
 
 
@@ -229,6 +240,8 @@ func _refresh_renderer_note() -> void:
 	var chosen := RendererSetting.chosen()
 	var active := RendererSetting.active()
 	_renderer_note.text = "" if chosen == active else "Restart to apply (running %s)" % active
+	if _renderer_reset != null:
+		_renderer_reset.disabled = chosen == RendererSetting.default()
 
 
 ## Apply a UI change to settings unless we're mirroring settings into the UI.
@@ -237,7 +250,9 @@ func _apply_ui(apply: Callable) -> void:
 		apply.call()
 
 
-func _row(label_text: String, control: Control, trailing: Control = null) -> void:
+## A labelled row: the control, `trailing` (a value, a note, a button),
+## then ↺ putting `fields` back to their defaults.
+func _row(label_text: String, control: Control, fields: Array, trailing: Control = null) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	var label := Label.new()
@@ -248,6 +263,17 @@ func _row(label_text: String, control: Control, trailing: Control = null) -> voi
 	row.add_child(control)
 	if trailing != null:
 		row.add_child(trailing)
+	var reset := Button.new()
+	reset.text = "↺"
+	reset.flat = true
+	reset.custom_minimum_size = Vector2(44, 36)
+	reset.tooltip_text = "Back to the default"
+	if not fields.is_empty():
+		reset.pressed.connect(func():
+			for f in fields:
+				_settings.reset(f))
+		_resets[reset] = fields
+	row.add_child(reset)
 	add_child(row)
 	_rows[label_text] = row
 

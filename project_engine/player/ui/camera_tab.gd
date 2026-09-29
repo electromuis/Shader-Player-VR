@@ -100,6 +100,8 @@ var _beat_buttons: Array[Button] = []
 ## dictionary; picking a shader replaces it, see _open_next).
 var _open_effects: Array[Dictionary] = []
 var _open_next: Array = []  # [list, index] to expand on the next rebuild
+var _resets: Dictionary = {}  # the placement rows' ↺ -> the fields it resets
+var _defaults := ScreenSettings.new()  # the fields' defaults (a layer's are the same)
 
 
 func _ready() -> void:
@@ -110,6 +112,12 @@ func _ready() -> void:
 	opacity_slider.value_changed.connect(_on_edit.bind("opacity"))
 	_build_blend_picker()
 	resolution_slider.value_changed.connect(_on_edit.bind("resolution"))
+	_add_reset(size_value, ["size"])
+	_add_reset(distance_value, ["distance"])
+	_add_reset(height_value, ["height"])
+	_add_reset(tilt_value, ["tilt"])
+	_add_reset(_blend_option, ["opacity", "blend"])
+	_add_reset(resolution_value, ["resolution"])
 	lock_check.toggled.connect(_on_layer_edit.bind("lock_to_screen"))
 	enabled_check.toggled.connect(func(v: bool):
 		_on_layer_edit(v, "enabled")
@@ -145,6 +153,21 @@ func _build_blend_picker() -> void:
 		_blend_option.add_item(Screen.BLEND_LABELS[mode])
 	_blend_option.item_selected.connect(func(idx: int): _on_edit(Screen.BLENDS[idx], "blend"))
 	opacity_value.add_sibling(_blend_option)
+
+
+## A ↺ after `after` putting the edited screen's or layer's `fields` back
+## to their defaults (disabled while they're at them).
+func _add_reset(after: Control, fields: Array) -> void:
+	var reset := Button.new()
+	reset.text = "↺"
+	reset.flat = true
+	reset.tooltip_text = "Reset to default"
+	reset.pressed.connect(func():
+		if _edited() != null:
+			for f in fields:
+				_edited().set(f, _defaults.get(f)))
+	after.add_sibling(reset)
+	_resets[reset] = fields
 
 
 ## The field of view picker is projection_option, moved to its own row
@@ -825,6 +848,9 @@ func _refresh_sliders_from_settings() -> void:
 		var off: bool = name in unused or (locked and name in ["height", "tilt"])
 		sliders[name].editable = not off
 		sliders[name].modulate.a = 0.4 if off else 1.0
+	for reset in _resets:
+		var fields: Array = _resets[reset]
+		reset.disabled = fields.all(func(f): return edited.get(f) == _defaults.get(f)) 				or (fields.size() == 1 and fields[0] in sliders and not sliders[fields[0]].editable)
 	_refreshing = false
 	_update_value_labels()
 

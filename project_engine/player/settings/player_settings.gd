@@ -186,6 +186,27 @@ func to_dict() -> Dictionary:
 	}
 
 
+## Whether `field` is at its default (the Config tab's ↺ is off then).
+func is_default(field: String) -> bool:
+	var v = get(field)
+	var d = _defaults().get(field)
+	return is_equal_approx(v, d) if typeof(v) == TYPE_FLOAT else v == d
+
+
+## Put `field` back to its default (saved and signalled like any change).
+func reset(field: String) -> void:
+	set(field, _defaults().get(field))
+
+
+static var _default_values: PlayerSettings
+
+## A fresh, never saved instance: the fields' declared defaults.
+static func _defaults() -> PlayerSettings:
+	if _default_values == null:
+		_default_values = PlayerSettings.new("")
+	return _default_values
+
+
 func save() -> void:
 	var f := FileAccess.open(_path, FileAccess.WRITE)
 	if f == null:

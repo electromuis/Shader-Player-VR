@@ -1,7 +1,8 @@
 extends SceneTree
 
 ## Rendered: the Camera tab's camera effect section, a broken user effect's
-## error, and the Config tab. -> ui_*.png
+## error, the placement sliders' ↺, and the Config tab with its ↺ (one
+## pressed). -> ui_*.png
 
 func _panel_shot(content: Node, name: String) -> void:
 	for i in 25:
@@ -32,11 +33,36 @@ func _initialize() -> void:
 		await process_frame
 	scroll.scroll_vertical = 100000
 	await _panel_shot(content, "ui_camera_fx_error.png")
+	# ↺ on the placement rows: off at the default, on once moved, and back.
+	var screen: ScreenSettings = main.stage.screen_settings
+	var tab: Node = content.camera_tab
+	var size_reset: Button = tab.size_value.get_parent().get_child(tab.size_value.get_index() + 1)
+	print("size ↺ at default: disabled %s" % size_reset.disabled)
+	screen.size = 1.5
+	screen.opacity = 0.6
+	await process_frame
+	print("size ↺ after 1.5×: disabled %s" % size_reset.disabled)
+	scroll.scroll_vertical = 0
+	await _panel_shot(content, "ui_camera_resets.png")
+	size_reset.pressed.emit()
+	print("size ↺ pressed: size %s, disabled %s, opacity kept %s" % [screen.size, size_reset.disabled, screen.opacity])
+	screen.opacity = 1.0
 	var tabs: TabContainer = content.config_tab.get_parent().get_parent() if content.config_tab.get_parent() is ScrollContainer else content.config_tab.get_parent().get_parent()
 	var cfg_margin: Node = content.config_tab.get_parent()
 	while not (cfg_margin.get_parent() is TabContainer):
 		cfg_margin = cfg_margin.get_parent()
 	cfg_margin.get_parent().current_tab = cfg_margin.get_index()
+	var settings: PlayerSettings = main._player_settings
+	settings.volume = 0.4
+	settings.skybox = "space"
+	settings.script_camera_cuts_only = true
 	await _panel_shot(content, "ui_config.png")
+	var cfg: Node = content.config_tab
+	for label in ["Volume", "Skybox", "Script camera", "FPS"]:
+		print("config ↺ %s: disabled %s" % [label, (cfg._rows[label] as Control).get_child(-1).disabled])
+	(cfg._rows["Volume"] as Control).get_child(-1).pressed.emit()
+	(cfg._rows["Script camera"] as Control).get_child(-1).pressed.emit()
+	print("config ↺ pressed: volume %s, cuts only %s, skybox kept %s" % [settings.volume, settings.script_camera_cuts_only, settings.skybox])
+	settings.skybox = "black"
 	print("UI SHOTS DONE")
 	quit()

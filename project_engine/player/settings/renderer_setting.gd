@@ -38,6 +38,11 @@ static func chosen() -> String:
 	var cfg := ConfigFile.new()
 	if cfg.load(OVERRIDE_PATH) == OK and cfg.has_section_key(SECTION, KEY):
 		return String(cfg.get_value(SECTION, KEY))
+	return default()
+
+
+## The project's driver, what a start without the override file uses.
+static func default() -> String:
 	return String(ProjectSettings.get_setting("rendering/" + KEY, "d3d12"))
 
 

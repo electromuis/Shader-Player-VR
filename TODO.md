@@ -27,7 +27,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 18. Animated previews on layer and effect cards (on hover on the desktop, while the shelf is open in the headset).
 - [ ] 19. GPU cost readout per object, layer and effect, and a benchmark that plays the piece and lists the heaviest moments.
 - [ ] 20. Catch up with the player: list the player features Studio's UI doesn't use yet (e.g. Blend in the inspector) and add them.
-- [ ] 21. ↺ on the Config tab's rows (changes the player's tab too).
+- [x] 21. ↺ on the Config tab's rows (changes the player's tab too). Done 2026-09-29: every Config row (`PlayerSettings.is_default` / `reset`; the renderer back to the project's driver), and the Camera tab's placement sliders (Size … Resolution, Opacity with Blend), which had none either; `tests/test_player_settings.gd`, checked with `checks/shot_ui.gd`.
 - [x] 22. The shelf gets squeezed to about 120 px at 1280 × 720, so no card row shows. Done 2026-09-29: the user said desktop Studio can just run at 1080, so it opens its window at 1920 × 1080 (maximized on a smaller screen: 1920 × 1009 under a taskbar still shows two card rows); `Studio._size_window`.
 - [ ] 23. Looks: rename and delete in Studio, looks for a group with its children, keyframes in a look.
 - [ ] 24. External changes to an open piece (e.g. a Godot export): offer *reload* or *keep mine*.

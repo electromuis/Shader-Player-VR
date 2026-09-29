@@ -38,6 +38,7 @@ extends RefCounted
 ## filled, tapping it removes it, and a change replaces it).
 const KEY_NEAR := 0.05
 const Modifiers := preload("res://player/runtime/modifiers.gd")
+const EffectBlend := preload("res://player/visualizer/effect_blend.gd")
 ## Transform channels in the transform section.
 const CHANNELS := ["position", "rotation_deg", "scale"]
 
@@ -186,10 +187,21 @@ func _effect_section(effects: Array, i: int, list: String = EditModel.EFFECTS, c
 	elif path != "":
 		hints = {"params": ScreenGeometry.hints_for(path).params} if vertex else VisualizerShaders.hints_for(path)
 	var title := camera_label(key, path) if camera else geometry_label(path, key) if vertex else effect_label(key, path)
-	var section := _hint_section(title, hints, [list, i, "params"], "%s%d" % [name, slot] if slot >= 0 else "")
+	var slot_name := "%s%d" % [name, slot] if slot >= 0 else ""
+	var section := _hint_section(title, hints, [list, i, "params"], slot_name)
+	# How it combines with what's under it (EffectBlend): a camera effect's
+	# strength is its mix; a vertex effect has no colour to blend.
+	var blend := {"key": "blend", "label": "Blend", "type": "choice", "default": "normal",
+		"options": EffectBlend.MODES.map(func(b): return EffectBlend.LABELS[b]), "values": EffectBlend.MODES.duplicate(),
+		"config": [list, i, "blend"], "slot": slot_name, "param": "blend",
+		"tip": "How its picture goes over what it works on: Normal replaces it, the others blend like an image editor's layers"}
 	if camera:
-		section.fields.append(_float("strength", "Strength", 0.0, 1.0, 0.01, 1.0, [list, i, "strength"],
-				"%s%d" % [name, slot] if slot >= 0 else ""))
+		section.fields.append(_float("strength", "Strength", 0.0, 1.0, 0.01, 1.0, [list, i, "strength"], slot_name))
+		section.fields.append(blend)
+	else:
+		var mix := _float("mix", "Mix", 0.0, 1.0, 0.01, 1.0, [list, i, "mix"], slot_name)
+		mix["tip"] = "How much of it shows: 0 none, 1 all (key it to fade it in and out)"
+		section.fields = ([mix] if vertex else [mix, blend]) + section.fields
 	section.merge({"kind": "effect", "list": list, "index": i, "shader": key, "enabled": slot >= 0}, true)
 	for f in section.fields:
 		f.key = "%s%d/%s" % [name, i, f.param]
@@ -641,6 +653,81 @@ func _as_value(field: Dictionary, value):
 		return Color(value[0], value[1], value[2], value[3] if value.size() > 3 else 1.0) if field.slot == "modifiers" \
 				else (Vector4(value[0], value[1], value[2], value[3]) if value.size() > 3 else Vector3(value[0], value[1], value[2]))
 	return value
+
+
+# ---------- switching effects on and off ----------
+# An effect is off for the whole piece when its entry says `"enabled":
+# false` (its tracks parked, see EditModel.set_effect_enabled), or off for
+# a while through its on / off track (an `enabled` track on its slot,
+# EffectSwitch), which keeps its place so its `effect<N>` stays.
+
+## Effect `i` of `list`'s on / off track, -1 if it has none (or is off in
+## the config).
+func switch_track(id: String, i: int, list: String = EditModel.EFFECTS) -> int:
+	var target := _switch_target(id, i, list)
+	return model.find_track(ScriptFormat.TRACK_SHADER_PARAM, target, EffectSwitch.PARAM) if target != "" else -1
+
+
+## `<id>.effect<N>` (or `vertex<N>`) for effect `i`, "" while it's off in
+## the config.
+func _switch_target(id: String, i: int, list: String) -> String:
+	var slot := EditModel.effect_slot(model.effects_of(id, list), i)
+	if slot < 0:
+		return ""
+	return "%s.%s%d" % [id, "vertex" if list == EditModel.VERTEX_EFFECTS else "effect", slot]
+
+
+## Whether effect `i` is on at `t` (a fade counts as on until it's out).
+func switch_on(id: String, i: int, t: float, list: String = EditModel.EFFECTS) -> bool:
+	if EditModel.effect_slot(model.effects_of(id, list), i) < 0:
+		return false
+	var ti := switch_track(id, i, list)
+	if ti < 0:
+		return true
+	var kfs: Array = model.tracks()[ti].get("keyframes", [])
+	return EffectSwitch.level(kfs, t) > 0.0 if not kfs.is_empty() else true
+
+
+## The on / off switch's diamond: "key" (a key at `t`), "animated" (it has
+## an on / off track), else "static".
+func switch_state(id: String, i: int, t: float, list: String = EditModel.EFFECTS) -> String:
+	var ti := switch_track(id, i, list)
+	if ti < 0:
+		return "static"
+	return "key" if key_near(model.tracks()[ti].get("keyframes", []), t) >= 0 else "animated"
+
+
+## The inspector's switch for effect `i`: `on` at `t`. With auto-key, or
+## once the effect has an on / off track, it keys that at `t` (a new track
+## starts with the effect on at 0, so only from `t` does it change);
+## otherwise it switches the effect in the config, for the whole piece. An
+## effect off in the config comes back on there first. One undo step;
+## returns its label ("" if nothing changed).
+func set_switch(id: String, i: int, on: bool, t: float, auto_key: bool, list: String = EditModel.EFFECTS) -> String:
+	var effects := model.effects_of(id, list)
+	if i < 0 or i >= effects.size():
+		return ""
+	var configured := EditModel.effect_slot(effects, i) >= 0
+	var ti := switch_track(id, i, list)
+	var what := "%s's %s" % [EditModel.who(id), String(effects[i].get("shader", "effect"))]
+	if not auto_key and (ti < 0 or not configured):
+		var label := "Turn %s %s" % [what, "on" if on else "off"]
+		return label if model.set_effect_enabled(id, i, on, list) else ""
+	if not configured and not on:
+		return ""
+	var label := "Key %s %s at %s" % [what, "on" if on else "off", StudioStatus.timecode(t)]
+	var done := model.batch(label, func():
+		if not configured:
+			# Back on in the config, and off until `t` (its parked on / off
+			# track, if it had one, comes back with it).
+			model.set_effect_enabled(id, i, true, list)
+			if switch_track(id, i, list) < 0 and t > KEY_NEAR:
+				model.set_key(ScriptFormat.TRACK_SHADER_PARAM, _switch_target(id, i, list), EffectSwitch.PARAM, 0.0, false, "step")
+		elif switch_track(id, i, list) < 0 and t > KEY_NEAR:
+			model.set_key(ScriptFormat.TRACK_SHADER_PARAM, _switch_target(id, i, list), EffectSwitch.PARAM, 0.0, true, "step")
+		var at := _key_time(switch_track(id, i, list), t)
+		model.set_key(ScriptFormat.TRACK_SHADER_PARAM, _switch_target(id, i, list), EffectSwitch.PARAM, at, on, "step"))
+	return label if done else ""
 
 
 # ---------- the effects stack ----------

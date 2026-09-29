@@ -11,7 +11,8 @@ extends SceneTree
 ## Checks, per script:
 ##   - it plays the same: events, meta, media and prefab / shader keys match
 ##     the original, and every track's value, sampled every 1/20 s through
-##     the player's own Interpolation, stays within tolerance
+##     the player's own Interpolation (an effect's on / off track through
+##     its EffectSwitch, fades included), stays within tolerance
 ##   - it's stable: exporting the second import gives the first export again
 ## Warnings the importer reports (things a scene can't say) are printed.
 
@@ -22,6 +23,7 @@ const _TOLERANCE := 1e-3
 const _SAMPLES_PER_SECOND := 20.0
 
 var _interpolation: GDScript
+var _switch: GDScript
 var _fails := 0
 var _tmp := ""
 
@@ -32,7 +34,8 @@ func _initialize() -> void:
 	var dirs: Array = args if not args.is_empty() else [repo.path_join("scripts"),
 			ProjectSettings.globalize_path("res://addons/vj_editor/tests/fixtures")]
 	_interpolation = load(repo.path_join("project_engine/player/runtime/interpolation.gd"))
-	if _interpolation == null:
+	_switch = load(repo.path_join("project_engine/player/runtime/effect_switch.gd"))
+	if _interpolation == null or _switch == null:
 		push_error("roundtrip: needs the player's interpolation.gd at %s" % repo.path_join("project_engine"))
 		quit(2)
 		return
@@ -177,8 +180,9 @@ func _same_playback(a: Dictionary, b: Dictionary) -> void:
 		var end := maxf(float(ta[key][-1].t), float(tb[key][-1].t)) + 0.5
 		for n in int(end * _SAMPLES_PER_SECOND) + 1:
 			var t := n / _SAMPLES_PER_SECOND
-			var va = _interpolation.evaluate(ta[key], t)
-			var vb = _interpolation.evaluate(tb[key], t)
+			var switch: bool = key.ends_with("|enabled")
+			var va = _switch.level(ta[key], t) if switch else _interpolation.evaluate(ta[key], t)
+			var vb = _switch.level(tb[key], t) if switch else _interpolation.evaluate(tb[key], t)
 			var before := diffs.size()
 			_diff(va, vb, "%s @ %.2fs" % [key, t], diffs, _TOLERANCE)
 			samples += 1

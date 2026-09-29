@@ -30,9 +30,22 @@ const _PARAMS := "params/"
 		effect = value
 		_reload()
 
-## Off: skipped in the preview and left out of the export. Not animatable
-## (the player's vertex effects are fixed per spawn).
+## Off: skipped in the preview and left out of the export. Not animatable:
+## animate `on` instead.
 @export var enabled: bool = true
+
+## How far it moves the surface, 0..1 (the player's vertex effect `mix`;
+## animatable).
+@export_range(0.0, 1.0, 0.01) var mix: float = 1.0
+
+## On at this moment. Animate it to switch the effect on and off over time
+## (its on / off keys, each fading over `fade`); off with no keys: off from
+## the start. It keeps its place in the `vertex<N>` numbering either way.
+@export var on: bool = true
+
+## Seconds each on / off key fades over (0: at once; the preview switches
+## at once).
+@export_range(0.0, 10.0, 0.05, "or_greater", "suffix:s") var fade: float = 0.0
 
 ## The values set here; the rest keep the snippet's defaults. Edited as
 ## `params/<name>` in the inspector.
@@ -64,6 +77,11 @@ func _get_configuration_warnings() -> PackedStringArray:
 ## Whether this effect takes part (the preview and the export skip it if not).
 func is_active() -> bool:
 	return enabled and _code.contains("deform(")
+
+
+## How far it moves the surface now: its mix while it's on, else 0.
+func amount() -> float:
+	return clampf(mix, 0.0, 1.0) if on else 0.0
 
 
 ## The snippet's source ("" if unreadable).

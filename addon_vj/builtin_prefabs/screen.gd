@@ -54,6 +54,7 @@ uniform sampler2D screen_tex : source_color, filter_linear;
 void fragment() { COLOR = texture(screen_tex, UV); }
 "
 const _EffectChain := preload("res://addons/vj_editor/builtin_prefabs/effect_chain.gd")
+const _EffectBlend := preload("res://addons/vj_editor/builtin_prefabs/effect_blend.gd")
 const _EffectScript := preload("res://addons/vj_editor/builtin_prefabs/effect.gd")
 const _VertexEffectScript := preload("res://addons/vj_editor/builtin_prefabs/vertex_effect.gd")
 ## The effect slots scenes used before effects became child nodes. Still
@@ -190,6 +191,7 @@ func _process(_delta: float) -> void:
 			_render_material.set_shader_parameter(p, authored_material.get_shader_parameter(p))
 	if _chain == null:
 		return
+	_chain.mixing = effect_mixing()
 	if not _chain.is_current(effect_materials()):
 		_rebuild_effects()
 	else:
@@ -261,6 +263,14 @@ func effect_materials() -> Array[ShaderMaterial]:
 	var out: Array[ShaderMaterial] = []
 	for e in effect_nodes():
 		out.append(e.material)
+	return out
+
+
+## effect_nodes()' [blend mode index, amount] (effect_chain.gd's mixing).
+func effect_mixing() -> Array:
+	var out: Array = []
+	for e in effect_nodes():
+		out.append([maxi(_EffectBlend.MODES.find(e.blend), 0), e.amount()])
 	return out
 
 
@@ -424,6 +434,7 @@ func _sync_display() -> void:
 		var values: Dictionary = nodes[i].param_values()
 		for k in values:
 			mat.set_shader_parameter(_Code.vertex_prefix(i) + k, values[k])
+		mat.set_shader_parameter(_Code.vertex_prefix(i) + "mix", nodes[i].amount())
 	var place: int = _Code.PLACEMENTS.find(sc.placement)
 	mat.set_shader_parameter("placement", place)
 	var mesh := get_node_or_null("Mesh") as MeshInstance3D
@@ -453,6 +464,7 @@ func _viewer_eye() -> Vector3:
 func _rebuild_effects() -> void:
 	if _chain == null or _display_material == null:
 		return
+	_chain.mixing = effect_mixing()
 	var out: Texture2D = _chain.build(_render_viewport().get_texture(), effect_materials(),
 			_render_size(), _picture_aspect())
 	_display_material.set_shader_parameter("frame_tex", out)

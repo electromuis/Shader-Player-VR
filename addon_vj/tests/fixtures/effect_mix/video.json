@@ -1,0 +1,41 @@
+{
+  "format_version": 2,
+  "meta": {"title": "Effects' mix, blend and on / off keys", "author": "", "created": ""},
+  "media": {"video": "video.mp4"},
+  "prefabs": {
+    "screen": "res://player/prefabs/screen.tscn"
+  },
+  "shaders": {
+    "glow": "res://player/visualizer/effects/glow.gdshader",
+    "oval_mask": "res://player/visualizer/effects/oval_mask.gdshader"
+  },
+  "tracks": [
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "main_screen", "prefab": "screen",
+      "transform": {"position": [0.0, 2.0, -4.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.3, 0.3, 0.3]},
+      "config": {
+        "effects": [
+          {"shader": "glow", "params": {"intensity": 2.0}, "mix": 0.6, "blend": "screen"},
+          {"shader": "oval_mask", "params": {"size": 0.5}}
+        ],
+        "vertex_effects": [{"shader": "ripple", "params": {"amplitude": 0.2}, "mix": 0.5}]
+      }},
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "side", "prefab": "screen",
+      "transform": {"position": [3.0, 2.0, -4.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.2, 0.2, 0.2]},
+      "config": {"effects": [{"shader": "glow", "blend": "add"}]}},
+    {"type": "shader_param", "target": "main_screen.effect0", "param": "mix",
+      "keyframes": [{"t": 0.0, "value": 0.6}, {"t": 4.0, "value": 1.0}]},
+    {"type": "shader_param", "target": "main_screen.effect0", "param": "blend",
+      "keyframes": [{"t": 0.0, "value": "screen", "interp": "step"}, {"t": 3.0, "value": "multiply", "interp": "step"}]},
+    {"type": "shader_param", "target": "main_screen.effect1", "param": "enabled",
+      "keyframes": [
+        {"t": 0.0, "value": true, "interp": "step", "transition": {"type": "fade", "duration": 1.5}},
+        {"t": 2.0, "value": false, "interp": "step", "transition": {"type": "fade", "duration": 1.5}},
+        {"t": 5.0, "value": true, "interp": "step", "transition": {"type": "fade", "duration": 1.5}}]},
+    {"type": "shader_param", "target": "main_screen.vertex0", "param": "enabled",
+      "keyframes": [{"t": 0.0, "value": false, "interp": "step"}, {"t": 1.0, "value": true, "interp": "step"}]},
+    {"type": "shader_param", "target": "main_screen.vertex0", "param": "mix",
+      "keyframes": [{"t": 1.0, "value": 0.5}, {"t": 2.0, "value": 1.0}]},
+    {"type": "shader_param", "target": "side.effect0", "param": "enabled",
+      "keyframes": [{"t": 0.0, "value": false, "interp": "step"}]}
+  ]
+}

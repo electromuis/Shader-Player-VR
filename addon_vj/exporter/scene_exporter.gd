@@ -448,7 +448,7 @@ static func _tracks_from_animation(scene: Node, animation: Animation, objects: A
 			push_warning("VJ export: track '%s' must target a property — skipped." % path)
 			continue
 		if type == Animation.TYPE_VALUE:
-			_route_track(out, obj, slot, path, _value_track_keys(animation, i))
+			_route_track(out, obj, slot, path, _value_track_keys(animation, i), node)
 			continue
 		# Bezier tracks animate one float each; a vector's or colour's
 		# components (`position:x`, `glow_tint:r`) are regrouped into the
@@ -461,17 +461,59 @@ static func _tracks_from_animation(scene: Node, animation: Animation, objects: A
 			bezier_groups[String(prop_path)] = group
 		group.comps[split[1]] = i
 	for group in bezier_groups.values():
-		_route_track(out, group.obj, group.slot, group.path, _bezier_keys(animation, group.node, group.path, group.comps))
+		_route_track(out, group.obj, group.slot, group.path, _bezier_keys(animation, group.node, group.path, group.comps), group.node)
+	_add_still_switches(out, objects)
 	return out
 
 
+## An effect left off (`on` false) with no keys is off from the start: one
+## off key, so the player (which counts it in effect<N>) agrees.
+static func _add_still_switches(out: Array, objects: Array) -> void:
+	var keyed := {}
+	for t in out:
+		if t.get("param") == "enabled":
+			keyed[t.target] = true
+	for obj in objects:
+		for kind in [["effect_nodes", "effect"], ["vertex_effect_nodes", "vertex"]]:
+			if not obj.node.has_method(kind[0]):
+				continue
+			var nodes: Array = obj.node.call(kind[0])
+			for n in nodes.size():
+				var target := "%s.%s%d" % [obj.id, kind[1], n]
+				if not nodes[n].on and not keyed.has(target):
+					out.append({"type": "shader_param", "target": target, "param": "enabled",
+							"keyframes": [{"t": 0.0, "value": false, "interp": "step"}]})
+
+
 ## `slot` "effect<N>" / "vertex<N>": the track animates that effect (a
-## VJEffect / VJVertexEffect child of `obj`); only its params export.
-static func _route_track(out: Array, obj: _Obj, slot: String, path: NodePath, keys: Array) -> void:
+## VJEffect / VJVertexEffect child of `obj`, `effect_node`); its params,
+## `mix`, `blend` (effects) and `on` (as `enabled` keys, each fading over
+## the node's `fade`) export.
+static func _route_track(out: Array, obj: _Obj, slot: String, path: NodePath, keys: Array, effect_node: Node = null) -> void:
 	if slot == "":
 		_append_track(out, obj, path, keys)
 		return
 	var first := String(path.get_subname(0))
+	var target := "%s.%s" % [obj.id, slot]
+	if first == "on":
+		var fade: float = float(effect_node.get("fade")) if effect_node != null else 0.0
+		var track := _shader_param_track(keys, target, "enabled")
+		for kf in track.keyframes:
+			kf["value"] = bool(kf.value)
+			kf["interp"] = "step"
+			kf.erase("in")
+			kf.erase("out")
+			if fade > 0.0:
+				kf["transition"] = {"type": "fade", "duration": fade}
+		out.append(track)
+		return
+	if first == "mix" or (first == "blend" and slot.begins_with("effect")):
+		var track := _shader_param_track(keys, target, first)
+		if first == "blend":
+			for kf in track.keyframes:
+				kf["interp"] = "step"
+		out.append(track)
+		return
 	if slot.begins_with("vertex"):
 		if not first.begins_with("params/"):
 			push_warning("VJ export: only a vertex effect's params/<name> animates ('%s') — skipped." % path)
@@ -960,6 +1002,8 @@ static func _vertex_effects_config(node: Node3D, out_dir: String, shaders: Dicti
 			params[k] = _value_to_json(v.params[k])
 		if not params.is_empty():
 			e["params"] = params
+		if v.mix < 1.0:
+			e["mix"] = snappedf(v.mix, 0.0001)
 		out.append(e)
 	return out
 
@@ -982,6 +1026,10 @@ static func _effects_config(node: Node3D, out_dir: String, shaders: Dictionary) 
 			e["params"] = params
 		if not child.enabled:
 			e["enabled"] = false
+		if child.mix < 1.0:
+			e["mix"] = snappedf(child.mix, 0.0001)
+		if child.blend != "normal":
+			e["blend"] = child.blend
 		out.append(e)
 	return out
 

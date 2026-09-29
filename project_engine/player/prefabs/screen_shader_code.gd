@@ -61,8 +61,10 @@ static func build(include: String, vertex_sources: Array, surface_source: String
 		var src := String(vertex_sources[i])
 		if not src.contains("deform("):
 			continue
-		code += prefixed(src, vertex_prefix(i)) + "\n"
-		calls += "\tp = %sdeform(p, UV, half_m);\n" % vertex_prefix(i)
+		# `mix` (0..1): how far it moves the surface (a GLSL built-in's
+		# name, so no snippet declares it).
+		code += prefixed(src, vertex_prefix(i)) + "\nuniform float %smix = 1.0;\n" % vertex_prefix(i)
+		calls += "\tp = mix(p, %sdeform(p, UV, half_m), %smix);\n" % [vertex_prefix(i), vertex_prefix(i)]
 	if surface_source.contains("surface("):
 		code += prefixed(surface_source, SURFACE_PREFIX) + "\n"
 		calls += "\tp = %ssurface(p, UV, half_m);\n" % SURFACE_PREFIX

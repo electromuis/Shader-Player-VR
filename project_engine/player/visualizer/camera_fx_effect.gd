@@ -20,6 +20,8 @@ const _COPY := &"view_copy"
 var code: String = ""
 var values: PackedFloat32Array = PackedFloat32Array()
 var strength: float = 0.0
+## How the result combines with the view (an EffectBlend.MODES index).
+var blend: int = 0
 ## The effect's iTime, in seconds (MediaTime's, or the engine's for a
 ## `@free_time` effect).
 var time: float = 0.0
@@ -145,7 +147,7 @@ func _render_callback(callback_type: int, render_data: RenderData) -> void:
 
 		var push := PackedFloat32Array([size.x, size.y, time, clampf(strength, 0.0, 1.0),
 				audio.x, audio.y, audio.z, audio.w]).to_byte_array()
-		push.append_array(PackedInt32Array([view, _mask_count, CameraFxShaders.MAX_PARAMS, 0]).to_byte_array())
+		push.append_array(PackedInt32Array([view, _mask_count, CameraFxShaders.MAX_PARAMS, blend]).to_byte_array())
 		_rd.compute_list_bind_compute_pipeline(list, _pipeline)
 		_rd.compute_list_bind_uniform_set(list, UniformSetCacheRD.get_cache(_shader, 0, [
 				_image_uniform(0, color),

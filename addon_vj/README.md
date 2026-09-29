@@ -90,8 +90,8 @@ project, and its export writes back to that JSON (see *Import* below).
   effect ▸** (every file in `visualizer/vertex/`: Ripple, Twist, Bulge, Spin, Pulse), or set `effect` to your own
   `.gdshaderinc` (see the player's `ScreenGeometry`; copied to
   `<json dir>/shaders/` on export). Its sliders are `params/<name>`. The
-  enabled ones export as `config.vertex_effects`. Audio-driven ones stay
-  still in the editor.
+  enabled ones export as `config.vertex_effects`, with their `mix` (how far
+  each moves the surface). Audio-driven ones stay still in the editor.
 - Effects (screens and layers): `VJEffect` child nodes (`builtin_prefabs/effect.gd`),
   run in child order, so drag them to reorder. Right-click a screen or layer →
   **Add VJ effect ▸** picks one of `visualizer/effects/` (Key black, Oval mask,
@@ -99,7 +99,13 @@ project, and its export writes back to that JSON (see *Import* below).
   Image overlay and the looks: Chroma split, Kaleidoscope, Neon edges, ...); **Empty** takes your own effect shader (include
   `visualizer/effect_prelude.gdshaderinc`) in its `material`. They export as
   `config.effects`; switched-off ones (`enabled` off) go along with
-  `"enabled": false`, which the player skips. Scenes from before effects were nodes have
+  `"enabled": false`, which the player skips for the whole piece. Each has a
+  `mix` (how much of it shows; animatable) and a `blend` mode (how its picture
+  goes over what it works on: Normal, Add, Multiply, Screen, ...), which the
+  preview shows as the player does. To switch an effect (or a vertex effect)
+  on and off over time, animate its `on` (not `enabled`): it exports as
+  on / off keys, each fading over the effect's `fade` seconds; `on` off with
+  no keys is off from the start. Scenes from before effects were nodes have
   `effect_1..4` slots, which no longer preview or export: run **Tools > VJ:
   Convert effect slots to nodes** once (undoable). It moves them into nodes
   named after their shaders and rewrites the tracks.
@@ -165,6 +171,11 @@ project, and its export writes back to that JSON (see *Import* below).
     (`<node>.layer` on layers)
   - `<node>/<effect>:material:shader_parameter/<p>` → target `<node>.effect<N>`,
     N being the effect's place among the node's enabled effects (from 0)
+  - `<node>/<effect>:mix` / `:blend` → target `<node>.effect<N>`, params
+    `mix` / `blend`; `<node>/<effect>:on` → param `enabled` (step keys, each
+    with the effect's `fade` as its transition); `:mix` and `:on` on a
+    vertex effect go to `<node>.vertex<N>`. Importing gives the effect the
+    first key's fade (keys with other fades are warned about)
   - `<node>:tint` / `:flash` / `:speed` / `:sort_offset`, and `:opacity` on
     other VJ objects than screens and layers → target `<node>.modifiers`
   - `<node>:spin` / `:pulse` → target `<node>.reactive`

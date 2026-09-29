@@ -12,7 +12,7 @@ static func test_settings_save_and_reset(tc: TestCase) -> void:
 	DirAccess.remove_absolute(PATH)
 	var s := StudioSettings.new(PATH)
 	s.load_from_disk()
-	tc.assert_eq(s.to_dict(), {"kind": "studio_settings", "key_mode": "off", "haptics": true, "autosave": true, "floor_grid": true}, "defaults with no file")
+	tc.assert_eq(s.to_dict(), {"kind": "studio_settings", "key_mode": "off", "haptics": true, "autosave": true, "floor_grid": true, "all_paths": true}, "defaults with no file")
 	var changes := [0]
 	s.changed.connect(func(): changes[0] += 1)
 	s.key_mode = "animated"

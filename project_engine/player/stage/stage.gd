@@ -101,6 +101,9 @@ func _ready() -> void:
 
 	comfort_vignette = ComfortVignette.new()
 	xr_rig.xr_camera.add_child(comfort_vignette)
+	gpu_cost = GpuCost.new()
+	gpu_cost.stage = self
+	add_child(gpu_cost)
 	xr_mode.entered_vr.connect(_on_entered_vr)
 	xr_mode.exited_vr.connect(_on_exited_vr)
 
@@ -798,6 +801,8 @@ const RIDE_CALM := 0.5
 const RIDE_FULL := 5.0
 const TURN_FULL := 45.0
 var comfort_vignette: ComfortVignette
+## What the picture costs on the GPU, per part (the Performance tab).
+var gpu_cost: GpuCost
 var comfort_extra := 0.0
 
 ## Whether the stage follows the script's viewer track at all (the app can

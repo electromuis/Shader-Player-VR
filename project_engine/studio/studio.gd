@@ -1845,7 +1845,7 @@ func _bind_menu_panel() -> void:
 
 
 func _bind_menu_view(view: StudioMenu) -> void:
-	view.bind(_settings, stage.router, studio_settings)
+	view.bind(_settings, stage.router, studio_settings, stage, tools.select)
 	view.close_requested.connect(func(): _set_menu.call_deferred(false))
 	view.studio_tab.shaders_reloaded.connect(func():
 		for inspector in _inspectors():

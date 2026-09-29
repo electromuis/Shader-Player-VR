@@ -25,11 +25,16 @@ const ACCENT := Color(0.35, 0.55, 0.9)
 @onready var close_button: Button = %CloseButton
 @onready var quit_button: Button = %QuitButton
 
+const PERFORMANCE_TAB := preload("res://player/ui/performance_tab.gd")
+
+## Built in code (_ready), after the scene's tabs.
+var performance_tab: Node
 var _quit_armed: bool = false
 
 
 func _ready() -> void:
 	theme = _panel_theme()
+	performance_tab = add_tab($Tabs, "Performance", PERFORMANCE_TAB)
 	close_button.pressed.connect(close_requested.emit)
 	quit_button.pressed.connect(_on_quit_pressed)
 
@@ -123,3 +128,28 @@ func bind_config(settings: PlayerSettings) -> void:
 func bind_controls(router: InputRouter) -> void:
 	if controls_tab != null and controls_tab.has_method("bind"):
 		controls_tab.bind(router)
+
+
+func bind_performance(stage: Stage) -> void:
+	if performance_tab != null:
+		performance_tab.bind(stage)
+
+
+## A tab on `tabs`: `script` on a VBoxContainer in a scroll, with the
+## scene's tab margins (as Studio's menu builds its tabs).
+static func add_tab(tabs: TabContainer, title: String, script: Script) -> Node:
+	var margin := MarginContainer.new()
+	margin.name = title
+	for side in ["left", "right"]:
+		margin.add_theme_constant_override("margin_" + side, 16)
+	for side in ["top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 12)
+	tabs.add_child(margin)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	margin.add_child(scroll)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.set_script(script)
+	scroll.add_child(box)
+	return box

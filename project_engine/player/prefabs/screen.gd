@@ -663,6 +663,23 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 
 ## The last pass made is step `step` of `count` (a multi-pass effect's or
 ## prepass's), and its shader is told so.
+## The SubViewports this screen draws in, for GpuCost: [{viewport, part,
+## effect, key}], part "shader" (the artist pass), "effect" (an effect's
+## pass, prepass or blend pass; effect: its index, key: its shader) or
+## "copy" (a chain_copy pass). The artist pass only while it renders.
+func gpu_passes() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if render_viewport != null and render_viewport.render_target_update_mode != SubViewport.UPDATE_DISABLED:
+		out.append({"viewport": render_viewport, "part": "shader", "effect": -1, "key": ""})
+	for p in _passes:
+		var i: int = p.effect
+		if i >= 0:
+			out.append({"viewport": p.viewport, "part": "effect", "effect": i, "key": _effect_keys[i]})
+		else:
+			out.append({"viewport": p.viewport, "part": "copy", "effect": i, "key": ""})
+	return out
+
+
 func _mark_step(step: int, count: int) -> void:
 	_passes[-1].step = step
 	_passes[-1].count = count

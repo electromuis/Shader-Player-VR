@@ -447,6 +447,8 @@ func _bind_panel_content() -> void:
 		content.bind_config(_player_settings)
 	if content.has_method("bind_controls"):
 		content.bind_controls(stage.router)
+	if content.has_method("bind_performance"):
+		content.bind_performance(stage)
 	if content.has_method("bind_files"):
 		content.bind_files(runner, func(path: String, playlist: Playlist = null):
 			_close_panel_after_pick()

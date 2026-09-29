@@ -4,7 +4,8 @@ extends PanelContainer
 ## Studio's menu (F2, or hold ≡ in the headset), shown on a FloatingPanel
 ## like the player's: the player's Config tab (the settings are shared with
 ## it, minus the rows that don't apply here), its Controls tab listing
-## Studio's commands, and a Studio tab for Studio's own options.
+## Studio's commands, a Studio tab for Studio's own options, and the
+## player's Performance tab (its rows select the object).
 
 signal close_requested
 
@@ -12,6 +13,7 @@ const PLAYER_CONTENT := preload("res://player/ui/floating_panel_content.gd")
 const CONFIG_TAB := preload("res://player/ui/config_tab.gd")
 const CONTROLS_TAB := preload("res://player/ui/controls_tab.gd")
 const STUDIO_TAB := preload("res://studio/ui/studio_tab.gd")
+const PERFORMANCE_TAB := preload("res://player/ui/performance_tab.gd")
 ## Player rows with nothing to do in Studio: it flies rather than walks,
 ## has one piece rather than a playlist, no play bar, no editor sync.
 const HIDDEN_CONFIG_ROWS := ["Movement", "At video end", "Play bar", "Editor sync"]
@@ -27,6 +29,7 @@ var tabs: TabContainer
 var config_tab: Node
 var controls_tab: Node
 var studio_tab: Node
+var performance_tab: Node
 
 
 func _ready() -> void:
@@ -67,6 +70,7 @@ func _ready() -> void:
 	controls_tab = _tab("Controls", CONTROLS_TAB)
 	controls_tab.sections = CONTROL_SECTIONS
 	studio_tab = _tab("Studio", STUDIO_TAB)
+	performance_tab = _tab("Performance", PERFORMANCE_TAB)
 
 
 ## The VR laser reports every press twice (a touch and a click); keep the
@@ -76,10 +80,13 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-func bind(player_settings: PlayerSettings, router: InputRouter, studio_settings: StudioSettings) -> void:
+func bind(player_settings: PlayerSettings, router: InputRouter, studio_settings: StudioSettings,
+		stage: Stage = null, select: Callable = Callable()) -> void:
 	config_tab.bind(player_settings)
 	controls_tab.bind(router)
 	studio_tab.bind(studio_settings)
+	if stage != null:
+		performance_tab.bind(stage, select)
 
 
 ## A tab: `script` on a VBoxContainer in a scroll, with the player's margins.

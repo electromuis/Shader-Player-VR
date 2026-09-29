@@ -64,6 +64,27 @@ static func test_view_maps_zooms_and_scrolls(tc: TestCase) -> void:
 	tc.assert_true(40.0 >= v.start and 40.0 <= v.start + v.span, "follows the playhead")
 
 
+static func test_scroll_bar_scrolls_and_zooms(tc: TestCase) -> void:
+	var v := StudioTimeline.new()
+	v.duration = 60.0
+	v.fit()
+	v.pull_end(true, 20.0)
+	tc.assert_eq([v.start, v.span], [20.0, 40.0], "the left end pulled in: the right one stays")
+	v.pull_end(false, 30.0)
+	tc.assert_eq([v.start, v.span], [20.0, 10.0], "the right end pulled in")
+	v.pull_end(true, 29.8)
+	tc.assert_eq([v.start, v.span], [29.0, StudioTimeline.MIN_SPAN], "never narrower than MIN_SPAN")
+	v.pull_end(false, 90.0)
+	tc.assert_eq([v.start, v.span], [29.0, 31.0], "no further than the piece's end")
+	v.pull_end(true, -5.0)
+	tc.assert_eq([v.start, v.span], [0.0, 60.0], "nor before its start")
+	v.zoom(4.0, 0.0)
+	v.scroll_to(50.0)
+	tc.assert_eq(v.start, 45.0, "scrolled as far as the end")
+	v.scroll_to(-3.0)
+	tc.assert_eq(v.start, 0.0)
+
+
 static func test_lanes_and_rows(tc: TestCase) -> void:
 	var m := _model(tc)
 	var lanes := StudioTimeline.lanes(m, 60.0)

@@ -19,6 +19,9 @@ extends PanelContainer
 ##   a lane's name → select that object
 ##   wheel over the ruler or waveform (or Ctrl+wheel) → zoom about it;
 ##     Shift+wheel → scroll in time; wheel over the lanes → scroll them
+##   the scroll bar along the bottom (the whole piece, with the sound's
+##     outline): drag the view's window to scroll, pull its ends to zoom,
+##     press beside it to jump there; the wheel over it scrolls in time
 ## The bar above: time, zoom − / + / fit, loop on / off, set in / out at the
 ## playhead, and for a selected key its interpolation (and bezier presets)
 ## and delete. *Grid…* opens the beat grid's controls instead: nudge it
@@ -62,7 +65,7 @@ var _rows: Array = []
 var _cuts: Array = []
 var _layout: Array = []  # [{kind: "lane" / "prop", y, h, id or row}]
 var _needs_data := true
-var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b / lane_start / lane_end / lane_move, ti, ki, id, si, t, from, lo, hi, dt, x0}
+var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b / lane_start / lane_end / lane_move / bar_move / bar_a / bar_b, ti, ki, id, si, t, from, lo, hi, dt, x0, grip}
 var _vscroll := 0.0
 var _fitted := false
 var _canvas: Control
@@ -85,7 +88,12 @@ var _ruler := 22.0
 var _wave := 46.0
 var _lane := 22.0
 var _row := 20.0
+var _bar := 26.0
 var _fs := 14
+# The scroll bar's outline of the whole sound: a peak per column, worked out
+# again when the sound, the piece's length or the bar's width changes.
+var _overview := PackedFloat32Array()
+var _overview_key := []
 
 
 func _ready() -> void:
@@ -96,6 +104,7 @@ func _ready() -> void:
 	_wave *= _k
 	_lane *= _k
 	_row *= _k
+	_bar *= _k
 	_fs = int(_fs * _k)
 	var th := Theme.new()
 	th.default_font_size = _fs
@@ -290,7 +299,7 @@ func _draw_canvas() -> void:
 		return
 	var c := _canvas
 	var w := c.size.x
-	var h := c.size.y
+	var h := _lanes_bottom()
 	var font := get_theme_default_font()
 	var top := _ruler + _wave
 	# Ruler and waveform backgrounds.
@@ -408,6 +417,107 @@ func _draw_canvas() -> void:
 	var px := _gutter + view.x_of(_playhead())
 	if px >= _gutter and px <= w:
 		c.draw_line(Vector2(px, 0), Vector2(px, h), Color.WHITE, maxf(2.0, 1.5 * _k))
+	_draw_bar(font)
+
+
+## Where the lanes end: the scroll bar is under them.
+func _lanes_bottom() -> float:
+	return _canvas.size.y - _bar - 4 * _k
+
+
+## The scroll bar's rectangle, on the canvas.
+func _bar_rect() -> Rect2:
+	return Rect2(_gutter, _canvas.size.y - _bar, maxf(_canvas.size.x - _gutter, 1.0), _bar)
+
+
+## Time `t` on the scroll bar (the whole piece across it), and back.
+func _bar_x(t: float) -> float:
+	var r := _bar_rect()
+	return r.position.x + t / maxf(view.duration, 0.001) * r.size.x
+
+
+func _bar_t(x: float) -> float:
+	var r := _bar_rect()
+	return clampf((x - r.position.x) / r.size.x * view.duration, 0.0, view.duration)
+
+
+## The scroll bar: the whole piece's sound, the loop, the playhead and the
+## view's window with its ends (drag it to scroll, pull an end to zoom).
+func _draw_bar(font: Font) -> void:
+	var c := _canvas
+	var r := _bar_rect()
+	var top := _lanes_bottom()
+	c.draw_rect(Rect2(0, top, c.size.x, c.size.y - top), Color(PANEL_BG, 1.0))
+	c.draw_string(font, Vector2(6 * _k, r.position.y + r.size.y * 0.68), "0:00 → " + StudioStatus.timecode(view.duration).trim_suffix(".00"),
+			HORIZONTAL_ALIGNMENT_LEFT, _gutter - 10 * _k, int(_fs * 0.8), DIM)
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.06, 0.08, 0.11)
+	bg.border_color = Color(1, 1, 1, 0.1)
+	bg.set_border_width_all(1)
+	bg.set_corner_radius_all(int(5 * _k))
+	c.draw_style_box(bg, r)
+	# The sound's outline.
+	var colw := maxf(2.0, 2.0 * _k)
+	var n := int(r.size.x / colw)
+	var key := [waveform.peaks.size() if waveform != null else 0, n, view.duration]
+	if key != _overview_key:
+		_overview_key = key
+		_overview.resize(n)
+		for i in n:
+			_overview[i] = waveform.peak_between(view.duration * i / n, view.duration * (i + 1) / n) if key[0] > 0 else 0.0
+	var mid := r.position.y + r.size.y * 0.5
+	for i in n:
+		var half := _overview[i] * r.size.y * 0.38
+		if half > 0.5:
+			c.draw_rect(Rect2(r.position.x + i * colw, mid - half, colw * 0.6, half * 2.0), Color(0.36, 0.41, 0.52))
+	if loop.is_set():
+		var la := _bar_x(loop.a)
+		c.draw_rect(Rect2(la, r.position.y, maxf(_bar_x(loop.b) - la, 1.0), r.size.y), Color(ACCENT, 0.14 if loop.on else 0.06))
+	var px := _bar_x(_playhead())
+	c.draw_line(Vector2(px, r.position.y), Vector2(px, r.end.y), Color(1, 1, 1, 0.8), maxf(1.0, _k))
+	var win := _bar_window()
+	var wa: float = win[0]
+	var wb: float = win[1]
+	var active := String(_drag.get("kind", "")).begins_with("bar_")
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(ACCENT, 0.3 if active else 0.18)
+	box.border_color = ACCENT
+	box.set_border_width_all(int(maxf(1.0, 1.5 * _k)))
+	box.set_corner_radius_all(int(5 * _k))
+	c.draw_style_box(box, Rect2(wa, r.position.y + 1, wb - wa, r.size.y - 2))
+	# Its ends: the grips that zoom.
+	var gw := maxf(3.0, 3.0 * _k)
+	for gx in [wa, wb]:
+		c.draw_rect(Rect2(gx - gw * 0.5, r.position.y + r.size.y * 0.22, gw, r.size.y * 0.56), Color.WHITE)
+
+
+## The view's window on the scroll bar: [left x, right x], never narrower
+## than a grip.
+func _bar_window() -> Array:
+	var wa := _bar_x(view.start)
+	return [wa, maxf(_bar_x(view.start + view.span), wa + 6 * _k)]
+
+
+## What's under `at` on the scroll bar: {kind: "bar_a" / "bar_b" (an end),
+## "bar_move" (the window), "bar_jump" (beside it), t}, or {} off the bar.
+func _bar_hit(at: Vector2) -> Dictionary:
+	var r := _bar_rect()
+	if at.y < r.position.y or at.x < r.position.x:
+		return {}
+	var g := 8.0 * _k
+	var win := _bar_window()
+	var wa: float = win[0]
+	var wb: float = win[1]
+	var t := _bar_t(at.x)
+	# A narrow window's ends only grab from outside it, so it can still be moved.
+	var inside := g if wb - wa >= 3.0 * g else 0.0
+	if at.x >= wa - g and at.x <= wa + inside:
+		return {"kind": "bar_a", "t": t}
+	if at.x <= wb + g and at.x >= wb - inside:
+		return {"kind": "bar_b", "t": t}
+	if at.x > wa and at.x < wb:
+		return {"kind": "bar_move", "t": t}
+	return {"kind": "bar_jump", "t": t}
 
 
 ## Span `si` of `lane`, as it's being dragged if it is.
@@ -449,7 +559,7 @@ func _canvas_input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
 		if mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and mb.pressed:
 			var up := mb.button_index == MOUSE_BUTTON_WHEEL_UP
-			if mb.shift_pressed:
+			if mb.shift_pressed or mb.position.y >= _lanes_bottom():
 				view.scroll((-0.15 if up else 0.15) * view.span)
 			elif mb.ctrl_pressed or mb.position.y < _ruler + _wave:
 				view.zoom(1.25 if up else 0.8, view.t_of(mb.position.x - _gutter) if mb.position.x > _gutter else _playhead())
@@ -470,6 +580,8 @@ func _canvas_input(event: InputEvent) -> void:
 ## What's under `at`: {kind: "loop_a" / "loop_b" / "key" / "lane_start" /
 ## "lane_end" / "name" / "time", ...}.
 func hit(at: Vector2) -> Dictionary:
+	if at.y >= _lanes_bottom():
+		return _bar_hit(at)
 	var r := 10.0 * _k
 	if at.y < _ruler and loop.is_set():
 		for p in [["loop_a", loop.a], ["loop_b", loop.b]]:
@@ -543,6 +655,14 @@ func _press(at: Vector2) -> void:
 	match h.get("kind", ""):
 		"loop_a", "loop_b":
 			_drag = {"kind": h.kind}
+		"bar_a", "bar_b":
+			_drag = {"kind": h.kind}
+		"bar_move":
+			_drag = {"kind": "bar_move", "grip": h.t - view.start}
+		"bar_jump":
+			# Centre the view there, then carry on as a drag of the window.
+			view.scroll_to(h.t - view.span * 0.5)
+			_drag = {"kind": "bar_move", "grip": h.t - view.start}
 		"lane_start", "lane_end":
 			var lim := StudioTimeline.span_limits(_lanes, _lane_of(h.id), h.si, view.duration)
 			_drag = {"kind": h.kind, "id": h.id, "si": h.si, "t": h.t, "from": h.t, "lo": lim[0], "hi": lim[1]}
@@ -563,6 +683,10 @@ func _press(at: Vector2) -> void:
 func _move(at: Vector2) -> void:
 	var t := clampf(view.t_of(at.x - _gutter), 0.0, view.duration)
 	match _drag.kind:
+		"bar_move":
+			view.scroll_to(_bar_t(at.x) - float(_drag.grip))
+		"bar_a", "bar_b":
+			view.pull_end(_drag.kind == "bar_a", _bar_t(at.x))
 		"scrub":
 			tools.stage.seek_to(t)
 		"loop_a":

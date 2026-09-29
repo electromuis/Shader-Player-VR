@@ -35,9 +35,17 @@ func _init() -> void:
 	var script_errors := ScriptErrorLogger.new()
 	OS.add_logger(script_errors)
 	for suite_path in _discover_suites():
+		script_errors.take()
 		var script: Script = load(suite_path)
-		if script == null:
-			push_error("Failed to load %s" % suite_path)
+		# A script that doesn't parse still loads (as an empty script): count
+		# the suite as one failed test, or its tests would just go missing.
+		var load_errors := script_errors.take()
+		if script == null or not script.can_instantiate() or not load_errors.is_empty():
+			total += 1
+			failed_names.append(suite_path)
+			print("== %s ==\n  FAIL (doesn't load)" % suite_path)
+			for f in load_errors:
+				print("     %s" % f)
 			continue
 		print("== %s ==" % suite_path)
 		for method in script.get_script_method_list():

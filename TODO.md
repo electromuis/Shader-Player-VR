@@ -10,14 +10,14 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 4. Delete the unused placeholder plugin `project_engine/addons/vj_editor/` (not enabled; a "Phase 6" stub). SKIP
 - [ ] 5. Decide which README the CI packages ship: they copy the developer `README.md`, while `build_release.bat` ships the end-user `release/README.md`.
 - [ ] 6. Try Studio as a full exported Windows build (so far only checked with `--export-pack`).
-- [x] 7. Make `tests/run.gd` count a test that hits a script error as failed (now it stops there but counts as passed). Done 2026-09-29: the runner registers a `Logger` (`OS.add_logger`) and fails a test during which a GDScript runtime error was logged; all 319 tests still pass.
+- [x] 7. Make `tests/run.gd` count a test that hits a script error as failed (now it stops there but counts as passed). Done 2026-09-29: the runner registers a `Logger` (`OS.add_logger`) and fails a test during which a GDScript runtime error was logged; all 319 tests still pass. Also since 2026-09-29: a test file that doesn't parse counts as one failed test (it used to vanish from the count).
 
 ## Studio
 
 - [ ] 8. Wrist palette to the mockup (`docs/studio/todo/3_wrist.png`): Play / Edit switch, big timecode with duration and bar, a 4 × 3 icon grid, a footer with Save and "autosaved …", a second page for the rest.
 - [ ] 9. Minimize (–) on every panel (inspector, shelf, timeline, outliner), folding it to a tab on the wrist.
 - [ ] 10. Move panels in VR by their title bar; panels keep their place relative to you as you fly.
-- [ ] 11. Timeline scroll bar over the whole piece (with the audio's outline): drag to scroll, pull its ends to zoom.
+- [x] 11. Timeline scroll bar over the whole piece (with the audio's outline): drag to scroll, pull its ends to zoom. Done 2026-09-29: drawn on the ribbon's canvas under the lanes (`StudioTimelineRibbon._draw_bar`, `StudioTimeline.scroll_to` / `pull_end`); a press beside the window jumps there, the wheel over it scrolls; checked with `checks/shot_studio_scrollbar.gd`.
 - [x] 12. Draw the floor grid (1 m lines); the setting exists (`StudioSettings.floor_grid`) but nothing draws it. Done 2026-09-29: `studio/tools/floor_grid.gd`, checked with `checks/shot_studio_floor_grid.gd`.
 - [x] 13. Desktop drops land too far away: a card lands on the floor under the cursor, with its distance shown. Done 2026-09-29: `StudioAssetDrop.aim` lets the floor win past the main screen; `studio/tools/drop_preview.gd` shows the outline, footprint and distance; checked with `checks/shot_studio_drop.gd`.
 - [ ] 14. Groups: make and animate groups in Studio (the format has spawn parents already).
@@ -36,7 +36,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 27. Ghosts (next-key boxes) for objects that aren't selected; hover highlights on headset panel buttons.
 - [ ] 28. Haptic detents on inspector sliders and clicks on panels.
 - [ ] 29. Controls: the controller picture (pointing at a button shows what it does), and named binding profiles.
-- [ ] 30. Track down the segfault of `drive_studio_m4.gd` / `m6` in the user's working copy (when GoZen closes the piece's `song.wav`).
+- [ ] 30. Track down the segfault of `drive_studio_m4.gd` / `m6` in the user's working copy (when GoZen closes the piece's `song.wav`). 2026-09-29: now reproduces on a clean `master` here too (`HEADLESS=1 tools/local/run.sh checks/drive_studio_m4.gd`, every run), so it isn't the working copy.
 - [ ] 52. Bring Studio's UI in line with the mockups (`docs/studio/*.svg`, `docs/studio/todo/`): the user says it still looks a lot different (2026-09-28). Compare panel by panel with renders; 8–11 and 15 are parts of it.
 
 ## Player

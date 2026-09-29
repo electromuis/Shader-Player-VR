@@ -61,6 +61,26 @@ func scroll(seconds: float) -> void:
 	_clamp()
 
 
+## Put the view's left edge at `t` (kept within the piece).
+func scroll_to(t: float) -> void:
+	start = t
+	_clamp()
+
+
+## The scroll bar's left (or right) end pulled to `t`: the other end stays,
+## so the view zooms; never narrower than MIN_SPAN.
+func pull_end(left: bool, t: float) -> void:
+	var a := start
+	var b := start + span
+	if left:
+		a = clampf(t, 0.0, b - MIN_SPAN)
+	else:
+		b = clampf(t, a + MIN_SPAN, maxf(duration, a + MIN_SPAN))
+	span = clampf(b - a, MIN_SPAN, clampf(duration, MIN_SPAN, MAX_SPAN))
+	start = a
+	_clamp()
+
+
 ## Scroll just enough to show `t` (with a margin of a tenth of the view).
 func follow(t: float) -> void:
 	var margin := span * 0.1

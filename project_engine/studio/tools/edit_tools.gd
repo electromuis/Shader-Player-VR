@@ -10,9 +10,11 @@ extends Node3D
 ## What letting go writes (see _commit):
 ##   auto-key on  — keys at the playhead on the channels that changed
 ##                  (position / rotation_deg / scale), tracks made as needed
-##   auto-key off — the object's spawn placement; a channel that's already
-##                  animated moves as a whole instead (every key shifted by
-##                  the same amount), so the path keeps its shape
+##   auto-key off — the object's spawn placement; on a channel that's
+##                  already animated, its key at the playhead, or between
+##                  keys the move is held unkeyed: shown, not written, until
+##                  A or the diamond keys it (key_unkeyed) or the playhead
+##                  moves on (drop_unkeyed)
 ## Snapping rounds the placement while dragging (10 cm, 15°, 5 % scale).
 ##
 ## While a drag runs the runner leaves the object alone (ScriptRunner.held),
@@ -67,8 +69,7 @@ var recorder: StudioRecorder
 var auto_key := false
 ## Keys on change, "Animated": a change to something that already has keys
 ## keys it at the playhead (still things are just set). Off (and auto-key
-## off), a change moves all its keys by the difference. Auto-key keys
-## everything, and wins.
+## off), it's held unkeyed (see the top). Auto-key keys everything, and wins.
 var key_animated := false
 var snap := false
 ## Faint paths for every animated object on stage, not just the selection's
@@ -84,6 +85,9 @@ var _hover_bounds: Dictionary = {}  # node instance id -> AABB (one)
 var _grab: Dictionary = {}
 ## Where objects set by typed numbers were before (preview_channel).
 var _typed_start: Dictionary = {}  # id -> node-style dict
+## Moves of animated channels held unkeyed (see the top): id -> {t,
+## channels {channel: [x, y, z]}}. The runner holds those objects.
+var unkeyed: Dictionary = {}
 var _lines: ImmediateMesh
 var _lines_mesh: MeshInstance3D
 var _bounds_cache: Dictionary = {}  # node instance id -> AABB
@@ -237,7 +241,8 @@ func release() -> String:
 		return ""
 	if is_instance_valid(node):
 		label = _commit(id, _grab.start, GrabMath.to_dict(node.transform))
-	runner.held.erase(id)
+	if not unkeyed.has(id):
+		runner.held.erase(id)
 	_grab = {}
 	felt.emit("key" if auto_key and label != "" else "release", hand)
 	return label
@@ -248,9 +253,12 @@ func cancel() -> void:
 	_key_grab = {}
 	if not is_grabbing():
 		return
-	runner.held.erase(String(_grab.id))
+	var id := String(_grab.id)
 	_grab = {}
+	unhold_unkeyed()
+	runner.held.erase(id)
 	runner.apply_edit(model.timeline(), false)
+	show_unkeyed()  # back to where it was held, if it was
 
 
 func _apply() -> void:
@@ -278,8 +286,9 @@ func _apply() -> void:
 # ---------- writing ----------
 
 ## Key the selection where it is now, on all three channels, at the
-## playhead (the "key it" button, whatever auto-key says).
-func key_selection() -> String:
+## playhead (the "key it" button, whatever auto-key says). `key_also(id)`
+## keys more in the same step (Studio: its unkeyed settings).
+func key_selection(key_also: Callable = Callable()) -> String:
 	if selected == "" or model == null:
 		return ""
 	var node := runner.registry().get_node_by_id(selected)
@@ -291,7 +300,10 @@ func key_selection() -> String:
 	var id := selected
 	model.batch(label, func():
 		for ch in ["position", "rotation_deg", "scale"]:
-			model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, t, now[ch]))
+			model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, t, now[ch])
+			_forget_unkeyed(id, ch)
+		if key_also.is_valid():
+			key_also.call(id))
 	_say(label + ".")
 	felt.emit("key", "main")  # the key button: the hand that acts
 	return label
@@ -339,9 +351,11 @@ func _commit(id: String, before: Dictionary, after: Dictionary) -> String:
 		label = "Key %s at %s" % [id, StudioStatus.timecode(t)]
 		model.batch(label, func():
 			for ch in changed:
-				model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, _key_time(id, ch, t), after[ch]))
+				model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, _key_time(id, ch, t), after[ch])
+				_forget_unkeyed(id, ch))
 	else:
 		label = "Move %s" % id
+		var held_back: Array = []
 		model.batch(label, func():
 			var spawn := _spawn_transform(id)
 			var spawn_changed := false
@@ -351,15 +365,110 @@ func _commit(id: String, before: Dictionary, after: Dictionary) -> String:
 				var on_key := ti >= 0 and StudioConfigEdits.key_near(model.tracks()[ti].get("keyframes", []), t) >= 0
 				if ti >= 0 and (key_animated or on_key):
 					model.set_key(ScriptFormat.TRACK_TRANSFORM, id, ch, _key_time(id, ch, t), after[ch])
+					_forget_unkeyed(id, ch)
 				elif ti >= 0:
-					model.set_keyframes(ti, _shifted_keys(model.tracks()[ti].get("keyframes", []), ch, before[ch], after[ch]))
+					held_back.append(ch)
 				else:
 					spawn[ch] = after[ch]
 					spawn_changed = true
 			if spawn_changed:
 				model.set_spawn_transform(id, spawn))
+		if not held_back.is_empty():
+			var u: Dictionary = unkeyed.get(id, {"t": t, "channels": {}})
+			for ch in held_back:
+				u.channels[ch] = after[ch]
+			unkeyed[id] = u
+			runner.held[id] = true
+			show_unkeyed()
+			var what := " and ".join(held_back.map(func(ch): return String(ch).trim_suffix("_deg")))
+			label = "Not keyed: %s %s at %s. Key it (A, I) or ◆ keys it; moving the playhead drops it" % [id, what, StudioStatus.timecode(t)] \
+					if held_back.size() == changed.size() else "%s; its %s not keyed yet (Key it: A, I)" % [label, what]
 	_say(label + ".")
 	return label
+
+
+# ---------- unkeyed moves ----------
+
+## Whether `id`'s `channel` has a move held unkeyed.
+func is_unkeyed(id: String, channel: String) -> bool:
+	return unkeyed.has(id) and unkeyed[id].channels.has(channel)
+
+
+## Forget `id`'s unkeyed `channel` (it was keyed); with none left, the
+## runner has the object again.
+func _forget_unkeyed(id: String, channel: String) -> void:
+	if not unkeyed.has(id):
+		return
+	unkeyed[id].channels.erase(channel)
+	if unkeyed[id].channels.is_empty():
+		unkeyed.erase(id)
+		if not (is_grabbing() and _grab.id == id):
+			runner.held.erase(id)
+
+
+## Key the unkeyed moves where they were made: `id`'s ("" for everyone's),
+## only `channel` if given; part of the caller's batch if there is one.
+## Returns how many channels were keyed.
+func key_unkeyed(id: String = "", channel: String = "") -> int:
+	var n := 0
+	for uid in unkeyed.keys():
+		if id != "" and uid != id:
+			continue
+		var u: Dictionary = unkeyed[uid]
+		for ch in u.channels.keys():
+			if channel != "" and ch != channel:
+				continue
+			model.set_key(ScriptFormat.TRACK_TRANSFORM, uid, ch, _key_time(uid, ch, float(u.t)), u.channels[ch])
+			_forget_unkeyed(uid, ch)
+			n += 1
+	return n
+
+
+## Drop every unkeyed move: the runner puts the objects back on their
+## paths. Returns what was dropped ("box position, cube scale"), "" if
+## nothing.
+func drop_unkeyed() -> String:
+	if unkeyed.is_empty():
+		return ""
+	var names: Array = []
+	for id in unkeyed.keys():
+		for ch in unkeyed[id].channels.keys():
+			names.append("%s %s" % [id, String(ch).trim_suffix("_deg")])
+		if not (is_grabbing() and _grab.id == id):
+			runner.held.erase(id)
+	unkeyed.clear()
+	runner.apply_edit(model.timeline(), false)
+	return ", ".join(names)
+
+
+## Let the runner place the unkeyed objects again (before it applies an
+## edit; show_unkeyed afterwards puts the unkeyed moves back on top).
+func unhold_unkeyed() -> void:
+	for id in unkeyed.keys():
+		if not (is_grabbing() and _grab.id == id):
+			runner.held.erase(id)
+
+
+## Put the unkeyed moves on their objects (as the runner left them) and
+## hold them there.
+func show_unkeyed() -> void:
+	var registry := runner.registry() if runner != null else null
+	for id in unkeyed.keys():
+		runner.held[id] = true
+		var node := registry.get_node_by_id(id) if registry != null else null
+		if node == null or (is_grabbing() and _grab.id == id):
+			continue
+		var d := GrabMath.to_dict(node.transform)
+		for ch in unkeyed[id].channels.keys():
+			d[ch] = unkeyed[id].channels[ch]
+		node.transform = GrabMath.from_dict(d)
+
+
+## The unkeyed moves' time, or -1 if there are none.
+func unkeyed_time() -> float:
+	for u in unkeyed.values():
+		return float(u.t)
+	return -1.0
 
 
 ## When a key on `id`'s `channel` at `t` lands: on the key already within
@@ -398,28 +507,6 @@ func _spawn_transform(id: String) -> Dictionary:
 	for pair in [["position", [0.0, 0.0, 0.0]], ["rotation_deg", [0.0, 0.0, 0.0]], ["scale", [1.0, 1.0, 1.0]]]:
 		if not out.has(pair[0]):
 			out[pair[0]] = pair[1]
-	return out
-
-
-## A channel's keys moved as a whole by what the drag did to it: added for
-## position and rotation, scaled for scale (handles follow).
-static func _shifted_keys(kfs: Array, ch: String, before, after) -> Array:
-	var a := Interpolation.to_vec3(before)
-	var b := Interpolation.to_vec3(after)
-	var out: Array = kfs.duplicate(true)
-	for kf in out:
-		var v := Interpolation.to_vec3(kf.get("value"))
-		var nv: Vector3
-		if ch == "scale":
-			var ratio := Vector3(b.x / a.x if a.x != 0 else 1.0, b.y / a.y if a.y != 0 else 1.0, b.z / a.z if a.z != 0 else 1.0)
-			nv = v * ratio
-			for h in ["in", "out"]:
-				if typeof(kf.get(h)) == TYPE_ARRAY and kf[h].size() == 3:
-					for c in 3:
-						kf[h][c][1] = float(kf[h][c][1]) * ratio[c]
-		else:
-			nv = v + (b - a)
-		kf["value"] = [nv.x, nv.y, nv.z]
 	return out
 
 

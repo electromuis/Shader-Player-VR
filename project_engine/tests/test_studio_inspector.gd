@@ -248,16 +248,18 @@ static func test_inspector_changes_follow_auto_key(tc: TestCase) -> void:
 	for i in m.spawn_indices("scr"):
 		tc.assert_eq(m.tracks()[i].config.effects[1].params.radius, 1.2)
 	tc.assert_eq(e.commit("scr", radius, 1.2, 3.0, false), "", "no change, no step")
-	# Auto-key off, animated: the whole track scales (2.0 -> 2.5 at 2 s).
+	# Auto-key off, animated, between keys: held unkeyed (2.0 -> 2.5 at 2 s).
 	var intensity := _field(s, "effect1/intensity")
-	tc.assert_eq(e.commit("scr", intensity, 2.5, 2.0, false), "Move scr intensity's keys")
+	tc.assert_has(e.commit("scr", intensity, 2.5, 2.0, false), "Not keyed: scr intensity 2.50")
 	var kfs: Array = m.tracks()[e.track_of("scr", intensity)].keyframes
-	tc.assert_eq(kfs.map(func(k): return k.value), [1.25, 3.75], "scaled by 1.25")
+	tc.assert_eq(kfs.map(func(k): return k.value), [1.0, 3.0], "the keys stay")
+	tc.assert_eq(e.value_of("scr", intensity, 2.0), 2.5, "shown")
 	# Auto-key on: a key at the playhead; one near it is replaced.
 	tc.assert_eq(e.commit("scr", intensity, 0.2, 1.0, true), "Key scr intensity at 0:01.00")
 	tc.assert_eq(m.tracks()[e.track_of("scr", intensity)].keyframes.size(), 3)
 	tc.assert_eq(e.commit("scr", intensity, 0.4, 1.02, true), "Key scr intensity at 0:01.00", "lands on the key near it")
-	tc.assert_eq(m.tracks()[e.track_of("scr", intensity)].keyframes.map(func(k): return k.value), [1.25, 0.4, 3.75])
+	tc.assert_eq(m.tracks()[e.track_of("scr", intensity)].keyframes.map(func(k): return k.value), [1.0, 0.4, 3.0])
+	tc.assert_true(e.unkeyed.is_empty(), "a key of the field replaces its unkeyed change")
 	# Auto-key on for a still value makes its track.
 	tc.assert_eq(e.commit("scr", radius, 0.3, 5.0, true), "Key scr radius at 0:05.00")
 	tc.assert_true(m.find_track("shader_param", "scr.effect1", "radius") >= 0)
@@ -272,16 +274,6 @@ static func test_inspector_changes_follow_auto_key(tc: TestCase) -> void:
 	tc.assert_eq(e.commit("scr", _field(s, "render_scale"), 0.5, 0.0, true), "Set scr render scale")
 	tc.assert_eq(m.config_of("scr").render_scale, 0.5)
 	_valid(tc, m, "valid")
-
-
-static func test_moving_a_curve_as_a_whole(tc: TestCase) -> void:
-	var fade := [{"t": 0.0, "value": 0.0}, {"t": 4.0, "value": 1.6, "interp": "bezier", "in": [-1.0, -0.4], "out": [1.0, 0.0]}]
-	var scaled := StudioConfigEdits._shifted(fade, 1.2, 1.8)
-	tc.assert_eq(scaled.map(func(k): return snappedf(k.value, 1e-6)), [0.0, 2.4], "a fade from 0 still starts at 0")
-	tc.assert_eq(scaled[1]["in"].map(func(x): return snappedf(x, 1e-6)), [-1.0, -0.6], "handles scale with it")
-	tc.assert_eq(StudioConfigEdits._shifted(fade, 0.0, 0.5).map(func(k): return k.value), [0.5, 2.1], "at 0: shifted")
-	var tint := [{"t": 0.0, "value": [1.0, 0.5, 0.0]}]
-	tc.assert_eq(StudioConfigEdits._shifted(tint, [1.0, 0.5, 0.0], [0.5, 1.0, 0.2])[0].value, [0.5, 1.0, 0.2], "per element")
 
 
 static func test_inspector_diamonds_toggle_keys(tc: TestCase) -> void:

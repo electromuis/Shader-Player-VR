@@ -6,7 +6,8 @@ extends RefCounted
 ## change, like PlayerSettings.
 ##
 ##   key_mode    — what a change writes: "off" (the piece's values; an
-##                 animated one's keys shift or scale as a whole), "animated"
+##                 animated one's key at the playhead, or between keys it's
+##                 held unkeyed until keyed or dropped), "animated"
 ##                 (animated things key at the playhead, still ones are set)
 ##                 or "all" (auto-key: every change keys). The timeline's bar
 ##                 and Shift+I change it too.

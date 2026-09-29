@@ -3,7 +3,7 @@ extends SceneTree
 ## Studio M2 end to end, on a copy of moving_screen: picking with a posed
 ## right controller and the real router inputs (trigger selects, grip
 ## grabs), a move with auto-key off (the placement) and on (keys), an
-## animated object moved as a whole, snapping, two-hand scale, push / pull,
+## animated object's move held unkeyed (TODO 61), snapping, two-hand scale, push / pull,
 ## "key it", undo / redo, seat / go to it / back, then save and play the
 ## result in the player. Headless (HEADLESS=1) it prints; rendered it also
 ## saves studio_m2_*.png to OUT_DIR (the selection, the snap grid, the seat
@@ -207,7 +207,11 @@ func _initialize() -> void:
 	await shot("3_selected_screen", Vector3(3.5, 3.2, 5.5), sp)
 	await key(KEY_I, false, true)
 
-	# Auto-key off on the animated screen: its whole path moves 1 m right.
+	# Auto-key off on the animated screen, between keys: held unkeyed, its
+	# path unchanged (TODO 61; it used to move the whole path). At 12 s,
+	# off the key the lift made at 10 s (on a key, a move edits that key).
+	studio.stage.seek_to(12.0)
+	await frames(4)
 	var first_before: Array = keys_of("main_screen", "position")[0].value
 	var last_before: Array = keys_of("main_screen", "position").back().value
 	screen = reg.get_node_by_id("main_screen")
@@ -215,9 +219,13 @@ func _initialize() -> void:
 	tools.grab("main_screen", "R", Transform3D(Basis(), sp + Vector3(0, 0, 2)))
 	tools.move_hand("R", Transform3D(Basis(), sp + Vector3(1, 0, 2)))
 	tools.release()
-	print("path moved: first key ", v(first_before), " -> ", v(keys_of("main_screen", "position")[0].value),
+	print("unkeyed: '", studio.message, "' first key ", v(first_before), " -> ", v(keys_of("main_screen", "position")[0].value),
 			", last ", v(last_before), " -> ", v(keys_of("main_screen", "position").back().value),
-			", spawn unchanged ", v(spawn_of("main_screen").position))
+			", spawn unchanged ", v(spawn_of("main_screen").position), ", held ", tools.unkeyed.keys())
+	var held_at: Vector3 = reg.get_node_by_id("main_screen").position
+	studio.stage.seek_to(10.0)
+	await frames(4)
+	print("back to 10 s: '", studio.message, "' screen ", v(held_at), " -> ", v(reg.get_node_by_id("main_screen").position), ", keys ", keys_of("main_screen", "position").size())
 
 	# "Key it" with A: all three channels of the selected cube at 10 s.
 	tools.select("cube_1")

@@ -115,7 +115,7 @@ const COMMANDS := {
 	"studio_loop_in": {"label": "Loop from here", "context": "studio_edit", "app": "studio"},
 	"studio_loop_out": {"label": "Loop to here", "context": "studio_edit", "app": "studio"},
 	"studio_fly": {"label": "Fly", "context": "studio_edit", "kind": "axis", "app": "studio"},
-	"studio_right_stick": {"label": "Turn, rise / sink; while grabbing: push / pull", "context": "studio_edit", "kind": "axis", "app": "studio"},
+	"studio_right_stick": {"label": "Turn, rise / sink; while grabbing: push / pull, scale", "context": "studio_edit", "kind": "axis", "app": "studio"},
 }
 
 ## Today's player, button for button.

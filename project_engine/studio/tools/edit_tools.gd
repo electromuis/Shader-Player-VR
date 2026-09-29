@@ -2,7 +2,9 @@ class_name StudioEditTools
 extends Node3D
 
 ## Studio's hands-on editing: pick an object, grab it (one hand carries it,
-## a second hand scales and turns it), and let go to write the move into
+## a second hand scales and turns it; with one hand, scale_by scales it as
+## it's carried: the desktop's Ctrl+wheel / Ctrl+drag, the right stick
+## sideways in the headset), and let go to write the move into
 ## the piece as one undoable step. Controllers, the desktop mouse and tests
 ## all drive it the same way: a "hand" is just a name and a transform (its
 ## -Z is where it points).
@@ -225,6 +227,26 @@ func push(metres: float) -> void:
 		return
 	_grab.offset = GrabMath.pushed(_grab.offset, metres)
 	_apply()
+
+
+## Scale the carried object by `factor` about its own origin, as it's
+## carried (not while two hands hold it: their spread scales it then).
+func scale_by(factor: float) -> void:
+	if not is_grabbing() or not _grab.two.is_empty() or factor <= 0.0 or factor == 1.0:
+		return
+	_grab.offset = GrabMath.scaled(_grab.offset, factor)
+	_apply()
+
+
+## `hand` is now at `hand_xf`, but the object stays put: it carries on from
+## here (the desktop's Ctrl+drag scales instead of carrying).
+func regrip(hand: String, hand_xf: Transform3D) -> void:
+	if not is_grabbing() or not _grab.hands.has(hand) or not _grab.two.is_empty():
+		return
+	var now := GrabMath.carried(_grab.hands[hand], _grab.offset) if hand == _grab.primary 			else (_grab.node as Node3D).global_transform
+	_grab.hands[hand] = hand_xf
+	if hand == _grab.primary:
+		_grab.offset = GrabMath.grip_offset(hand_xf, now)
 
 
 ## End the grab and write it. Returns the undo label ("" if nothing moved).

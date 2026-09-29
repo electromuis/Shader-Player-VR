@@ -25,6 +25,21 @@ static func test_push_and_pull(tc: TestCase) -> void:
 	tc.assert_eq(GrabMath.pushed(off, -5.0).origin, Vector3(0, 0, -GrabMath.MIN_REACH), "never inside the hand")
 
 
+static func test_scale_while_carried(tc: TestCase) -> void:
+	# Held 2 m out, turned and stretched: scaling keeps it where it is on the
+	# hand and its proportions, within MIN_SCALE .. MAX_SCALE.
+	var hand := Transform3D(Basis(Vector3.UP, 0.5), Vector3(1, 1, 0))
+	var obj := Transform3D(Basis(Vector3.UP, 0.3) * Basis.from_scale(Vector3(2, 1, 1)), Vector3(1, 1, -2))
+	var off := GrabMath.grip_offset(hand, obj)
+	var bigger := GrabMath.carried(hand, GrabMath.scaled(off, 1.5))
+	tc.assert_true(_near(bigger.origin, obj.origin), "stays put: %s" % bigger.origin)
+	tc.assert_true(_near(bigger.basis.get_scale(), Vector3(3, 1.5, 1.5)), "scale %s" % bigger.basis.get_scale())
+	var tiny := GrabMath.carried(hand, GrabMath.scaled(off, 1e-6)).basis.get_scale()
+	tc.assert_true(is_equal_approx(tiny.x, GrabMath.MIN_SCALE), "the largest axis kept at MIN_SCALE: %s" % tiny)
+	var huge := GrabMath.carried(hand, GrabMath.scaled(off, 1e6)).basis.get_scale()
+	tc.assert_true(is_equal_approx(huge.x, GrabMath.MAX_SCALE), "and at MAX_SCALE: %s" % huge)
+
+
 static func test_two_hands_scale_and_turn(tc: TestCase) -> void:
 	var obj := Transform3D(Basis(), Vector3(0, 1, -1))
 	# Hands 1 m apart around the object, then 2 m apart: twice the size.

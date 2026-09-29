@@ -9,7 +9,8 @@ extends RefCounted
 ## here names a file.
 
 const SURFACE_PREFIX := "srf_"
-## Radius of the camera-centred surface at infinity, in metres.
+## Radius of the camera-centred surface at infinity, in metres (its depth
+## is the far plane's, so it's behind everything however far).
 const INFINITY_RADIUS := 50.0
 const PLACEMENTS := ["fixed", "around", "infinity"]
 
@@ -81,6 +82,15 @@ static func build(include: String, vertex_sources: Array, surface_source: String
 	} else {
 		VERTEX = p / s;
 	}
+#if CURRENT_RENDERER != RENDERER_COMPATIBILITY
+	// Written here, POSITION must be written for every vertex.
+	POSITION = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
+	if (placement == 2) {
+		// On the far plane (reverse Z: depth 0), a hair in front of it:
+		// behind everything however far, never cut off by the camera's far.
+		POSITION.z = POSITION.w * 1e-6;
+	}
+#endif
 }
 """ % calls
 

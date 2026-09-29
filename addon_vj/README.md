@@ -77,10 +77,11 @@ project, and its export writes back to that JSON (see *Import* below).
   into `config`. A non-builtin shader is copied to `<json dir>/shaders/`.
 - Surface (screens and layers): `surface` Pillow (bends by `arc_x` / `arc_y`
   degrees, 0 / 0 flat) or Dome (part of a sphere `arc_x` wide; height from
-  the picture's shape with `auto_height`, else `arc_y`; `keep_row_width`; `straight_rows`),
+  the picture's shape with `auto_height`, else `arc_y`; `keep_row_width`; `straight_rows`;
+  around the viewer, `radius` in metres, 0 = the screen's distance),
   and `placement` fixed / around (the `VJViewer`, else the player's home eye
-  (0, 2, 8), at the centre) / infinity (Dome only: follows the camera, for
-  180° / 360° video). Exports as `config.surface` unless flat. Scenes from
+  (0, 2, 8), at the centre) / infinity (Dome only: follows the camera,
+  behind everything, for 180° / 360° video). Exports as `config.surface` unless flat. Scenes from
   before surfaces keep working: their `curvature` / `vertical_curvature`
   (0..1) load as the Pillow's arcs × 180°, and their `:curvature` tracks
   still export (to `<node>.display`, which the player turns into arcs).

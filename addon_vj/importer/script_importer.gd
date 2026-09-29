@@ -51,7 +51,7 @@ const _PLAYER_VISUALIZER := "res://player/visualizer/"
 const _LEGACY_PADDING := "res://player/visualizer/effects/padding.gdshader"
 const _SURFACES := ["pillow", "dome"]
 ## A screen's surface params (animated on `<id>.shape`).
-const _SHAPE_PROPS := ["arc_x", "arc_y", "auto_height", "keep_row_width", "straight_rows"]
+const _SHAPE_PROPS := ["arc_x", "arc_y", "auto_height", "keep_row_width", "straight_rows", "radius"]
 const _ADDON_VISUALIZER := "res://addons/vj_editor/visualizer/"
 const _COMPONENTS := {
 	TYPE_VECTOR2: ["x", "y"],

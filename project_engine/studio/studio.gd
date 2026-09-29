@@ -12,11 +12,13 @@ extends Node3D
 ## grabbing, snapping and flight (StudioEditTools, StudioFlight). Switching keeps the playhead.
 ##
 ## Editing by hand: the right trigger selects what the laser points at; a
-## grip grabs it (the right stick pushes / pulls it along the laser); the
-## other grip joins in to scale and turn it with both hands. Letting go
-## writes the move (auto-key on: keys at the playhead; off: its placement).
+## grip grabs it (the right stick pushes / pulls it along the laser, and
+## sideways scales it); the other grip joins in to scale and turn it with
+## both hands. Letting go writes the move (auto-key on: keys at the
+## playhead; off: its placement).
 ## On the desktop the mouse does the same: click selects, drag moves (the
-## wheel pushes / pulls while dragging).
+## wheel pushes / pulls while dragging; Ctrl+wheel, or Ctrl held while
+## dragging and the mouse moved up / down, scales it).
 ##
 ## The timeline ribbon (StudioTimelineRibbon) shows the song's waveform and
 ## beats, cuts, each object's time on stage and the selection's keys: scrub,
@@ -99,6 +101,12 @@ const CUT_FADE := 0.5
 const PUSH_SPEED := 2.5
 ## Desktop: a mouse wheel notch pushes / pulls this far.
 const WHEEL_PUSH := 0.25
+## Desktop, while dragging: a Ctrl+wheel notch scales by this, and Ctrl+drag
+## doubles the size every this many pixels up.
+const WHEEL_SCALE := 1.1
+const DRAG_SCALE_PIXELS := 200.0
+## Right stick sideways while grabbing: full push scales by e (2.7×) a second.
+const STICK_SCALE := 1.0
 const INSPECTOR_SCENE := preload("res://studio/ui/inspector.tscn")
 const VP2D3D_SCENE := preload("res://addons/godot-xr-tools/objects/viewport_2d_in_3d.tscn")
 ## The headset inspector's size in metres and pixels, and where it goes:
@@ -805,9 +813,11 @@ func _follow_hands(delta: float) -> void:
 		return
 	for hand in ["L", "R"]:
 		tools.move_hand(hand, _hand_xf(hand))
-	var y := stage.router.axis("studio_right_stick").y
-	if y != 0.0:
-		tools.push(y * PUSH_SPEED * delta)
+	var stick := stage.router.axis("studio_right_stick")
+	if stick.y != 0.0:
+		tools.push(stick.y * PUSH_SPEED * delta)
+	if absf(stick.x) > 0.2:
+		tools.scale_by(exp(stick.x * STICK_SCALE * delta))
 
 
 ## Desktop: the mouse is a hand pointing from the camera through the cursor.
@@ -845,10 +855,18 @@ func _unhandled_input(event: InputEvent) -> void:
 				tools.release_hand("M")
 			get_viewport().set_input_as_handled()
 		elif tools.is_grabbing() and mb.pressed and mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
-			tools.push(WHEEL_PUSH if mb.button_index == MOUSE_BUTTON_WHEEL_UP else -WHEEL_PUSH)
+			var up := mb.button_index == MOUSE_BUTTON_WHEEL_UP
+			if mb.ctrl_pressed:
+				tools.scale_by(WHEEL_SCALE if up else 1.0 / WHEEL_SCALE)
+			else:
+				tools.push(WHEEL_PUSH if up else -WHEEL_PUSH)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and tools.is_grabbing_key():
 		tools.move_key_hand("M", _mouse_hand())
+	elif event is InputEventMouseMotion and tools.is_grabbing() and (event as InputEventMouseMotion).ctrl_pressed:
+		# Ctrl held: up grows it, down shrinks it, and it stays where it is.
+		tools.scale_by(pow(2.0, -(event as InputEventMouseMotion).relative.y / DRAG_SCALE_PIXELS))
+		tools.regrip("M", _mouse_hand())
 	elif event is InputEventMouseMotion and tools.is_grabbing():
 		tools.move_hand("M", _mouse_hand())
 

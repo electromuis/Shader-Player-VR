@@ -51,7 +51,7 @@ func _fly(delta: float) -> float:
 		origin.global_position += dir * MAX_SPEED * XRServer.world_scale * push * push * delta
 		amount = push * push
 	var right := router.axis("studio_right_stick")
-	if absf(right.x) > SNAP_ON and _snap_armed:
+	if absf(right.x) > SNAP_ON and _snap_armed and not right_stick_busy:
 		_snap_armed = false
 		# Turn about the head, not the room's centre.
 		var head := cam.global_position
@@ -59,6 +59,8 @@ func _fly(delta: float) -> float:
 				.translated(head) * Transform3D(Basis(), -head) * origin.global_transform
 	elif absf(right.x) < SNAP_OFF:
 		_snap_armed = true
+	elif right_stick_busy:
+		_snap_armed = false  # scaling what's held: no turn till it's back in the middle
 	if not right_stick_busy and absf(right.y) > 0.2:
 		origin.global_position.y += right.y * RISE_SPEED * XRServer.world_scale * delta
 		amount = maxf(amount, absf(right.y) * 0.6)

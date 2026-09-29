@@ -26,8 +26,9 @@ extends RefCounted
 ##   around   — the viewer's eye at the surface's centre (viewer_distance
 ##              from the screen, which Screen keeps up to date)
 ##   infinity — centred on the camera wherever it goes, taking only the
-##              screen's rotation, and drawn behind every other transparent
-##              thing: 180° / 360° video, shader skyboxes
+##              screen's rotation, drawn before every other transparent
+##              thing and at the far plane's depth, so it's behind
+##              everything however far: 180° / 360° video, shader skyboxes
 ## `// @unused <placement> <names>` names the params (and the Camera tab's
 ## size / distance / height) that placement ignores; `// @hint <text>` is
 ## shown under the picker; `// @title <name>` names it in the picker.
@@ -254,7 +255,8 @@ static func surface_point(key: String, params: Dictionary, placement: int, p: Ve
 		var half_lon := deg_to_rad(float(v.arc_x)) * 0.5
 		if half_lon < 0.0001:
 			return p
-		var r := half_m.x / half_lon if placement == Placement.FIXED else viewer_distance
+		var centre := half_m.x / half_lon if placement == Placement.FIXED else viewer_distance
+		var r := float(v.radius) if placement == Placement.AROUND and float(v.radius) > 0.0 else centre
 		var f := Vector2(p.x / half_m.x, p.y / half_m.y)
 		var lon := f.x * half_lon
 		var lat := f.y * half_lon * half_m.y / half_m.x if bool(v.auto_height) \
@@ -266,7 +268,7 @@ static func surface_point(key: String, params: Dictionary, placement: int, p: Ve
 		var squeeze := lerpf(1.0, maxf(cos(lon), 0.0), float(v.straight_rows))
 		lat = atan2(sin(lat) * squeeze, cos(lat))
 		var dir := Vector3(cos(lat) * sin(lon), sin(lat), -cos(lat) * cos(lon))
-		return Vector3(0.0, 0.0, r) + dir * (r - p.z)
+		return Vector3(0.0, 0.0, centre) + dir * (r - p.z)
 	return p
 
 

@@ -17,6 +17,11 @@
           "params": {"arc_x": 120.0, "arc_y": 60.0, "auto_height": false, "keep_row_width": true, "straight_rows": 0.4}},
         "vertex_effects": [{"shader": "ripple", "params": {"amplitude": 0.2, "wavelength": 3.0}}]
       }},
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "sky", "prefab": "screen",
+      "transform": {"position": [0.0, 2.0, -8.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.25, 0.25, 0.25]},
+      "config": {
+        "surface": {"shader": "dome", "placement": "around", "params": {"arc_x": 360.0, "auto_height": true, "arc_y": 0.0, "keep_row_width": false, "straight_rows": 0.0, "radius": 30.0}}
+      }},
     {"type": "event", "t": 0.0, "action": "spawn", "id": "halo", "prefab": "layer",
       "transform": {"position": [0.0, 2.0, -6.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.4, 0.4, 0.4]},
       "config": {
@@ -27,6 +32,8 @@
       }},
     {"type": "shader_param", "target": "dome.shape", "param": "arc_x",
       "keyframes": [{"t": 0.0, "value": 120.0}, {"t": 4.0, "value": 200.0}]},
+    {"type": "shader_param", "target": "sky.shape", "param": "radius",
+      "keyframes": [{"t": 0.0, "value": 30.0}, {"t": 4.0, "value": 120.0}]},
     {"type": "shader_param", "target": "dome.vertex0", "param": "amplitude",
       "keyframes": [{"t": 1.0, "value": 0.2}, {"t": 3.0, "value": 0.6}]},
     {"type": "shader_param", "target": "halo.effect0", "param": "intensity",

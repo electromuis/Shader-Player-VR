@@ -1,3 +1,4 @@
+@tool
 extends RefCounted
 
 ## Builds a screen's display shader from its vertex effects and surface

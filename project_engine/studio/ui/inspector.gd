@@ -44,6 +44,10 @@ const LISTS := {EditModel.EFFECTS: {"title": "Pixel effects", "add": "+ Add effe
 const CHANNEL_RANGE := {"position": [-10.0, 10.0, 0.01], "rotation_deg": [-180.0, 180.0, 1.0], "scale": [0.0, 4.0, 0.01]}
 const CHANNEL_RESET := {"position": 0.0, "rotation_deg": 0.0, "scale": 1.0}
 const CHANNEL_LABEL := {"position": "Position", "rotation_deg": "Rotation", "scale": "Scale"}
+## Dragging a transform number: its change per pixel, and how far a press
+## moves (px) before it's a drag rather than a click to type.
+const DRAG_RATE := {"position": 0.01, "rotation_deg": 0.5, "scale": 0.005}
+const DRAG_START := 4.0
 
 ## Headset layout: bigger text and targets.
 var vr := false
@@ -512,6 +516,7 @@ func _add_transform() -> void:
 			var spin := _number(ch)
 			spin.prefix = "xyz"[c]
 			spin.value_changed.connect(func(v: float): _typed_axis(ch, c, v))
+			_draggable(spin, ch, c)
 			row.add_child(spin)
 			t.spins.append(spin)
 		var diamond := _button("", func(): _toggle_transform_key(ch))
@@ -563,10 +568,10 @@ func _add_transform() -> void:
 			urow.add_child(uni)
 			body.add_child(urow)
 	var tip := _label(body, int(_fs * 0.85), DIM)
-	tip.text = "Click a row for its sliders · type a number · grab to move"
+	tip.text = "Click a row for its sliders · drag a number sideways, or click to type · grab to move"
 
 
-## A number field for a transform axis (type, or drag its arrows).
+## A number field for a transform axis (type, drag it sideways, or its arrows).
 func _number(ch: String) -> SpinBox:
 	var s := SpinBox.new()
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -581,6 +586,55 @@ func _number(ch: String) -> SpinBox:
 	if vr:
 		s.custom_minimum_size.y = _target_h()
 	return s
+
+
+## Press on a number and drag sideways to change it, as in Godot's and
+## Blender's spin boxes (Shift: finer); it previews like a slider and is
+## written on release, lit while it's dragged. A click without a drag types
+## a value. Once it's being typed in, clicks are the line edit's own (caret,
+## selection). It takes no focus until then: a press would focus it before
+## its input is seen.
+func _draggable(spin: SpinBox, ch: String, c: int) -> void:
+	var edit := spin.get_line_edit()
+	edit.mouse_default_cursor_shape = Control.CURSOR_HSIZE
+	edit.focus_mode = Control.FOCUS_NONE
+	edit.focus_exited.connect(func(): edit.focus_mode = Control.FOCUS_NONE)
+	var d := {"down": false, "dragging": false, "from": 0.0, "moved": 0.0, "travel": 0.0}
+	edit.gui_input.connect(func(e: InputEvent):
+		if edit.has_focus():
+			return
+		var mb := e as InputEventMouseButton
+		if mb != null and mb.button_index == MOUSE_BUTTON_LEFT:
+			edit.accept_event()
+			if mb.pressed:
+				d.merge({"down": true, "dragging": false, "from": spin.value, "moved": 0.0, "travel": 0.0}, true)
+			elif d.down:
+				d.down = false
+				if d.dragging:
+					d.dragging = false
+					edit.remove_theme_color_override("font_color")
+					_t_drag(ch, false)
+				else:
+					edit.focus_mode = Control.FOCUS_ALL
+					edit.grab_focus()
+					edit.select_all()
+			return
+		var mm := e as InputEventMouseMotion
+		if mm == null or not d.down:
+			return
+		edit.accept_event()
+		d.travel += absf(mm.relative.x)
+		d.moved += mm.relative.x * (0.1 if mm.shift_pressed else 1.0)
+		if not d.dragging:
+			if d.travel < DRAG_START:
+				return
+			d.dragging = true
+			edit.add_theme_color_override("font_color", ACCENT)  # the one that's live
+			_t_drag(ch, true)
+		var v: float = snappedf(d.from + d.moved * DRAG_RATE[ch], spin.step)
+		if ch == "scale":
+			v = maxf(v, spin.step)
+		_slid_axis(ch, c, v))
 
 
 ## The channel as it is now: pending, else the node's ([x, y, z]).

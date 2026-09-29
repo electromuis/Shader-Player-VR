@@ -14,6 +14,16 @@ extends Node
 ## piece's folder stay free of them). Headless there's no renderer: nothing
 ## is drawn and thumbnail() stays null (the shelf shows its placeholder).
 ##
+## Layer and effect cards also get a short loop (loop()): LOOP_FRAMES
+## frames drawn the same way, side by side in one strip, cached next to
+## the stills. Their shaders run on a clock of their own (preview copies
+## whose TIME reads PREVIEW_TIME, see preview_code) rather than the stage's
+## time, so a paused piece doesn't freeze them and drawing them doesn't
+## touch the stage; the made-up music follows the same clock and repeats
+## every half second, so the loop's two seconds keep its beat. Drawn only
+## when asked for (a card hovered, the headset's shelf open), after any
+## stills waiting.
+##
 ## A look's picture is different: a snapshot of the object on stage when
 ## the look was saved (snapshot()), kept next to the look's file
 ## (StudioLooks.picture_path). Studio's own helpers (lines, panels, the
@@ -21,6 +31,8 @@ extends Node
 
 ## A thumbnail is ready (or came off the disk).
 signal thumbnail_ready(asset_id: String, texture: Texture2D)
+## A loop is ready: a strip of frames SIZE wide each (loop()).
+signal loop_ready(asset_id: String, strip: Texture2D)
 
 const SIZE := Vector2i(256, 160)
 const FRAMES := 10
@@ -30,13 +42,28 @@ const CACHE_DIR := "user://thumbnails"
 ## The render layer (1-based) of Studio's helpers: every camera sees it but
 ## a snapshot's.
 const HELPER_LAYER := 20
+## The asset types that get a loop.
+const LOOP_TYPES := ["layer", "effect", "vertex"]
+const LOOP_FRAMES := 20
+const LOOP_FPS := 10.0
+## Loops kept in memory (a strip is about 3 MB), the least recently asked
+## for dropped first; they stay on the disk.
+const LOOP_KEEP := 24
+## A loop whose frames all differ from its first by less than this
+## (difference()) is kept as a still.
+const STILL_DIFFERENCE := 0.002
+## The uniform a preview copy's TIME reads.
+const PREVIEW_TIME := &"vj_preview_time"
 const SCREEN_SCENE := preload("res://player/prefabs/screen.tscn")
 const LAYER_SCENE := preload("res://player/prefabs/layer.tscn")
 
 var _textures := {}  # asset id -> Texture2D
 var _queue: Array = []
 var _busy := false
+var _loops := {}  # asset id -> strip, the most recently asked for last
+var _loop_queue: Array = []  # the most recently asked for first
 static var _card: Texture2D
+static var _shader_type_re := RegEx.create_from_string("(?m)^\\s*shader_type\\s+\\w+\\s*;")
 
 
 ## The asset's picture if there is one yet; otherwise null, and it's drawn
@@ -62,6 +89,40 @@ func thumbnail(asset: Dictionary) -> Texture2D:
 	return null
 
 
+## The asset's loop (a strip of LOOP_FRAMES pictures, or of one for a
+## shader that turned out not to move) if there is one yet; otherwise null,
+## and it's drawn (loop_ready says when). Null for other asset types.
+func loop(asset: Dictionary) -> Texture2D:
+	if not String(asset.type) in LOOP_TYPES:
+		return null
+	if _loops.has(asset.id):
+		var strip: Texture2D = _loops[asset.id]
+		_loops.erase(asset.id)
+		_loops[asset.id] = strip
+		return strip
+	var file := loop_path(asset)
+	if FileAccess.file_exists(file):
+		var img := Image.load_from_file(ProjectSettings.globalize_path(file))
+		if img != null:
+			return _keep_loop(asset.id, ImageTexture.create_from_image(img))
+	if can_render():
+		_loop_queue = _loop_queue.filter(func(a): return a.id != asset.id)
+		_loop_queue.push_front(asset)
+	return null
+
+
+## How many frames `strip` has.
+static func frames_of(strip: Texture2D) -> int:
+	return maxi(1, strip.get_width() / SIZE.x) if strip != null else 0
+
+
+func _keep_loop(id: String, strip: Texture2D) -> Texture2D:
+	_loops[id] = strip
+	while _loops.size() > LOOP_KEEP:
+		_loops.erase(_loops.keys()[0])
+	return strip
+
+
 static func can_render() -> bool:
 	return DisplayServer.get_name() != "headless"
 
@@ -73,18 +134,147 @@ static func cache_path(asset: Dictionary) -> String:
 	return CACHE_DIR.path_join(stamp.md5_text() + ".png")
 
 
+## Where the asset's loop is kept.
+static func loop_path(asset: Dictionary) -> String:
+	return cache_path(asset).trim_suffix(".png") + "_loop.png"
+
+
 func is_busy() -> bool:
-	return _busy or not _queue.is_empty()
+	return _busy or not _queue.is_empty() or not _loop_queue.is_empty()
 
 
 func _process(_delta: float) -> void:
-	if _busy or _queue.is_empty():
+	if _busy:
 		return
-	_render(_queue.pop_front())
+	if not _queue.is_empty():
+		_render(_queue.pop_front())
+	elif not _loop_queue.is_empty():
+		_render_loop(_loop_queue.pop_front())
 
 
 func _render(asset: Dictionary) -> void:
 	_busy = true
+	var vp: SubViewport = _set_up(asset).viewport
+	for i in 2:
+		await get_tree().process_frame
+	_frame_asset(vp, asset)
+	for i in FRAMES:
+		await get_tree().process_frame
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	if img != null and not img.is_empty():
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CACHE_DIR))
+		img.save_png(ProjectSettings.globalize_path(cache_path(asset)))
+		var tex := ImageTexture.create_from_image(img)
+		_textures[asset.id] = tex
+		thumbnail_ready.emit(asset.id, tex)
+	_busy = false
+
+
+## LOOP_FRAMES pictures of `asset` at LOOP_FPS on its own clock (see
+## preview_code), side by side. If none differs from the first, only that
+## one is kept.
+func _render_loop(asset: Dictionary) -> void:
+	_busy = true
+	var set := _set_up(asset)
+	var vp: SubViewport = set.viewport
+	var audio: FakeAudio = set.audio
+	for i in 2:
+		await get_tree().process_frame
+	_frame_asset(vp, asset)
+	var copies := {}
+	var frames: Array[Image] = []
+	var moves := false
+	for i in LOOP_FRAMES:
+		var t := i / LOOP_FPS
+		if audio != null:
+			audio.clock = t
+		use_preview_time(vp, t, copies)
+		# Two frames: an effect's passes draw into each other.
+		for f in 2:
+			await get_tree().process_frame
+		var img := vp.get_texture().get_image()
+		if img == null or img.is_empty():
+			break
+		moves = moves or (not frames.is_empty() and difference(img, frames[0]) > STILL_DIFFERENCE)
+		frames.append(img)
+	vp.queue_free()
+	if frames.size() == LOOP_FRAMES:
+		if not moves:
+			frames.resize(1)
+		var strip := Image.create(SIZE.x * frames.size(), SIZE.y, false, frames[0].get_format())
+		for i in frames.size():
+			strip.blit_rect(frames[i], Rect2i(Vector2i.ZERO, SIZE), Vector2i(SIZE.x * i, 0))
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CACHE_DIR))
+		strip.save_png(ProjectSettings.globalize_path(loop_path(asset)))
+		loop_ready.emit(asset.id, _keep_loop(asset.id, ImageTexture.create_from_image(strip)))
+	_busy = false
+
+
+## How much two pictures of the same size differ: the mean difference of
+## their colour channels (0–1) over a grid of points.
+static func difference(a: Image, b: Image) -> float:
+	var sum := 0.0
+	var n := 0
+	for y in range(2, a.get_height(), 5):
+		for x in range(2, a.get_width(), 5):
+			var ca := a.get_pixel(x, y)
+			var cb := b.get_pixel(x, y)
+			sum += absf(ca.r - cb.r) + absf(ca.g - cb.g) + absf(ca.b - cb.b)
+			n += 3
+	return sum / maxi(n, 1)
+
+
+## Every shader under `root` swapped for its preview copy (made once per
+## shader and kept in `copies`), with their TIME at `t`.
+static func use_preview_time(root: Node, t: float, copies: Dictionary) -> void:
+	for mat: ShaderMaterial in _shader_materials(root, []):
+		var shader := mat.shader
+		if shader == null:
+			continue
+		if not copies.values().has(shader):
+			if not copies.has(shader):
+				var copy := Shader.new()
+				copy.code = preview_code(shader.code)
+				copies[shader] = copy
+			mat.shader = copies[shader]
+		mat.set_shader_parameter(PREVIEW_TIME, t)
+
+
+## `code` with TIME reading PREVIEW_TIME instead of the stage's time (the
+## media time include's guard defined first, so it does nothing).
+static func preview_code(code: String) -> String:
+	var m := _shader_type_re.search(code)
+	if m == null:
+		return code
+	return code.insert(m.get_end(), "\n#define VJ_MEDIA_TIME\nuniform float %s;\n#define TIME %s\n" % [PREVIEW_TIME, PREVIEW_TIME])
+
+
+static func _shader_materials(node: Node, out: Array) -> Array:
+	var mats: Array = []
+	if node is CanvasItem:
+		mats.append((node as CanvasItem).material)
+	if node is GeometryInstance3D:
+		mats.append((node as GeometryInstance3D).material_override)
+	if node is MeshInstance3D:
+		for i in (node as MeshInstance3D).get_surface_override_material_count():
+			mats.append((node as MeshInstance3D).get_surface_override_material(i))
+	for m in mats:
+		if m is ShaderMaterial and not out.has(m):
+			out.append(m)
+	for c in node.get_children(true):
+		_shader_materials(c, out)
+	return out
+
+
+func _frame_asset(vp: SubViewport, asset: Dictionary) -> void:
+	_frame(vp.get_meta("camera"), vp.get_meta("subject"), asset.kind in ["screen", "layer", "effect", "vertex"])
+
+
+## `asset` in a SubViewport of its own (in the tree; its camera and
+## subject in its metas, for _frame_asset once it has settled): {viewport,
+## audio (the made-up music for a layer, else null)}.
+func _set_up(asset: Dictionary) -> Dictionary:
 	var vp := SubViewport.new()
 	vp.size = SIZE
 	vp.own_world_3d = true
@@ -136,20 +326,9 @@ func _render(asset: Dictionary) -> void:
 			vp.add_child(node)
 			if node is Screen:
 				(node as Screen).set_source_texture(test_card())
-	for i in 2:
-		await get_tree().process_frame
-	_frame(cam, node, asset.kind in ["screen", "layer", "effect", "vertex"])
-	for i in FRAMES:
-		await get_tree().process_frame
-	var img := vp.get_texture().get_image()
-	vp.queue_free()
-	if img != null and not img.is_empty():
-		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CACHE_DIR))
-		img.save_png(ProjectSettings.globalize_path(cache_path(asset)))
-		var tex := ImageTexture.create_from_image(img)
-		_textures[asset.id] = tex
-		thumbnail_ready.emit(asset.id, tex)
-	_busy = false
+	vp.set_meta("camera", cam)
+	vp.set_meta("subject", node)
+	return {"viewport": vp, "audio": audio}
 
 
 ## A picture of `node` as it is on stage (in its own world and light,
@@ -233,10 +412,12 @@ static func test_card() -> Texture2D:
 ## Music for sound-reactive layers, made up: a falling spectrum with a kick
 ## on every beat at 120 BPM and a wobbling waveform.
 class FakeAudio extends AudioAnalyzer:
+	## The time to play at, when set (a loop's frames); else it runs on.
+	var clock := -1.0
 	var _t := 0.0
 
 	func _process(delta: float) -> void:
-		_t += delta
+		_t = clock if clock >= 0.0 else _t + delta
 		var kick := pow(maxf(0.0, 1.0 - fmod(_t, 0.5) * 3.0), 2.0)
 		for i in BINS:
 			var f := float(i) / BINS

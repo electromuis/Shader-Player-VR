@@ -1180,6 +1180,7 @@ func _bind_shelf(view: StudioAssetShelf) -> void:
 	view.open_requested.connect(func(path: String): open_piece(path))
 	view.close_requested.connect(_fold.bind(&"studio_toggle_shelf"), CONNECT_DEFERRED)
 	thumbnailer.thumbnail_ready.connect(view.on_thumbnail)
+	thumbnailer.loop_ready.connect(view.on_loop)
 
 
 func _shelves() -> Array:
@@ -1256,7 +1257,10 @@ func _place_shelf_panel() -> void:
 
 
 func _keep_shelf_near() -> void:
-	_vr_shelf()
+	var view := _vr_shelf()
+	if view != null:
+		# Every card plays its loop while the headset's shelf is open.
+		view.play_all = shelf_panel.visible
 	if shelf_panel == null or not shelf_panel.visible:
 		return
 	if stage.viewer_transform().origin.distance_to(shelf_panel.global_transform.origin) > INSPECTOR_REPLACE:

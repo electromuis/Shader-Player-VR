@@ -7,6 +7,9 @@ extends PanelContainer
 ## Press a card to pick it up (`taken`); Studio carries it and drops it
 ## where you let go in the world (StudioAssetDrop). The Open tab is the
 ## player's file browser: pick a piece, or a video to start a new one.
+## Layer and effect cards play a short loop (StudioThumbnailer.loop): the
+## one under the pointer, or all of them with `play_all` (the headset's
+## shelf while it's open).
 ##
 ## The same scene is the desktop's left panel and, in the headset, a panel
 ## in front of you and to the left (bigger there: `vr`, worked out when
@@ -44,11 +47,18 @@ var tab := "object"
 var held_id := ""
 ## A runner, for the Open tab to start in the piece's folder.
 var runner: ScriptRunner
+## Every card plays its loop, not only the one under the pointer.
+var play_all := false
+## The card under the pointer ("" when none).
+var hover_id := ""
 
 static var _placeholders := {}  # kind -> Texture2D
 
 var _needs_build := true
-var _cards := {}  # asset id -> {panel, image}
+var _cards := {}  # asset id -> {panel, image, asset}
+var _playing := {}  # asset id -> the AtlasTexture showing its loop
+var _asked := {}  # asset id -> true: its loop is being drawn, or is a still
+var _clock := 0.0
 var _tab_buttons := {}
 var _hint: Label
 var _scroll: ScrollContainer
@@ -147,10 +157,50 @@ func show_held(id: String) -> void:
 		_style_card(cid)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _needs_build and library != null:
 		_needs_build = false
 		_build()
+	_play(delta)
+
+
+## The asset ids whose cards play their loops now.
+func playing() -> Array:
+	return _playing.keys()
+
+
+## Start and stop the cards' loops, and step the ones playing.
+func _play(delta: float) -> void:
+	_clock += delta
+	var want: Array = []
+	if thumbnailer != null and is_visible_in_tree():
+		want = _cards.keys() if play_all else ([hover_id] if _cards.has(hover_id) else [])
+		want = want.filter(func(id): return String(_cards[id].asset.type) in StudioThumbnailer.LOOP_TYPES)
+	for id in _playing.keys():
+		if not id in want:
+			_playing.erase(id)
+			_show_still(id)
+	for id in _asked.keys():
+		if not id in want:
+			_asked.erase(id)
+	for id in want:
+		if _playing.has(id) or _asked.has(id):
+			continue
+		var strip := thumbnailer.loop(_cards[id].asset)
+		if strip == null or StudioThumbnailer.frames_of(strip) == 1:
+			_asked[id] = true  # being drawn (on_loop says when), or it doesn't move
+		else:
+			var atlas := AtlasTexture.new()
+			atlas.atlas = strip
+			atlas.region = Rect2(Vector2.ZERO, StudioThumbnailer.SIZE)
+			_playing[id] = atlas
+			_cards[id].image.texture = atlas
+	var frame := int(_clock * StudioThumbnailer.LOOP_FPS)
+	for id in _playing:
+		var atlas: AtlasTexture = _playing[id]
+		var x := (frame % StudioThumbnailer.frames_of(atlas.atlas)) * StudioThumbnailer.SIZE.x
+		if atlas.region.position.x != x:
+			atlas.region = Rect2(Vector2(x, 0), StudioThumbnailer.SIZE)
 
 
 func _build() -> void:
@@ -169,6 +219,8 @@ func _build() -> void:
 		_grid.remove_child(c)
 		c.queue_free()
 	_cards.clear()
+	_playing.clear()
+	_asked.clear()
 	var width := _scroll.size.x if _scroll.size.x > 0.0 else size.x - 40.0
 	_grid.columns = maxi(1, int((width + 8) / (_card.x + (12 if vr else 8))))
 	for asset in library.of_type(tab):
@@ -212,7 +264,11 @@ func _make_card(asset: Dictionary) -> Control:
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and ev.pressed:
 			take(asset)
 			panel.accept_event())
-	_cards[asset.id] = {"panel": panel, "image": image}
+	panel.mouse_entered.connect(func(): hover_id = asset.id)
+	panel.mouse_exited.connect(func():
+		if hover_id == asset.id:
+			hover_id = "")
+	_cards[asset.id] = {"panel": panel, "image": image, "asset": asset}
 	_style_card(asset.id)
 	return panel
 
@@ -229,8 +285,19 @@ func card(id: String) -> Control:
 
 
 func on_thumbnail(asset_id: String, tex: Texture2D) -> void:
-	if _cards.has(asset_id):
+	if _cards.has(asset_id) and not _playing.has(asset_id):
 		_cards[asset_id].image.texture = tex
+
+
+## A loop was drawn: a card waiting for it starts playing it.
+func on_loop(asset_id: String, _strip: Texture2D) -> void:
+	_asked.erase(asset_id)
+
+
+func _show_still(id: String) -> void:
+	var asset: Dictionary = _cards[id].asset
+	var tex := thumbnailer.thumbnail(asset) if thumbnailer != null else null
+	_cards[id].image.texture = tex if tex != null else _placeholder(asset)
 
 
 func _style_card(id: String) -> void:

@@ -324,3 +324,31 @@ static func test_vertex_tab_lists_and_drops_vertex_effects(tc: TestCase) -> void
 	tc.assert_true(edits.effect_options(EditModel.VERTEX_EFFECTS).any(func(o): return o.label == "Wobble"), "the inspector's menu lists it")
 	tc.assert_true(m.save().ok, "saves valid")
 	tc.assert_true(ScriptFormat.load_from_file(m.path).ok)
+
+
+## Card loops (TODO 18): only layers and effects get one; a preview copy's
+## TIME reads its own uniform, not the stage's; a strip's frames; stills
+## told from loops that move. Drawing them needs a renderer (see
+## checks/shot_studio_loops.gd).
+static func test_card_loops(tc: TestCase) -> void:
+	var code := StudioThumbnailer.preview_code("shader_type canvas_item;\n#include \"%s\"\nvoid fragment() { COLOR.r = TIME; }\n" % VisualizerShaders.MEDIA_TIME)
+	var lines := code.split("\n")
+	tc.assert_eq(lines.slice(0, 4), PackedStringArray(["shader_type canvas_item;", "#define VJ_MEDIA_TIME",
+			"uniform float vj_preview_time;", "#define TIME vj_preview_time"]), "before the media time include, which then does nothing")
+	tc.assert_eq(StudioThumbnailer.preview_code("no shader type"), "no shader type")
+	var thumbs := StudioThumbnailer.new()
+	tc.assert_eq(thumbs.loop({"id": "x", "type": "object", "path": "res://player/prefabs/cube.tscn"}), null, "objects have none")
+	thumbs.free()
+	var strip := ImageTexture.create_from_image(Image.create(StudioThumbnailer.SIZE.x * 20, StudioThumbnailer.SIZE.y, false, Image.FORMAT_RGB8))
+	tc.assert_eq(StudioThumbnailer.frames_of(strip), 20)
+	tc.assert_eq(StudioThumbnailer.frames_of(null), 0)
+	var a := Image.create(64, 40, false, Image.FORMAT_RGB8)
+	a.fill(Color(0.5, 0.5, 0.5))
+	var b := a.duplicate() as Image
+	tc.assert_true(StudioThumbnailer.difference(a, b) == 0.0)
+	b.set_pixel(2, 2, Color(0.5, 0.5, 0.504))
+	tc.assert_true(StudioThumbnailer.difference(a, b) < StudioThumbnailer.STILL_DIFFERENCE, "a rounding speck is a still")
+	b.fill_rect(Rect2i(0, 0, 32, 40), Color(0.2, 0.6, 0.9))
+	tc.assert_true(StudioThumbnailer.difference(a, b) > StudioThumbnailer.STILL_DIFFERENCE, "half the picture changed moves")
+	tc.assert_true(StudioThumbnailer.loop_path({"type": "layer", "path": "res://a.glsl"}) !=
+			StudioThumbnailer.cache_path({"type": "layer", "path": "res://a.glsl"}), "kept beside the still")

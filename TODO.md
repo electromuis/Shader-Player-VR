@@ -24,7 +24,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 15. Outliner panel: the piece's objects as a tree; select, group (Ctrl+G), ungroup, drag into a group. Its wrist tile goes where *Key it* is on page 1 (`StudioWristPalette.PAGES`), as in the mockup.
 - [ ] 16. Make motion paths obvious (keys and times; maybe faint paths for every animated object).
 - [ ] 17. Shadertoy tab on the shelf (search or paste a link; a shader becomes a layer or an effect).
-- [ ] 18. Animated previews on layer and effect cards (on hover on the desktop, while the shelf is open in the headset).
+- [x] 18. Animated previews on layer and effect cards (on hover on the desktop, while the shelf is open in the headset). Done 2026-09-29: vertex cards too; `StudioThumbnailer.loop` (20 frames on the preview's own clock, cached as a strip), played by `StudioAssetShelf`; `test_card_loops`, checked with `checks/shot_studio_loops.gd`, render `docs/studio/shelf_loops.png`.
 - [ ] 19. GPU cost readout per object, layer and effect, and a benchmark that plays the piece and lists the heaviest moments.
 - [ ] 20. Catch up with the player: list the player features Studio's UI doesn't use yet (e.g. Blend in the inspector) and add them.
 - [x] 21. ↺ on the Config tab's rows (changes the player's tab too). Done 2026-09-29: every Config row (`PlayerSettings.is_default` / `reset`; the renderer back to the project's driver), and the Camera tab's placement sliders (Size … Resolution, Opacity with Blend), which had none either; `tests/test_player_settings.gd`, checked with `checks/shot_ui.gd`.

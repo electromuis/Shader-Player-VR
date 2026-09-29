@@ -41,6 +41,11 @@ extends Node3D
 ## dropped on the window: a piece or video opens, a shader or prefab goes
 ## into the piece.
 ##
+## Each of those panels has – to fold it to a tab: in the headset the
+## wrist's button for it, on the desktop a tab in the status; the tab (or
+## N / T / B) brings it back. In the headset the panels ride on the rig,
+## so they keep their place around you as you fly, turn or jump.
+##
 ## Performance recording (StudioRecorder): arm properties with the
 ## inspector's record dots, press Record (wrist, Shift+R): playback starts
 ## a pre-roll early and, from the loop's in point (or where you were), what
@@ -279,6 +284,7 @@ func _ready() -> void:
 	_apply_player_settings()
 	get_window().files_dropped.connect(_on_files_dropped)
 	status_view.resized.connect(_fit_shelf)
+	status_view.tab_pressed.connect(_on_command)
 	set_mode(Mode.EDIT)
 
 	if _cli_piece != "":
@@ -789,6 +795,7 @@ func _bind_inspector(view: StudioInspector) -> void:
 	view.said.connect(_say)
 	view.action.connect(_on_command)
 	view.close_requested.connect(func(): tools.select(""))
+	view.minimize_requested.connect(_fold.bind(&"studio_toggle_inspector"), CONNECT_DEFERRED)
 	view.show_object(tools.selected)
 
 
@@ -807,7 +814,8 @@ func _make_inspector_panel() -> void:
 	inspector_panel.screen_size = INSPECTOR_SIZE
 	inspector_panel.material = FloatingPanel.ui_material()
 	inspector_panel.visible = false
-	add_child(inspector_panel)
+	# On the rig: it comes along as you fly, turn or jump.
+	stage.xr_rig.add_child(inspector_panel)
 	var sub := inspector_panel.get_node_or_null("Viewport") as SubViewport
 	if sub != null:
 		sub.gui_embed_subwindows = true
@@ -885,13 +893,40 @@ func _place_inspector_panel() -> void:
 		view.show_object(tools.selected)
 
 
-## After flying off (or jumping), bring the headset panel along.
+## The panels ride on the rig, so flying, turning and jumps carry them; this
+## brings the headset panel back after walking away from it (or the
+## miniature's change of scale).
 func _keep_inspector_near() -> void:
 	_vr_inspector()
 	if inspector_panel == null or not inspector_panel.visible:
 		return
 	if stage.viewer_transform().origin.distance_to(inspector_panel.global_transform.origin) > INSPECTOR_REPLACE:
 		_place_inspector_panel()
+
+
+# ---------- folding panels ----------
+
+## – on a panel: switch it off, leaving its tab (the wrist's button for it,
+## on the desktop a tab in the status). The tab or its key brings it back.
+func _fold(id: StringName) -> void:
+	if not id in folded_panels():
+		_on_command(id)
+	var t: Array = StudioStatus.TABS.filter(func(t): return t[0] == id)[0]
+	if stage.xr_mode.is_in_vr():
+		_say("%s folded: its button on the wrist brings it back." % t[1])
+	else:
+		_say("%s folded: its tab up top (or %s) brings it back." % [t[1], t[2]])
+
+
+## The panels that are switched off (their commands, as in StudioStatus.TABS).
+func folded_panels() -> Array:
+	var out: Array = []
+	for t in StudioStatus.TABS:
+		var on: bool = {&"studio_toggle_inspector": inspector_on, &"studio_toggle_timeline": timeline_on,
+				&"studio_toggle_shelf": shelf_on}[t[0]]
+		if not on:
+			out.append(t[0])
+	return out
 
 
 # ---------- the timeline ----------
@@ -903,6 +938,7 @@ func _bind_ribbon(view: StudioTimelineRibbon) -> void:
 	view.loop = loop
 	view.recorder = recorder
 	view.said.connect(_say)
+	view.minimize_requested.connect(_fold.bind(&"studio_toggle_timeline"), CONNECT_DEFERRED)
 
 
 func _ribbons() -> Array:
@@ -920,7 +956,8 @@ func _make_ribbon_panel() -> void:
 	ribbon_panel.screen_size = RIBBON_SIZE
 	ribbon_panel.material = FloatingPanel.ui_material()
 	ribbon_panel.visible = false
-	add_child(ribbon_panel)
+	# On the rig: it comes along as you fly, turn or jump.
+	stage.xr_rig.add_child(ribbon_panel)
 	stage.add_masked_panel(ribbon_panel)
 
 
@@ -1135,9 +1172,7 @@ func _bind_shelf(view: StudioAssetShelf) -> void:
 	view.said.connect(_say)
 	view.taken.connect(_on_taken.bind(view))
 	view.open_requested.connect(func(path: String): open_piece(path))
-	view.close_requested.connect(func():
-		shelf_on = false
-		_show_shelf())
+	view.close_requested.connect(_fold.bind(&"studio_toggle_shelf"), CONNECT_DEFERRED)
 	thumbnailer.thumbnail_ready.connect(view.on_thumbnail)
 
 
@@ -1167,7 +1202,8 @@ func _make_shelf_panel() -> void:
 	shelf_panel.screen_size = SHELF_SIZE
 	shelf_panel.material = FloatingPanel.ui_material()
 	shelf_panel.visible = false
-	add_child(shelf_panel)
+	# On the rig: it comes along as you fly, turn or jump.
+	stage.xr_rig.add_child(shelf_panel)
 	stage.add_masked_panel(shelf_panel)
 
 
@@ -1498,6 +1534,7 @@ func _show_status() -> void:
 	]
 	if status_view.visible:
 		status_view.callv("show_state", args)
+		status_view.show_tabs(folded_panels())
 	if _wrist == null or not is_instance_valid(_wrist):
 		_wrist = stage.xr_rig.wrist_content() as StudioWristPalette
 		if _wrist != null:

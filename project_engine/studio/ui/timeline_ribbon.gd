@@ -28,11 +28,14 @@ extends PanelContainer
 ## earlier / later, tempo − / +, ×2 / ½, tap tempo (tap along while it
 ## plays), and back to the detected grid; they write the piece's
 ## `media.beats`, so the player uses the same grid. While recording, the
-## take's span shows red, and armed properties' rows are red. The same scene is the desktop's bottom strip and the
+## take's span shows red, and armed properties' rows are red. – at the bar's
+## right end folds it to a tab. The same scene is the desktop's bottom strip and the
 ## headset's band at waist height (bigger there: `vr`, worked out when it's
 ## inside a SubViewport).
 
 signal said(text: String)
+## – : fold the timeline to its tab (the wrist's Timeline button).
+signal minimize_requested
 
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
@@ -197,6 +200,12 @@ func _ready() -> void:
 		b.tooltip_text = m[2]
 		_mode_bar.add_child(b)
 		_mode_buttons[m[0]] = b
+	var fill := Control.new()
+	fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.add_child(fill)
+	var fold := _button("—", func(): minimize_requested.emit())
+	fold.tooltip_text = "Fold to a tab (T brings it back)"
+	bar.add_child(fold)
 	_canvas = Control.new()
 	_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_canvas.clip_contents = true

@@ -19,6 +19,8 @@ extends PanelContainer
 
 signal said(text: String)
 signal close_requested
+## – : fold the panel to its tab (the wrist's Inspector button).
+signal minimize_requested
 ## A Studio command from a button here (the viewer's: key it, cut, arm the
 ## ride).
 signal action(id: StringName)
@@ -111,11 +113,14 @@ func _ready() -> void:
 	_title = _label(top, int(_fs * 1.3), Color.WHITE)
 	_title.clip_text = true
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var fold := _button("—", func(): minimize_requested.emit())
+	fold.tooltip_text = "Fold to a tab (N brings it back)"
 	var close := _button("✕", func(): close_requested.emit())
 	close.tooltip_text = "Deselect"
-	if vr:
-		close.custom_minimum_size = Vector2(_target_h(), _target_h())
-	top.add_child(close)
+	for b in [fold, close]:
+		if vr:
+			b.custom_minimum_size = Vector2(_target_h(), _target_h())
+		top.add_child(b)
 	# Its kind, its group and when it's there; the key legend at the right.
 	var sub := HBoxContainer.new()
 	rows.add_child(sub)

@@ -15,8 +15,8 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 ## Studio
 
 - [ ] 8. Wrist palette to the mockup (`docs/studio/todo/3_wrist.png`): Play / Edit switch, big timecode with duration and bar, a 4 × 3 icon grid, a footer with Save and "autosaved …", a second page for the rest.
-- [ ] 9. Minimize (–) on every panel (inspector, shelf, timeline, outliner), folding it to a tab on the wrist.
-- [ ] 10. Move panels in VR by their title bar; panels keep their place relative to you as you fly.
+- [x] 9. Minimize (–) on every panel (inspector, shelf, timeline, outliner), folding it to a tab on the wrist. Done 2026-09-29: — on the inspector, the shelf and the timeline; the wrist's panel buttons are the headset's tabs, the desktop gets tabs in the status (`Studio._fold`, `StudioStatus.show_tabs`); checked with `checks/shot_studio_panels.gd`. The outliner (15) should get one when it's built.
+- [ ] 10. Move panels in VR by their title bar; panels keep their place relative to you as you fly. 2026-09-29: the second half is done (the headset panels ride on the XR rig; `shot_studio_panels.gd`); moving one by its title bar is left.
 - [x] 11. Timeline scroll bar over the whole piece (with the audio's outline): drag to scroll, pull its ends to zoom. Done 2026-09-29: drawn on the ribbon's canvas under the lanes (`StudioTimelineRibbon._draw_bar`, `StudioTimeline.scroll_to` / `pull_end`); a press beside the window jumps there, the wheel over it scrolls; checked with `checks/shot_studio_scrollbar.gd`.
 - [x] 12. Draw the floor grid (1 m lines); the setting exists (`StudioSettings.floor_grid`) but nothing draws it. Done 2026-09-29: `studio/tools/floor_grid.gd`, checked with `checks/shot_studio_floor_grid.gd`.
 - [x] 13. Desktop drops land too far away: a card lands on the floor under the cursor, with its distance shown. Done 2026-09-29: `StudioAssetDrop.aim` lets the floor win past the main screen; `studio/tools/drop_preview.gd` shows the outline, footprint and distance; checked with `checks/shot_studio_drop.gd`.

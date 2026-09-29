@@ -7,6 +7,12 @@ extends PanelContainer
 ## saying what an armed ride does), and the last thing that happened (undo,
 ## save, an error). The desktop window shows it in a corner, with the
 ## keyboard shortcuts; the headset on the left wrist (compact: no hints).
+## On the desktop it also holds the tabs of folded panels (– on a panel, or
+## its key): press one to bring the panel back. In the headset the wrist
+## palette's panel buttons are those tabs.
+
+## A folded panel's tab was pressed: the command that shows it again.
+signal tab_pressed(id: StringName)
 
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
@@ -30,6 +36,13 @@ const HINTS := [
 		["N", "inspector"], ["T", "timeline"], ["B", "shelf"], ["F2", "menu"], ["H", "hide these"]]],
 ]
 
+## The desktop's panel tabs: [command, label, key].
+const TABS := [
+	[&"studio_toggle_inspector", "Inspector", "N"],
+	[&"studio_toggle_timeline", "Timeline", "T"],
+	[&"studio_toggle_shelf", "Shelf", "B"],
+]
+
 ## Wrist layout: bigger text, no keyboard hints.
 @export var compact: bool = false
 
@@ -50,6 +63,7 @@ var _ride_help: Label
 var _key_animated: Label
 var _fps: Label
 var _fps_clock := 0.0
+var _tabs: Dictionary = {}  # command -> Button
 
 
 func _ready() -> void:
@@ -101,6 +115,10 @@ func _ready() -> void:
 	rec_sb.bg_color = RECORD
 	_rec.add_theme_stylebox_override("normal", rec_sb)
 	_rec.add_theme_color_override("font_color", Color.WHITE)
+	if not compact:
+		toggles.add_child(_spacer())
+		for t in TABS:
+			_tabs[t[0]] = _tab(toggles, size, t)
 	_ride_help = _label(rows, int(size * 0.85), RECORD)
 	_ride_help.text = "Ride armed: the next take (● Rec, Shift+R) also records where you fly, as the viewer's path."
 	_ride_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -113,6 +131,12 @@ func _ready() -> void:
 		_hints_off = _label(rows, 14, DIM)
 		_hints_off.text = "H  keyboard shortcuts"
 		_hints_off.visible = false
+
+
+## The tabs of the panels that are folded (commands from TABS).
+func show_tabs(folded: Array) -> void:
+	for id in _tabs:
+		_tabs[id].visible = id in folded
 
 
 ## Shows or hides the frames per second (the player's FPS setting).
@@ -182,6 +206,28 @@ func _chip(parent: Control, font_size: int, text: String, color: Color) -> Label
 	l.add_theme_stylebox_override("normal", sb)
 	l.visible = false
 	return l
+
+
+func _tab(parent: Control, font_size: int, t: Array) -> Button:
+	var b := Button.new()
+	b.text = "▭ " + t[1]
+	b.tooltip_text = "Bring the %s back (%s)" % [String(t[1]).to_lower(), t[2]]
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", int(font_size * 0.8))
+	b.add_theme_color_override("font_color", ACCENT)
+	for state in ["normal", "hover", "pressed"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(ACCENT, 0.25 if state == "hover" else 0.1)
+		sb.border_color = Color(ACCENT, 0.6)
+		sb.set_border_width_all(1)
+		sb.set_corner_radius_all(6)
+		sb.content_margin_left = 8
+		sb.content_margin_right = 8
+		b.add_theme_stylebox_override(state, sb)
+	b.pressed.connect(func(): tab_pressed.emit(t[0]))
+	b.visible = false
+	parent.add_child(b)
+	return b
 
 
 static func _spacer() -> Control:

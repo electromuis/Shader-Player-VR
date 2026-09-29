@@ -18,6 +18,7 @@ signal said(text: String)
 signal taken(asset: Dictionary)
 ## The Open tab picked a file (a piece, or a video).
 signal open_requested(path: String)
+## – : fold the shelf to its tab (the wrist's Shelf button).
 signal close_requested
 
 const ACCENT := Color(0.3, 0.79, 0.94)
@@ -99,9 +100,9 @@ func _ready() -> void:
 	fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(fill)
 	var close := Button.new()
-	close.text = "✕"
+	close.text = "—"
 	close.focus_mode = Control.FOCUS_NONE
-	close.tooltip_text = "Hide the shelf"
+	close.tooltip_text = "Fold to a tab (B brings it back)"
 	close.pressed.connect(func(): close_requested.emit())
 	if vr:
 		close.custom_minimum_size = Vector2(_fs * 1.7, _fs * 1.7)

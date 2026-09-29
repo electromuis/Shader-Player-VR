@@ -8,8 +8,10 @@ extends RefCounted
 ## directly.
 ##
 ## A field: {key (unique in the object), label, type ("float" / "int" /
-##   "bool" / "color" / "vec3"), min, max, step, default, alpha (colours),
-##   config (its path in the spawn config, [] if it has none),
+##   "bool" / "color" / "vec3" / "choice" / "texture"), min, max, step,
+##   default, alpha (colours), options and values (a choice: the names shown
+##   and the values written, ints for a shader's hint_enum, strings for a
+##   blend), tip, config (its path in the spawn config, [] if it has none),
 ##   slot ("display", "effect1", "modifiers", ...: the `shader_param` track
 ##   target is "<id>.<slot>"; "" = it can't be keyed), param}.
 ## A section: {title, kind ("fields" / "effect" / "transform" / "surface" /
@@ -26,7 +28,9 @@ extends RefCounted
 ##                  curve keeps its shape and a fade from 0 still starts at
 ##                  0 (as a grab does with a path). A switch keys.
 ##   A field with no place in the config (a custom prefab's own material)
-##   keys either way: a single key is a still value.
+##   keys either way: a single key is a still value. A choice or an image
+##   keys with step keys (it can't be in between), and a picked image
+##   outside the piece is copied into its images/ folder first.
 ## While a control is dragged, preview() shows the value live through the
 ## runner (the same route as a track) and holds the track off it.
 
@@ -49,7 +53,8 @@ var recorder: StudioRecorder
 
 # ---------- what an object has ----------
 
-## "screen", "layer" or "object" (anything else: groups, cubes, prefabs).
+## "screen", "layer" or "object" (anything else: groups, cubes, prefabs);
+## kind_for also says "camera" for the camera effects (EditModel.CAMERA).
 static func kind_of(node: Node) -> String:
 	if node is Visualizer:
 		return "layer"
@@ -61,6 +66,8 @@ static func kind_of(node: Node) -> String:
 ## kind_of `id`: its node's if it's on stage, else from its prefab (the
 ## built-in screen and layer).
 func kind_for(id: String, node: Node = null) -> String:
+	if id == EditModel.CAMERA:
+		return "camera"
 	if node != null:
 		return kind_of(node)
 	var i := model.spawn_index(id)
@@ -99,6 +106,9 @@ func describe(id: String, t: float, until: float, node: Node = null) -> String:
 func sections(id: String, node: Node = null, kind: String = "") -> Array:
 	if kind == "":
 		kind = kind_for(id, node)
+	if kind == "camera":
+		var cam := model.effects_of(id)
+		return range(cam.size()).map(func(i): return _effect_section(cam, i, EditModel.EFFECTS, true))
 	var cfg := model.config_of(id)
 	var out: Array = [{"title": "Transform", "kind": "transform", "fields": []}]
 	match kind:
@@ -106,7 +116,11 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 			out.append(surface_section(id))
 			out.append({"title": "Display", "kind": "fields", "fields": [
 				_float("opacity", "Opacity", 0.0, 1.0, 0.01, 1.0, ["opacity"], "display"),
+				_blend(),
 				_float("render_scale", "Render scale", 0.1, 2.0, 0.05, 1.0, ["render_scale"], ""),
+				{"key": "fit_aspect", "label": "Fit to video", "type": "bool", "default": false,
+					"config": ["fit_aspect"], "slot": "", "param": "fit_aspect",
+					"tip": "Keep the video's own shape inside the screen (letterboxed or pillarboxed)"},
 			]})
 			var shader := String(cfg.get("shader", ""))
 			if shader != "":
@@ -120,12 +134,15 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 			out.append(surface_section(id))
 			out.append({"title": "Display", "kind": "fields", "fields": [
 				_float("opacity", "Opacity", 0.0, 1.0, 0.01, 1.0, ["opacity"], "display"),
+				_blend(),
 				_float("resolution", "Resolution", 0.1, 2.0, 0.05, 1.0, ["resolution"], ""),
 			]})
 		_:
 			var mat := ScriptRunner.surface_material(node) if node != null else null
 			if mat != null and mat.shader != null:
 				var hints := VisualizerShaders.parse_hints(mat.shader.code)
+				# Its images would be keys only (there's no config to name them in).
+				hints = {"params": hints.params.filter(func(p): return p.type != "texture"), "colors": hints.colors}
 				var section := _hint_section("Material", hints, [], "surface")
 				if not section.fields.is_empty():
 					out.append(section)
@@ -154,8 +171,9 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 
 
 ## Effect `i` of `list`'s section: its hinted params, keyed on its slot
-## (`effect<N>` / `vertex<N>`) while it's on.
-func _effect_section(effects: Array, i: int, list: String = EditModel.EFFECTS) -> Dictionary:
+## (`effect<N>` / `vertex<N>`) while it's on. `camera`: a camera effect
+## (CameraFxShaders: its sliders, then its strength).
+func _effect_section(effects: Array, i: int, list: String = EditModel.EFFECTS, camera := false) -> Dictionary:
 	var e: Dictionary = effects[i] if typeof(effects[i]) == TYPE_DICTIONARY else {}
 	var key := String(e.get("shader", ""))
 	var vertex := list == EditModel.VERTEX_EFFECTS
@@ -163,14 +181,26 @@ func _effect_section(effects: Array, i: int, list: String = EditModel.EFFECTS) -
 	var slot := EditModel.effect_slot(effects, i)
 	var name := "vertex" if vertex else "effect"
 	var hints := {}
-	if path != "":
+	if path != "" and camera:
+		hints = {"params": CameraFxShaders.params_of(CameraFxShaders.code_for(path))}
+	elif path != "":
 		hints = {"params": ScreenGeometry.hints_for(path).params} if vertex else VisualizerShaders.hints_for(path)
-	var section := _hint_section(geometry_label(path, key) if vertex else effect_label(key, path), hints,
-			[list, i, "params"], "%s%d" % [name, slot] if slot >= 0 else "")
+	var title := camera_label(key, path) if camera else geometry_label(path, key) if vertex else effect_label(key, path)
+	var section := _hint_section(title, hints, [list, i, "params"], "%s%d" % [name, slot] if slot >= 0 else "")
+	if camera:
+		section.fields.append(_float("strength", "Strength", 0.0, 1.0, 0.01, 1.0, [list, i, "strength"],
+				"%s%d" % [name, slot] if slot >= 0 else ""))
 	section.merge({"kind": "effect", "list": list, "index": i, "shader": key, "enabled": slot >= 0}, true)
 	for f in section.fields:
 		f.key = "%s%d/%s" % [name, i, f.param]
 	return section
+
+
+## A camera effect's name for people: the built-in's, else its file's.
+static func camera_label(key: String, path: String) -> String:
+	if CameraFxShaders.BUILTINS.has(path):
+		return String(CameraFxShaders.BUILTINS[path][0])
+	return path.get_file().get_basename().capitalize() if path != "" else key.capitalize()
 
 
 # ---------- the surface ----------
@@ -273,7 +303,10 @@ static func _hint_section(title: String, hints: Dictionary, config: Array, slot:
 		var f := {"key": spec.name, "label": _label(spec), "type": spec.type, "default": spec.default,
 			"config": config + [spec.name] if not config.is_empty() else [],
 			"slot": slot, "param": spec.name, "group": spec.get("group", ""), "at": spec.get("at", 0)}
-		if spec.type != "bool":
+		if spec.has("options"):  # a hint_enum int
+			f.merge({"type": "choice", "options": spec.options, "values": range(spec.options.size()),
+				"default": int(spec.default)}, true)
+		elif spec.type in ["float", "int"]:
 			f.merge({"min": spec.min, "max": spec.max, "step": spec.step})
 		fields.append(f)
 	for spec in hints.get("colors", []):
@@ -294,6 +327,25 @@ static func _float(key: String, label: String, lo: float, hi: float, step: float
 		config: Array, slot: String, param: String = "") -> Dictionary:
 	return {"key": key, "label": label, "type": "float", "min": lo, "max": hi, "step": step,
 		"default": default, "config": config, "slot": slot, "param": param if param != "" else key}
+
+
+## How a screen or layer goes over what's behind it (Screen.BLENDS); keyed
+## on the display slot, like opacity.
+static func _blend() -> Dictionary:
+	return {"key": "blend", "label": "Blend", "type": "choice", "default": "normal",
+		"options": Screen.BLENDS.map(func(b): return Screen.BLEND_LABELS[b]), "values": Screen.BLENDS.duplicate(),
+		"config": ["blend"], "slot": "display", "param": "blend",
+		"tip": "Add adds its light (black adds nothing); Black transparent makes black see-through"}
+
+
+## A choice field's name for `value` ("Add (light)"), or the value itself.
+static func choice_label(field: Dictionary, value) -> String:
+	var values: Array = field.get("values", [])
+	var v = _typed(field, value)
+	for i in values.size():
+		if typeof(values[i]) == typeof(v) and values[i] == v:
+			return String(field.options[i])
+	return str(value)
 
 
 static func _color(key: String, label: String, alpha: bool, default: Color, config: Array, slot: String) -> Dictionary:
@@ -375,6 +427,13 @@ static func _typed(field: Dictionary, v):
 		"vec3":
 			var x := Interpolation.to_vec3(v)
 			return [x.x, x.y, x.z]
+		"choice":
+			var values: Array = field.get("values", [])
+			if not values.is_empty() and typeof(values[0]) == TYPE_INT:
+				return int(round(float(v))) if typeof(v) in [TYPE_INT, TYPE_FLOAT] else int(field.default)
+			return String(v) if typeof(v) == TYPE_STRING else String(field.default)
+		"texture":
+			return String(v) if typeof(v) == TYPE_STRING else ""
 	return v
 
 
@@ -440,20 +499,26 @@ func commit(id: String, field: Dictionary, value, t: float, auto_key: bool, key_
 	if recorder != null and recorder.owns_param(id, field):
 		return ""  # recorded: the take writes it when it ends
 	value = _typed(field, _as_json(value))
+	var held: bool = field.type in ["bool", "choice", "texture"]  # no in-between: keys, never scaled
+	if field.type == "texture" and value != "":
+		value = bundle_image(value)
+		if value == "":
+			return ""
 	var ti := track_of(id, field)
 	var slot := String(field.slot)
 	var target := "%s.%s" % [id, slot]
-	var what := "%s %s" % [id, String(field.label).to_lower()]
+	var what := "%s %s" % [EditModel.who(id), String(field.label).to_lower()]
 	var label := ""
 	var done := false
 	if slot == "":
 		label = "Set %s" % what
 		done = _set_config(id, field.config, value, label)
-	elif auto_key or field.config.is_empty() or (ti >= 0 and (field.type == "bool" or key_animated
+	elif auto_key or field.config.is_empty() or (ti >= 0 and (held or key_animated
 			or key_near(model.tracks()[ti].get("keyframes", []), t) >= 0)):
 		var at := _key_time(ti, t)
 		label = "Key %s at %s" % [what, StudioStatus.timecode(at)]
-		done = model.batch(label, func(): model.set_key(ScriptFormat.TRACK_SHADER_PARAM, target, field.param, at, value))
+		var interp := _key_interp(field)
+		done = model.batch(label, func(): model.set_key(ScriptFormat.TRACK_SHADER_PARAM, target, field.param, at, value, interp))
 	elif ti >= 0:
 		var now = value_of(id, field, t)
 		label = "Move %s's keys" % what
@@ -484,12 +549,19 @@ func toggle_key(id: String, field: Dictionary, t: float) -> String:
 		var k := key_near(model.tracks()[ti].get("keyframes", []), t)
 		if k >= 0:
 			var kt := float(model.tracks()[ti].keyframes[k].get("t", t))
-			var label := "Delete %s %s key at %s" % [id, String(field.label).to_lower(), StudioStatus.timecode(kt)]
+			var label := "Delete %s %s key at %s" % [EditModel.who(id), String(field.label).to_lower(), StudioStatus.timecode(kt)]
 			return label if model.batch(label, func(): model.delete_key(ti, k)) else ""
 	var value = value_of(id, field, t)
-	var label := "Key %s %s at %s" % [id, String(field.label).to_lower(), StudioStatus.timecode(t)]
+	var label := "Key %s %s at %s" % [EditModel.who(id), String(field.label).to_lower(), StudioStatus.timecode(t)]
+	var interp := _key_interp(field)
 	return label if model.batch(label, func():
-		model.set_key(ScriptFormat.TRACK_SHADER_PARAM, "%s.%s" % [id, field.slot], field.param, t, value)) else ""
+		model.set_key(ScriptFormat.TRACK_SHADER_PARAM, "%s.%s" % [id, field.slot], field.param, t, value, interp)) else ""
+
+
+## A new key's interp: "step" for what can't be in between (a choice, an
+## image), else the track's way ("").
+static func _key_interp(field: Dictionary) -> String:
+	return "step" if field.type in ["choice", "texture"] else ""
 
 
 ## A transform channel's diamond: "key", "animated" or "static".
@@ -571,17 +643,78 @@ func _as_value(field: Dictionary, value):
 ## Effects that can be added: [{key (a shader path), label}]: the built-ins,
 ## the piece's own effect shaders, and the user's (from the library).
 ## `list` VERTEX_EFFECTS: the vertex effects (built-ins and the user's
-## `shaders/vertex/` snippets).
-func effect_options(list: String = EditModel.EFFECTS) -> Array:
+## `shaders/vertex/` snippets). For EditModel.CAMERA (`id`), camera
+## effects: the built-ins, the piece's and the user's `// @camera` files.
+func effect_options(list: String = EditModel.EFFECTS, id: String = "") -> Array:
+	if id == EditModel.CAMERA:
+		var out: Array = []
+		var seen := {}
+		for o in CameraFxShaders.list_options():
+			var yours := not String(o.key).begins_with(CameraFxShaders.BUILTIN_PREFIX)
+			out.append({"key": o.key, "label": "%s (yours)" % o.label if yours else o.label})
+			seen[o.key] = true
+		var shaders = model.document().get("shaders", {})
+		for k in shaders:
+			var path := _resolve(k)
+			if not seen.has(path) and not path.begins_with(CameraFxShaders.BUILTIN_PREFIX) \
+					and CameraFxShaders.is_camera_code(CameraFxShaders.code_for(path)):
+				out.append({"key": String(shaders[k]), "label": "%s (piece)" % String(k).capitalize()})
+				seen[path] = true
+		return out
 	if list == EditModel.VERTEX_EFFECTS:
 		var dirs := library.vertex_dirs() if library != null else ScreenGeometry.search_dirs(ScreenGeometry.VERTEX_DIR)
 		return ScreenGeometry.list_options(ScreenGeometry.VERTEX_DIR, dirs).map(func(o): return {"key": o.key, "label": o.label})
 	return _shader_options(VisualizerShaders.builtins(true), true)
 
 
-## Layer shaders that can be picked: [{key (path), label}], the same way.
+## Layer shaders that can be picked: [{key (path), label}], the same way,
+## after the playing video itself (VisualizerShaders.VIDEO).
 func layer_shader_options() -> Array:
-	return _shader_options(VisualizerShaders.builtins(false), false)
+	return [{"key": VisualizerShaders.VIDEO, "label": "Video"}] + _shader_options(VisualizerShaders.builtins(false), false)
+
+
+## The folder in a piece that picked images are copied into.
+const IMAGES_DIR := "images"
+
+
+## Images an image field can pick: [{key (a path), label}]: None, the
+## piece's own (in its images/ folder) and the user's (ImageLibrary's
+## folders), and `current` if it's none of those.
+func image_options(current: String = "") -> Array:
+	var out: Array = [{"key": "", "label": "None"}]
+	var seen := {"": true}
+	var dirs: Array[String] = []
+	if model.path != "":
+		dirs.append(model.path.get_base_dir().path_join(IMAGES_DIR))
+	dirs.append_array(ImageLibrary.search_dirs())
+	for o in ImageLibrary.list_options(dirs):
+		var key := _piece_relative(o.key)
+		if not seen.has(key):
+			out.append({"key": key, "label": o.label})
+			seen[key] = true
+	if not seen.has(current):
+		out.append({"key": current, "label": ImageLibrary.label_of(current)})
+	return out
+
+
+## `path` as the piece names it: relative when it's in the piece's folder.
+func _piece_relative(path: String) -> String:
+	if model.path == "":
+		return path
+	var rel := StudioBundle.relative_to(path, model.path.get_base_dir())
+	return rel if rel != "" else path
+
+
+## An image for the piece: its path relative to the piece, copied into its
+## images/ folder when it's outside it; "" (and a warning) if it can't be.
+func bundle_image(path: String) -> String:
+	if not path.is_absolute_path() or model.path == "":
+		return path
+	var b := StudioBundle.bundle(model.path.get_base_dir(), path, IMAGES_DIR)
+	if not b.ok:
+		push_warning(b.error)
+		return ""
+	return b.path
 
 
 func _shader_options(builtins: Array, effects: bool) -> Array:
@@ -621,5 +754,7 @@ func add_effect(id: String, path: String, list: String = EditModel.EFFECTS) -> b
 
 ## Give layer `id` the shader at `path`, bundling a user shader first.
 func set_layer_shader(id: String, path: String) -> bool:
+	if path == VisualizerShaders.VIDEO:
+		return model.set_config(id, ["shader"], path, "Set %s's source to the video" % id)
 	var b := StudioBundle.bundle(model.path.get_base_dir(), path)
 	return b.ok and model.set_shader(id, b.path)

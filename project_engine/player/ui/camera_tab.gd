@@ -535,7 +535,7 @@ func _rebuild_dynamic() -> void:
 		return
 	var layer := _layer()
 	if layer != null and layer.shader != "":
-		_add_param_controls(params_box, VisualizerShaders.hints_for(layer.shader).params,
+		_add_param_controls(params_box, param_specs(VisualizerShaders.hints_for(layer.shader)),
 				layer.params, func(param: String, v): layer.set_param(param, v))
 	_add_surface_rows(edited)
 	_effect_options = VisualizerShaders.list_options(VisualizerShaders.search_dirs(), true)
@@ -660,7 +660,7 @@ func _add_effect_rows(edited: ScreenSettings, i: int, list: String) -> void:
 	var specs: Array = []
 	if String(effect.shader) != "":
 		specs = ScreenGeometry.hints_for(effect.shader).params if vertex \
-				else VisualizerShaders.hints_for(effect.shader).params
+				else param_specs(VisualizerShaders.hints_for(effect.shader))
 	if specs.is_empty():
 		toggle.text = "    " + title
 		toggle.disabled = true
@@ -700,6 +700,19 @@ func _is_open(effect: Dictionary) -> bool:
 	return _open_effects.any(func(e: Dictionary): return is_same(e, effect))
 
 
+## A shader's rows in its order: its hinted params and its colours
+## (`source_color` vec3 / vec4: type "color", default [r, g, b(, a)], as
+## presets keep them).
+static func param_specs(hints: Dictionary) -> Array:
+	var out: Array = hints.get("params", []).duplicate()
+	for c in hints.get("colors", []):
+		var d: Color = c.default
+		out.append({"name": c.name, "type": "color", "alpha": c.alpha, "group": c.get("group", ""),
+			"at": c.get("at", 0), "default": [d.r, d.g, d.b, d.a] if c.alpha else [d.r, d.g, d.b]})
+	out.sort_custom(func(a, b): return int(a.get("at", 0)) < int(b.get("at", 0)))
+	return out
+
+
 ## A _param_control per spec into `box`, valued from `values` (else the
 ## default), calling `on_change(name, value)`. Each new `group_uniforms`
 ## group starts with a labelled separator.
@@ -731,7 +744,8 @@ func _group_separator(group: String) -> Control:
 
 
 ## A row for one hinted uniform: a slider with its value, a checkbox, a
-## dropdown (a hint_enum), or an image picker (a texture), then a ↺ button back to its default (disabled while at it).
+## dropdown (a hint_enum), an image picker (a texture) or a colour button,
+## then a ↺ button back to its default (disabled while at it).
 func _param_control(spec: Dictionary, value: Variant, on_change: Callable) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -753,6 +767,29 @@ func _param_control(spec: Dictionary, value: Variant, on_change: Callable) -> Co
 			on_change.call(v))
 		reset.pressed.connect(func(): check.button_pressed = bool(spec.default))
 		row.add_child(check)
+		row.add_child(reset)
+		return row
+	if spec.type == "color":
+		var alpha := bool(spec.get("alpha", false))
+		var as_color := func(v) -> Color:
+			var a: Array = v if typeof(v) == TYPE_ARRAY and v.size() >= 3 else spec.default
+			return Color(float(a[0]), float(a[1]), float(a[2]), float(a[3]) if a.size() > 3 else 1.0)
+		var as_array := func(c: Color) -> Array:
+			return [c.r, c.g, c.b, c.a] if alpha else [c.r, c.g, c.b]
+		var pick := ColorPickerButton.new()
+		pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pick.edit_alpha = alpha
+		pick.color = as_color.call(value)
+		var at_default := func(c: Color) -> bool:
+			return c.is_equal_approx(as_color.call(spec.default))
+		reset.disabled = at_default.call(pick.color)
+		pick.color_changed.connect(func(c: Color):
+			reset.disabled = at_default.call(c)
+			on_change.call(as_array.call(c)))
+		reset.pressed.connect(func():
+			pick.color = as_color.call(spec.default)
+			pick.color_changed.emit(pick.color))
+		row.add_child(pick)
 		row.add_child(reset)
 		return row
 	if spec.type == "texture":

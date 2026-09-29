@@ -1,8 +1,12 @@
 extends VBoxContainer
 
 ## The Studio tab of Studio's menu: Studio's own options (StudioSettings),
-## a row each with ↺ back to its default. Built in code, like the player's
-## Config tab.
+## a row each with ↺ back to its default, and Reload shaders. Built in code,
+## like the player's Config tab.
+
+## Every shader file was read again (Reload shaders): the inspector's
+## fields may have changed.
+signal shaders_reloaded
 
 const LABEL_WIDTH := 190
 
@@ -37,6 +41,19 @@ func _ready() -> void:
 	_grid = _check("1 m lines on the floor while editing")
 	_grid.toggled.connect(func(on: bool): _apply(func(): _settings.floor_grid = on))
 	_row("Floor grid", _grid, "floor_grid")
+	var reload := Button.new()
+	reload.text = "Reload shaders"
+	reload.tooltip_text = "Read every shader and image file again, to see edits made while Studio runs"
+	reload.pressed.connect(func():
+		VisualizerShaders.reload_all(get_tree())
+		shaders_reloaded.emit())
+	var reload_row := HBoxContainer.new()
+	var gap := Control.new()
+	gap.custom_minimum_size.x = LABEL_WIDTH
+	reload_row.add_child(gap)
+	reload_row.add_child(reload)
+	reload_row.add_theme_constant_override("separation", 12)
+	add_child(reload_row)
 	var note := Label.new()
 	note.text = "↺ puts a setting back to its default. The timeline's Off · Animated · All and Shift+I change the key mode too."
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

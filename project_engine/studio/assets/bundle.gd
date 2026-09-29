@@ -25,7 +25,8 @@ const PREFAB_EXTENSIONS := ["tscn", "scn"]
 
 ## {ok, path (what the piece names it), copied (a file was written), error}.
 ## `sub`: the folder a copy goes in, if not prefabs/ or shaders/ (vertex
-## effects go in shaders/vertex/, where the shelf looks for them).
+## effects go in shaders/vertex/, where the shelf looks for them; a shader's
+## images in images/).
 static func bundle(piece_dir: String, src: String, sub := "") -> Dictionary:
 	if src.begins_with("res://") or src.begins_with("builtin:") or not src.is_absolute_path():
 		return {"ok": true, "path": src, "copied": false}  # the player's, or already the piece's
@@ -99,7 +100,9 @@ static func _write_shader(src: String, dst: String) -> String:
 	var err := DirAccess.copy_absolute(src, dst)
 	if err != OK:
 		return "Could not copy %s (error %d)" % [src.get_file(), err]
-	var re := RegEx.create_from_string("#include\\s+\"([^\"]+)\"")
+	if src.get_extension().to_lower() in ImageLibrary.EXTENSIONS:
+		return ""  # an image: nothing it includes
+	var re :=RegEx.create_from_string("#include\\s+\"([^\"]+)\"")
 	for m in re.search_all(FileAccess.get_file_as_string(src)):
 		var inc := m.get_string(1)
 		if inc.begins_with("res://") or inc.is_absolute_path():

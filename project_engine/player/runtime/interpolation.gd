@@ -14,7 +14,8 @@ extends RefCounted
 ##            key's "in" handle, each [dt, dv] (relative to its key; dt in
 ##            seconds) — or, for array values, one [dt, dv] per element
 ## Values may be scalars OR fixed-length numeric arrays (e.g. Vector3 as [x,y,z]).
-## Arrays are element-wise interpolated.
+## Arrays are element-wise interpolated. Strings hold until the next key,
+## whatever the interp.
 
 ## Bisection steps solving a bezier segment's time for its curve parameter
 ## (Animation::bezier_track_interpolate uses the same, so we match it).
@@ -38,6 +39,9 @@ static func evaluate(keyframes: Array, t: float):
 	if span <= 0.0:
 		return b.get("value")
 	var raw_u := (t - ta) / span
+	# A string (a blend mode, an image path) can't be in between: it holds.
+	if typeof(a.get("value")) == TYPE_STRING or typeof(b.get("value")) == TYPE_STRING:
+		return a.get("value")
 	match a.get("interp", "linear"):
 		"step":
 			return a.get("value")

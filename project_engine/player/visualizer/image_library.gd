@@ -65,10 +65,14 @@ static func texture(path: String) -> Texture2D:
 
 
 ## What a shader uniform takes for a param value: a path (a String) becomes
-## its texture (null for ""); anything else is passed through.
+## its texture (null for ""); a colour kept as [r, g, b(, a)] (the Camera
+## tab's, in a preset) a Vector3 / Vector4; anything else is passed through.
 static func value(v: Variant) -> Variant:
 	if typeof(v) == TYPE_STRING or typeof(v) == TYPE_STRING_NAME:
 		return texture(String(v))
+	if typeof(v) == TYPE_ARRAY and v.size() in [3, 4]:
+		return Vector3(float(v[0]), float(v[1]), float(v[2])) if v.size() == 3 \
+				else Vector4(float(v[0]), float(v[1]), float(v[2]), float(v[3]))
 	return v
 
 

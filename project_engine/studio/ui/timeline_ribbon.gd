@@ -42,6 +42,8 @@ const RECORD := Color(1.0, 0.36, 0.36)
 const KEY := Color(1.0, 0.85, 0.3)
 ## The shortest time on stage a lane end can be dragged to.
 const MIN_SPAN := 0.1
+## Lane names of the things that aren't objects.
+const PSEUDO_NAMES := {"$viewer": "Viewer", "$camera": "Camera fx"}
 const DIM := Color(0.72, 0.75, 0.8)
 const PANEL_BG := Color(0.06, 0.06, 0.09, 0.92)
 ## Keys on change, in the switch's order: [mode, label, tip].
@@ -354,8 +356,8 @@ func _draw_canvas() -> void:
 		if y + _lane > top and y < h:
 			if sel:
 				c.draw_rect(Rect2(0, y, w, _lane), Color(ACCENT, 0.12))
-			var viewer: bool = lane.id == ScriptFormat.VIEWER
-			c.draw_string(font, Vector2(6 * _k + lane.depth * 12 * _k, y + _lane * 0.75), "Viewer" if viewer else lane.id, HORIZONTAL_ALIGNMENT_LEFT,
+			var viewer: bool = lane.id.begins_with("$")  # the viewer, the camera effects: no ends to drag
+			c.draw_string(font, Vector2(6 * _k + lane.depth * 12 * _k, y + _lane * 0.75), PSEUDO_NAMES.get(lane.id, lane.id), HORIZONTAL_ALIGNMENT_LEFT,
 					_gutter - 10 * _k - lane.depth * 12 * _k, _fs, (KEY if viewer else Color.WHITE) if sel else (Color(KEY, 0.8) if viewer else DIM))
 			for si in lane.spans.size():
 				var s: Array = _shown_span(lane, si)

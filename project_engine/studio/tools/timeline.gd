@@ -100,12 +100,16 @@ func _clamp() -> void:
 ## [{id, depth, parent, spans: [[from, to]], ends: [{spawn, despawn}]}]
 ## for every object, in file order; depth = how many parents it has. The
 ## viewer ("$viewer"), when the piece moves it, comes first: its span from
-## its first key, `warn` the stretches too fast for comfort (comfort()). Each
+## its first key, `warn` the stretches too fast for comfort (comfort()); then
+## the camera effects ("$camera") when the piece has any, all through. Each
 ## span's ends are the track indices of the events that make it: its spawn,
 ## and the despawn of this object that ends it (-1 when it runs to the end,
 ## or its parent's despawn or its own respawn ends it).
 static func lanes(model: EditModel, until: float) -> Array:
 	var out := _object_lanes(model, until)
+	if not model.effects_of(EditModel.CAMERA).is_empty():
+		out.push_front({"id": EditModel.CAMERA, "depth": 0, "parent": "", "spans": [[0.0, until]],
+				"ends": [{"spawn": -1, "despawn": -1}]})
 	var vt := ViewerTrack.new()
 	vt.build(model.tracks())
 	if not vt.is_empty():
@@ -223,6 +227,7 @@ static func span_limits(all_lanes: Array, lane: Dictionary, si: int, until: floa
 static func property_rows(model: EditModel, id: String) -> Array:
 	var rows: Array = []
 	var effects := model.effects_of(id)
+	var camera := id == EditModel.CAMERA
 	for ti in model.tracks().size():
 		var t: Dictionary = model.tracks()[ti]
 		var target := String(t.get("target", ""))
@@ -230,7 +235,7 @@ static func property_rows(model: EditModel, id: String) -> Array:
 		if t.get("type") == ScriptFormat.TRACK_TRANSFORM and target == id:
 			label = {"position": "Position", "rotation_deg": "Rotation", "scale": "Scale"}.get(t.get("channel"), str(t.get("channel")))
 		elif t.get("type") == ScriptFormat.TRACK_SHADER_PARAM and target.begins_with(id + "."):
-			label = "%s %s" % [_slot_label(target.substr(id.length() + 1), effects, model), String(t.get("param", "")).replace("_", " ")]
+			label = "%s %s" % [_slot_label(target.substr(id.length() + 1), effects, model, camera), String(t.get("param", "")).replace("_", " ")]
 		else:
 			continue
 		var keys: Array = []
@@ -243,14 +248,15 @@ static func property_rows(model: EditModel, id: String) -> Array:
 
 
 ## "effect1" → "Glow" (the effect in that slot), "display" → "Display".
-static func _slot_label(slot: String, effects: Array, model: EditModel) -> String:
+static func _slot_label(slot: String, effects: Array, model: EditModel, camera := false) -> String:
 	if slot.begins_with("effect") and slot.substr(6).is_valid_int():
 		var n := int(slot.substr(6))
 		for i in effects.size():
 			if EditModel.effect_slot(effects, i) == n:
 				var key := String(effects[i].get("shader", ""))
 				var shaders = model.document().get("shaders", {})
-				return StudioConfigEdits.effect_label(key, String(shaders.get(key, "")) if typeof(shaders) == TYPE_DICTIONARY else "")
+				var path := String(shaders.get(key, "")) if typeof(shaders) == TYPE_DICTIONARY else ""
+				return StudioConfigEdits.camera_label(key, path) if camera else StudioConfigEdits.effect_label(key, path)
 		return "Effect %d" % (n + 1)
 	return slot.capitalize()
 

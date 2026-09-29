@@ -36,7 +36,7 @@ const SETTLE := 0.6
 ## How often shown values follow the playhead (seconds).
 const REFRESH := 0.1
 ## Sections open when first shown (the rest start folded).
-const OPEN_BY_DEFAULT := ["Transform", "Surface", "Display", "Layer shader", "Pixel effects", "Vertex effects"]
+const OPEN_BY_DEFAULT := ["Transform", "Surface", "Display", "Layer shader", "Pixel effects", "Vertex effects", "Camera effects"]
 ## The effect lists' sections.
 const LISTS := {EditModel.EFFECTS: {"title": "Pixel effects", "add": "+ Add effect", "menu": "add_effect", "slot": "effect"},
 	EditModel.VERTEX_EFFECTS: {"title": "Vertex effects", "add": "+ Add vertex effect", "menu": "add_vertex", "slot": "vertex"}}
@@ -63,7 +63,7 @@ var _open_channel := ""  # the transform row whose sliders are out
 var _pending := {}  # field key -> {field, value, since, dragging}
 var _t_pending := {}  # channel -> {value, since, dragging}
 var _needs_build := true
-var _menu := ""  # the inline choice list that's open ("add_effect" / "add_vertex" / "layer_shader" / "surface"), "" none
+var _menu := ""  # the inline choice list that's open ("add_effect" / "add_vertex" / "layer_shader" / "surface", or "field:<key>" for a choice or image field), "" none
 var _since_refresh := 0.0
 var _clock := 0.0
 var _keep_scroll := -1
@@ -237,14 +237,23 @@ func _build() -> void:
 		_kind.text = ""
 		_hint.text = "Select something to see its settings: point and pull the trigger, or click it."
 		_hint.visible = true
+		if edits.model != null:
+			# The piece's own settings that aren't an object's.
+			var cam := _button("✦ Camera effects: over everything the viewer sees", func(): tools.select(EditModel.CAMERA))
+			cam.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			cam.custom_minimum_size.y = _target_h()
+			_list.add_child(cam)
 		return
 	if _id == ScriptFormat.VIEWER:
 		_build_viewer()
 		return
-	_title.text = _id
 	var kind := edits.kind_for(_id, node)
-	_kind.text = edits.describe(_id, _playhead(), _duration(), node)
 	var sections := edits.sections(_id, node, kind)
+	if kind == "camera":
+		_build_camera(sections)
+		return
+	_title.text = _id
+	_kind.text = edits.describe(_id, _playhead(), _duration(), node)
 	var lists_done := kind == "object"
 	for s in sections:
 		if s.kind == "effect":
@@ -352,9 +361,34 @@ func _add_field(parent: Control, field: Dictionary) -> void:
 	name.text = field.label
 	name.custom_minimum_size.x = _label_w - _dot_w
 	name.clip_text = true
+	if field.has("tip"):
+		name.tooltip_text = field.tip
+		name.mouse_filter = Control.MOUSE_FILTER_PASS
 	var r := {"field": field, "kind": field.type, "controls": [], "diamond": null, "value": null, "reset": null,
 			"dot": dot if dot is Button else null}
 	match field.type:
+		"choice", "texture":
+			# The current one ("Add (light)  ▾"); a press lists them under the row.
+			var menu := "field:" + String(field.key)
+			var pick := _button("", func():
+				_menu = "" if _menu == menu else menu
+				_needs_build = true)
+			pick.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			pick.clip_text = true
+			pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			pick.custom_minimum_size.y = _target_h()
+			if field.has("tip"):
+				pick.tooltip_text = field.tip
+			row.add_child(pick)
+			r.controls = [pick]
+			if _menu == menu:
+				var now = edits.value_of(_id, field, _playhead())
+				var options: Array = edits.image_options(String(now)) if field.type == "texture" \
+						else range(field.options.size()).map(func(i): return {"key": field.values[i], "label": field.options[i]})
+				var grid := _add_choices(options, func(v): _set_now(field, v), parent)
+				for i in options.size():
+					if str(options[i].key) == str(now):  # the one it is: lit, like a placement
+						(grid.get_child(i) as Button).add_theme_color_override("font_color", ACCENT)
 		"bool":
 			var sw := _pill(false, func(on: bool): _set_now(field, on))
 			var holder := HBoxContainer.new()
@@ -670,7 +704,7 @@ func _add_layer_shader(s: Dictionary) -> void:
 	var current := String(s.get("shader", ""))
 	var label := "none"
 	for o in edits.layer_shader_options():
-		if edits.model.shader_key_of(o.key) == current and current != "":
+		if current != "" and (o.key == current or edits.model.shader_key_of(o.key) == current):
 			label = o.label
 	if label == "none" and current != "":
 		label = current.capitalize()
@@ -703,6 +737,8 @@ func _add_effect_lists(sections: Array) -> void:
 ## chosen one unfolded), then "+ Add".
 func _add_effect_list(list: String, effects: Array) -> void:
 	var info: Dictionary = LISTS[list]
+	if _id == EditModel.CAMERA:
+		info = {"title": "Camera effects", "add": "+ Add camera effect", "menu": info.menu, "slot": info.slot}
 	var summary := " · ".join(effects.map(func(s): return String(s.title).to_lower())) if not effects.is_empty() else "none"
 	var master := func(head: HBoxContainer):
 		if effects.is_empty():
@@ -742,7 +778,7 @@ func _add_effect_list(list: String, effects: Array) -> void:
 	add_row.add_child(add)
 	body.add_child(add_row)
 	if _menu == info.menu:
-		var grid := _add_choices(edits.effect_options(list), func(key: String):
+		var grid := _add_choices(edits.effect_options(list, _id), func(key: String):
 			var n := edits.model.effects_of(_id, list).size()
 			if _effect_op(func(): return edits.add_effect(_id, key, list)):
 				_open_fx[list] = n)
@@ -843,7 +879,8 @@ func _framed(inner: Control, lit := false) -> PanelContainer:
 
 
 ## A grid of buttons, one per option ({key, label}); picking one closes it.
-func _add_choices(options: Array, on_pick: Callable) -> GridContainer:
+## It goes at the end of `parent` (the list if null).
+func _add_choices(options: Array, on_pick: Callable, parent: Control = null) -> GridContainer:
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 6)
@@ -857,7 +894,7 @@ func _add_choices(options: Array, on_pick: Callable) -> GridContainer:
 		b.custom_minimum_size.y = _target_h()
 		b.clip_text = true
 		grid.add_child(b)
-	_list.add_child(grid)
+	(parent if parent != null else _list).add_child(grid)
 	return grid
 
 
@@ -911,6 +948,8 @@ func _drag(field: Dictionary, on: bool) -> void:
 func _set_now(field: Dictionary, value) -> void:
 	_pending[field.key] = {"field": field, "value": value, "since": _clock, "dragging": false}
 	_commit(field.key)
+	if field.type in ["choice", "texture"]:
+		_needs_build = true  # the menu closed; the row shows the new one
 
 
 func _commit(key: String) -> void:
@@ -922,6 +961,18 @@ func _commit(key: String) -> void:
 	edits.end_preview(_id, p.field, label == "")
 	if label != "":
 		said.emit(label + ".")
+
+
+## The camera effects ("$camera", the script's camera block): its list,
+## like a screen's pixel effects, each with its strength.
+func _build_camera(sections: Array) -> void:
+	_title.text = "Camera effects"
+	_kind.text = "over everything the viewer sees"
+	_hint.text = "Only the first one that's on runs (the player's limit), and only as strong as the viewer's Config allows. Its sliders key on the Camera fx lane."
+	_hint.visible = true
+	_hint.remove_theme_color_override("font_color")
+	_add_effect_list(EditModel.EFFECTS, sections)
+	_refresh_values()
 
 
 ## The viewer ("$viewer"): no settings, but what it does here, and buttons
@@ -1085,6 +1136,8 @@ func _refresh_values() -> void:
 			"color":
 				if r.controls.size() > 1 and _picker_open != r.field.key:
 					(r.controls[1] as ColorPicker).color = _color(value)
+			"choice", "texture":
+				_show_choice(r, value)
 		_show_value(r, value)
 	for fx in _fx_rows:
 		fx.glyph.text = {"key": "◆", "animated": "◇", "static": "•"}.get(_effects_state(fx.fields, t), "")
@@ -1123,11 +1176,18 @@ func _show_transform(v: Array, ch: String) -> void:
 				(slider.get_meta("reset") as Button).disabled = absf(x - float(CHANNEL_RESET[ch])) < 0.001
 
 
+## A choice or image field's button: what it is now.
+func _show_choice(r: Dictionary, value) -> void:
+	var text := StudioConfigEdits.choice_label(r.field, value) if r.kind == "choice" \
+			else (ImageLibrary.label_of(String(value)) if String(value) != "" else "None")
+	(r.controls[0] as Button).text = text + "  ▾"
+
+
 func _show_value(r: Dictionary, value) -> void:
 	if r.get("reset") != null:
 		(r.reset as Button).disabled = _at_default(r.field, value)
 	match r.kind:
-		"bool":
+		"bool", "choice", "texture":
 			r.value.text = ""
 		"int":
 			r.value.text = str(int(value))
@@ -1160,6 +1220,8 @@ static func _at_default(field: Dictionary, value) -> bool:
 			return absf(float(value) - float(d)) < maxf(float(field.get("step", 0.01)) * 0.5, 1e-6)
 		"bool":
 			return bool(value) == bool(d)
+		"choice", "texture":
+			return str(value) == str(d)
 		"color", "vec3":
 			var a: Array = _color_array(value)
 			var b: Array = _color_array(d)

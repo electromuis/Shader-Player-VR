@@ -125,7 +125,7 @@ func select(id: String) -> void:
 	_key_grab = {}
 	_bounds_cache.clear()
 	if id != "":
-		_say("Selected %s." % ("the viewer" if id == ScriptFormat.VIEWER else id))
+		_say("Selected %s." % {ScriptFormat.VIEWER: "the viewer", EditModel.CAMERA: "the camera effects"}.get(id, id))
 	selection_changed.emit(id)
 
 

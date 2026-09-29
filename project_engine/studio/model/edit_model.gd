@@ -311,9 +311,30 @@ func spawn_indices(id: String) -> Array:
 	return out
 
 
+## The script's camera block as an object: its config is the top-level
+## `camera` ({effects: [...]}, the effects running over everything the
+## viewer sees), its tracks `$camera.effect<N>`. The effect commands and
+## set_config take it as an id.
+const CAMERA := ScriptRunner.CAMERA_TARGET
+
+
+## `id` as undo labels name it: "the camera" for CAMERA, "the viewer".
+static func who(id: String) -> String:
+	return {CAMERA: "the camera", ScriptFormat.VIEWER: "the viewer"}.get(id, id)
+
+
+## Whether `id` is something the config and effect commands can change:
+## an object that spawns, or CAMERA.
+func has_config(id: String) -> bool:
+	return id == CAMERA or spawn_index(id) >= 0
+
+
 ## `id`'s spawn config as the file has it (its first spawn's), to read;
-## {} if it has none.
+## {} if it has none. CAMERA's is the camera block.
 func config_of(id: String) -> Dictionary:
+	if id == CAMERA:
+		var cam = _doc.get("camera")
+		return cam if typeof(cam) == TYPE_DICTIONARY else {}
 	var i := spawn_index(id)
 	var cfg = tracks()[i].get("config") if i >= 0 else null
 	return cfg if typeof(cfg) == TYPE_DICTIONARY else {}
@@ -399,12 +420,15 @@ func set_config(id: String, key, value, label: String = "") -> bool:
 	if changes == null:
 		return false
 	if label == "":
-		label = "Set %s %s" % [id, ".".join(keys.map(func(k): return str(k)))]
+		label = "Set %s %s" % [who(id), ".".join(keys.map(func(k): return str(k)))]
 	return _do(label, true, changes)
 
 
 ## set_config's changes, or null if it doesn't apply.
 func _config_changes(id: String, keys: Array, value):
+	if id == CAMERA:
+		var c = _config_change_at(["camera"], keys, value) if not keys.is_empty() else null
+		return [c] if c != null else null
 	var spawns := spawn_indices(id)
 	if spawns.is_empty() or keys.is_empty():
 		return null
@@ -426,7 +450,12 @@ func _config_changes(id: String, keys: Array, value):
 ## removes it), or null if it can't (an array index that isn't there).
 ## Missing parent objects are made: then the whole config is replaced.
 func _config_change(i: int, keys: Array, value):
-	var p: Array = ["tracks", i, "config"]
+	return _config_change_at(["tracks", i, "config"], keys, value)
+
+
+## _config_change for the config at `root` (a path into the document).
+func _config_change_at(root: Array, keys: Array, value):
+	var p: Array = root.duplicate()
 	var node = _value_at(p)
 	var whole := typeof(node) != TYPE_DICTIONARY
 	if not whole:
@@ -444,7 +473,7 @@ func _config_change(i: int, keys: Array, value):
 		return _change(p, value) if value != null else _removal(p)
 	if value == null:
 		return null  # nothing there to remove
-	var cfg = _value_at(["tracks", i, "config"])
+	var cfg = _value_at(root)
 	cfg = cfg.duplicate(true) if typeof(cfg) == TYPE_DICTIONARY else {}
 	var at = cfg
 	for k in keys.slice(0, keys.size() - 1):
@@ -457,7 +486,7 @@ func _config_change(i: int, keys: Array, value):
 	if typeof(at) == TYPE_ARRAY:
 		return null
 	at[keys.back()] = value
-	return _change(["tracks", i, "config"], cfg)
+	return _change(root, cfg)
 
 
 # ---------- the effects stack ----------
@@ -476,7 +505,7 @@ func _config_change(i: int, keys: Array, value):
 ## naming it in `shaders` if nothing does yet (a built-in vertex effect goes
 ## by its name, "ripple", and needs none).
 func add_effect(id: String, shader_path: String, params: Dictionary = {}, at: int = -1, list: String = EFFECTS) -> bool:
-	if shader_path == "" or spawn_index(id) < 0:
+	if shader_path == "" or not has_config(id) or (id == CAMERA and list != EFFECTS):
 		return false
 	var extra: Array = []
 	var key := geometry_name(shader_path)
@@ -486,7 +515,7 @@ func add_effect(id: String, shader_path: String, params: Dictionary = {}, at: in
 	if at < 0 or at > entries.size():
 		at = entries.size()
 	entries.insert(at, [-1, {"shader": key, "params": params}])
-	return _rework_effects(id, "Add %s to %s" % [key, id], entries, extra, list)
+	return _rework_effects(id, "Add %s to %s" % [key, who(id)], entries, extra, list)
 
 
 ## Move effect `from` to place `to` in the list.
@@ -496,7 +525,7 @@ func move_effect(id: String, from: int, to: int, list: String = EFFECTS) -> bool
 		return false
 	var e = entries.pop_at(from)
 	entries.insert(to, e)
-	return _rework_effects(id, "Move %s's %s %s" % [id, e[1].get("shader", "effect"), "up" if to < from else "down"], entries, [], list)
+	return _rework_effects(id, "Move %s's %s %s" % [who(id), e[1].get("shader", "effect"), "up" if to < from else "down"], entries, [], list)
 
 
 func set_effect_enabled(id: String, i: int, on: bool, list: String = EFFECTS) -> bool:
@@ -504,7 +533,7 @@ func set_effect_enabled(id: String, i: int, on: bool, list: String = EFFECTS) ->
 	if i < 0 or i >= entries.size() or _effect_on(entries[i][1]) == on:
 		return false
 	_set_on(entries[i][1], on)
-	return _rework_effects(id, "Turn %s's %s %s" % [id, entries[i][1].get("shader", "effect"), "on" if on else "off"], entries, [], list)
+	return _rework_effects(id, "Turn %s's %s %s" % [who(id), entries[i][1].get("shader", "effect"), "on" if on else "off"], entries, [], list)
 
 
 ## The master switch: every effect of the list on, or off, as one step.
@@ -514,7 +543,7 @@ func set_all_effects_enabled(id: String, on: bool, list: String = EFFECTS) -> bo
 		return false
 	for e in entries:
 		_set_on(e[1], on)
-	return _rework_effects(id, "Turn %s's %s %s" % [id, "vertex effects" if list == VERTEX_EFFECTS else "effects",
+	return _rework_effects(id, "Turn %s's %s %s" % [who(id), "vertex effects" if list == VERTEX_EFFECTS else "effects",
 			"on" if on else "off"], entries, [], list)
 
 
@@ -531,7 +560,7 @@ func remove_effect(id: String, i: int, list: String = EFFECTS) -> bool:
 	if i < 0 or i >= entries.size():
 		return false
 	var e = entries.pop_at(i)
-	return _rework_effects(id, "Remove %s's %s" % [id, e[1].get("shader", "effect")], entries, [], list)
+	return _rework_effects(id, "Remove %s's %s" % [who(id), e[1].get("shader", "effect")], entries, [], list)
 
 
 ## A built-in surface's or vertex effect's script name ("ripple") for its
@@ -557,7 +586,7 @@ func _effect_entries(id: String, list: String = EFFECTS) -> Array:
 ## unparked to match, plus `extra` changes.
 func _rework_effects(id: String, label: String, entries: Array, extra: Array = [], list: String = EFFECTS) -> bool:
 	var spawns := spawn_indices(id)
-	if spawns.is_empty():
+	if spawns.is_empty() and id != CAMERA:
 		return false
 	var old := effects_of(id, list)
 	var old_json := JSON.stringify(old)
@@ -602,6 +631,14 @@ func _rework_effects(id: String, label: String, entries: Array, extra: Array = [
 				back.merge(parked)
 				out.append(back)
 			new_list[j].erase("tracks")
+	if id == CAMERA:
+		var cam := config_of(CAMERA).duplicate(true)
+		if new_list.is_empty():
+			cam.erase(list)
+		else:
+			cam[list] = new_list
+		var block := _change(["camera"], cam) if not cam.is_empty() else _removal(["camera"])
+		return _do(label, true, extra + [_change(["tracks"], out), block])
 	var first: Dictionary = tracks()[spawns[0]]
 	for k in out.size():
 		var t: Dictionary = out[k]
@@ -644,7 +681,7 @@ func _shader_key_for(shader_path: String, changes: Array) -> String:
 	var key := shader_key_of(shader_path)
 	if key != "":
 		return key
-	key = _new_shader_key(shader_path.get_file().get_basename())
+	key = _new_shader_key(shader_path.get_file().get_basename().trim_prefix(CameraFxShaders.BUILTIN_PREFIX))
 	var shaders = _doc.get("shaders", {})
 	shaders = shaders.duplicate() if typeof(shaders) == TYPE_DICTIONARY else {}
 	shaders[key] = shader_path

@@ -630,7 +630,9 @@ func _on_command(id: StringName) -> void:
 				_place_shelf_panel()
 			_show_shelf()
 		&"studio_delete_selection":
-			if model != null and tools.selected != "":
+			if model != null and tools.selected.begins_with("$"):
+				_say("The viewer and the camera effects can't be deleted: remove their keys, or an effect with its ✕.")
+			elif model != null and tools.selected != "":
 				var gone := tools.selected
 				tools.select("")
 				if model.remove_object(gone):
@@ -1665,6 +1667,10 @@ func _bind_menu_panel() -> void:
 func _bind_menu_view(view: StudioMenu) -> void:
 	view.bind(_settings, stage.router, studio_settings)
 	view.close_requested.connect(func(): _set_menu.call_deferred(false))
+	view.studio_tab.shaders_reloaded.connect(func():
+		for inspector in _inspectors():
+			inspector.request_rebuild()
+		_say("Shaders reloaded: edits to shader and image files show now."))
 
 
 ## The menu showing now: the headset's in VR, else the desktop's.

@@ -26,7 +26,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 17. Shadertoy tab on the shelf (search or paste a link; a shader becomes a layer or an effect).
 - [x] 18. Animated previews on layer and effect cards (on hover on the desktop, while the shelf is open in the headset). Done 2026-09-29 in a55be4b: vertex cards too; `StudioThumbnailer.loop` (20 frames on the preview's own clock, cached as a strip), played by `StudioAssetShelf`; `test_card_loops`, checked with `checks/shot_studio_loops.gd`, render `docs/studio/shelf_loops.png`.
 - [ ] 19. GPU cost readout per object, layer and effect, and a benchmark that plays the piece and lists the heaviest moments.
-- [ ] 20. Catch up with the player: list the player features Studio's UI doesn't use yet (e.g. Blend in the inspector) and add them.
+- [x] 20. Catch up with the player: list the player features Studio's UI doesn't use yet (e.g. Blend in the inspector) and add them. Done 2026-09-29: the list is in the plan (*To do* 9), both ways. Studio gained Blend and Fit to video, `hint_enum` params as choices, image params (they broke the inspector; picked images are copied into the piece's `images/`), Video as a layer source, the script's camera effects (`$camera`: inspector, Camera fx lane, keys) and Reload shaders; the player gained colour params in the Camera tab (and a layer's colours from a config), and string keys hold. `tests/test_studio_catch_up.gd`, checked with `checks/shot_studio_catch_up.gd` and `shot_player_colours.gd`; renders `docs/studio/catch_up_*.png`, `docs/player/colour_params.png`. Follow-ups: 53–57.
 - [x] 21. ↺ on the Config tab's rows (changes the player's tab too). Done 2026-09-29: every Config row (`PlayerSettings.is_default` / `reset`; the renderer back to the project's driver), and the Camera tab's placement sliders (Size … Resolution, Opacity with Blend), which had none either; `tests/test_player_settings.gd`, checked with `checks/shot_ui.gd`.
 - [x] 22. The shelf gets squeezed to about 120 px at 1280 × 720, so no card row shows. Done 2026-09-29: the user said desktop Studio can just run at 1080, so it opens its window at 1920 × 1080 (maximized on a smaller screen: 1920 × 1009 under a taskbar still shows two card rows); `Studio._size_window`.
 - [ ] 23. Looks: rename and delete in Studio, looks for a group with its children, keyframes in a look.
@@ -38,6 +38,10 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 29. Controls: the controller picture (pointing at a button shows what it does), and named binding profiles.
 - [ ] 30. Track down the segfault of `drive_studio_m4.gd` / `m6` in the user's working copy (when GoZen closes the piece's `song.wav`). 2026-09-29: now reproduces on a clean `master` here too (`HEADLESS=1 tools/local/run.sh checks/drive_studio_m4.gd`, every run), so it isn't the working copy.
 - [ ] 52. Bring Studio's UI in line with the mockups (`docs/studio/*.svg`, `docs/studio/todo/`): the user says it still looks a lot different (2026-09-28). Compare panel by panel with renders; 8–11 and 15 are parts of it.
+- [ ] 53. Looks carry picked images: a look whose config names an image (`images/…`, relative to the piece) should copy it into the library's `images/` and name it from there, as it does shaders (`StudioLooks`).
+- [ ] 54. The video's layout (field of view, stereo, eye order) as part of a piece (a format addition, e.g. `media.layout`) and in Studio's inspector or menu: now Studio and a script go by the file name, while the player's Camera tab can override it for itself.
+- [ ] 55. Bring a player preset (its layers, effects and camera effect) into a piece, or offer presets as looks on the shelf.
+- [ ] 56. The headset inspector cuts "Render scale" to "Render sca" (its label column); check the other long labels there too.
 
 ## Player
 
@@ -47,6 +51,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 34. Leaving VR during a fade or a cut.
 - [ ] 35. Camera effects: several at once (chaining), feedback trails, Shadertoy `mainImage` code as a camera effect.
 - [ ] 36. 3D shaders: `depthImage` and a Depth vertex effect (`docs/3d_shaders.md`).
+- [ ] 57. Previews in the Camera tab's shader and effect pickers, as Studio's shelf has (`StudioThumbnailer`); the pickers are names only.
 
 ## Addon and example pieces
 

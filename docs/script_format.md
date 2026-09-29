@@ -128,5 +128,6 @@ A key may carry `"transition": {"type": "fade_to_black", "duration": 1}` for its
 ## Shader values
 
 - Numeric arrays of 2 to 4 become `Vector2/3/4`.
-- A texture param is a path relative to the script.
+- A texture param is a path relative to the script (Studio copies picked images into the piece's `images/`).
+- A string key in a `shader_param` track (a `display` slot's `blend`, an image path) holds until the next key, whatever its `interp`; Studio writes such keys as `step`.
 - Shader time follows the video; a shader with a `// @free_time` line keeps its own.

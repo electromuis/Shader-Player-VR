@@ -62,7 +62,7 @@ var _material: ShaderMaterial  # the shader's; the Screen's display material whe
 var _vr: bool = false  # a 3D shader (mainVR), run by the Screen's display shader
 var _shader_key: String = ""
 var _hints: Dictionary = {}  # VisualizerShaders.parse_hints() of the shader
-var _param_specs: Array = []  # the shader's hinted uniforms (VisualizerShaders.parse_hints)
+var _param_specs: Array = []  # the shader's hinted uniforms and colours (VisualizerShaders.parse_hints)
 var _audio: AudioAnalyzer
 var _beats: BeatClock
 var _video: Texture2D
@@ -164,7 +164,7 @@ func set_shader(key: String) -> void:
 	_screen.set_vr_source(VisualizerShaders.vr_source(shader.code) if _vr else "")
 	if shader != null:
 		_hints = VisualizerShaders.parse_hints(shader.code)
-		_param_specs = _hints.params
+		_param_specs = _hints.params + _hints.colors
 		if _vr:
 			_material = _screen.get_display_material()
 		else:

@@ -279,6 +279,11 @@ func apply_edit(data: TimelineData, structural: bool) -> void:
 		_continuous = data.continuous_tracks()
 		viewer = ViewerTrack.from_timeline(data)
 		_next_event_idx = _event_idx_after(playhead, _events_sorted)
+	# The camera effect's values come from the tracks again (a preview's go).
+	for slot in _camera_params.keys():
+		for param in _camera_params[slot].keys():
+			if not held_params.has("%s.%s:%s" % [CAMERA_TARGET, slot, param]):
+				_camera_params[slot].erase(param)
 	_reactive_begin()
 	_evaluate_continuous_tracks()
 	_reactive_end()
@@ -669,11 +674,11 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 	var parts := target_path.split(".", false, 1)
 	if parts.size() != 2:
 		return
-	if parts[0] == CAMERA_TARGET:
-		_apply_camera_track(parts[1], track)
-		return
 	var param: String = String(track.get("param", ""))
 	if held_params.has(target_path + ":" + param):
+		return
+	if parts[0] == CAMERA_TARGET:
+		_apply_camera_track(parts[1], track)
 		return
 	var node := _registry.get_node_by_id(parts[0])
 	if node == null:
@@ -690,6 +695,11 @@ func _apply_shader_param_track(track: Dictionary) -> void:
 ## while a control is dragged (hold it with held_params so tracks don't
 ## write over it).
 func preview_param(id: String, slot: String, param: String, value: Variant) -> void:
+	if id == CAMERA_TARGET:
+		if not _camera_params.has(slot):
+			_camera_params[slot] = {}
+		_camera_params[slot][param] = value
+		return
 	var node := _registry.get_node_by_id(id)
 	if node != null and is_instance_valid(node):
 		_set_slot_param(id, node, slot, param, value)

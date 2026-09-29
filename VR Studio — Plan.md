@@ -627,7 +627,7 @@ M1–M3 are the smallest thing that's already better than the desktop for layout
 - ~~**Should Studio also open plain videos**~~: yes, a new empty piece (M5).
 
 ## Known issues
-- All 329 player tests pass (2026-09-29, TODO 20), and the round-trip test (with rides) passed when last run (TODO 20 changed nothing in the addon).
+- All 334 player tests pass (2026-09-29, TODO 17), and the round-trip test (with rides) passed when last run (TODO 20 changed nothing in the addon).
 - `scripts/forest_tunnel/video.json` is still a v1 export (bezier tracks baked to linear keys, within 0.001 of the curves). Its events match the current scene; re-export from the editor for the exact curves and format v2.
 - `scripts/minimal` has no objects, so the exporter refuses it (by design). The round-trip test skips it.
 - **`drive_studio_m4.gd` and `m6` crash (segfault, exit 139)**, first in the user's working copy (2026-09-28) and since 2026-09-29 on a clean `master` on the user's machine too, every run, right after opening their piece, when GoZen closes the piece's `song.wav` (the beat / waveform decode on worker threads). Not reproduced in a clean worktree of the last commit, even with every code file of the quick wins copied in (m4 passes there), nor explained by a fresh user folder. The rest of that working copy (the uncommitted `project.godot` line move, files outside git) is what's left: not tracked down yet. The other Studio checks and all tests pass.

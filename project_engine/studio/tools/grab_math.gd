@@ -8,6 +8,9 @@ extends RefCounted
 
 ## Push / pull never brings an object closer than this to the hand (m).
 const MIN_REACH := 0.1
+## Scaling while carrying keeps the object's largest axis scale in here.
+const MIN_SCALE := 0.01
+const MAX_SCALE := 1000.0
 
 
 ## The object's transform relative to the hand at grab time: keeping this
@@ -29,6 +32,18 @@ static func pushed(offset: Transform3D, metres: float) -> Transform3D:
 	var new_reach := maxf(reach + metres, MIN_REACH)
 	out.origin.z = -new_reach
 	return out
+
+
+## `offset` with the object scaled by `factor` about its own origin (so it
+## stays where it is on the hand), its largest axis kept within MIN_SCALE ..
+## MAX_SCALE.
+static func scaled(offset: Transform3D, factor: float) -> Transform3D:
+	var now := offset.basis.get_scale()
+	var biggest := maxf(absf(now.x), maxf(absf(now.y), absf(now.z)))
+	if biggest <= 0.0 or factor <= 0.0:
+		return offset
+	factor = clampf(biggest * factor, MIN_SCALE, MAX_SCALE) / biggest
+	return Transform3D(offset.basis * factor, offset.origin)
 
 
 ## Two hands: the object scales with the distance between them and turns

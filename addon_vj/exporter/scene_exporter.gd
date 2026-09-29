@@ -32,7 +32,7 @@ extends RefCounted
 ##         (<vertex effect> a VJVertexEffect child, N its place among the
 ##         enabled ones)
 ##       <path>:arc_x / :arc_y / :auto_height / :keep_row_width /
-##         :straight_rows (screens, layers)                                    → shader_param "<id>.shape"
+##         :straight_rows / :radius (screens, layers)                                    → shader_param "<id>.shape"
 ##       <path>:opacity, and earlier scenes' :curvature / :vertical_curvature
 ##         (screens, layers)                          → shader_param "<id>.display"
 ##       <path>:opacity / :tint / :flash / :speed / :sort_offset (VJObject;
@@ -74,7 +74,7 @@ const VIEWER_TARGET := "$viewer"
 ## importer writes a step as a hold ending 1 ms before the next key.
 const VIEWER_CUT_GAP := 0.002
 ## A screen's surface params, animated on `<id>.shape`.
-const _SHAPE_PROPS := ["arc_x", "arc_y", "auto_height", "keep_row_width", "straight_rows"]
+const _SHAPE_PROPS := ["arc_x", "arc_y", "auto_height", "keep_row_width", "straight_rows", "radius"]
 ## Picked per spawn in the player: not animatable.
 const _FIXED_PROPS := ["surface", "placement"]
 ## The addon's built-in vertex effects: the player knows them by name.

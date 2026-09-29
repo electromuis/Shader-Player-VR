@@ -21,7 +21,7 @@ extends "res://addons/vj_editor/modifiers/vj_object.gd"
 ## Everything animatable lives on this root node so AnimationPlayer tracks
 ## don't need editable children:
 ##   main_screen:shader_material:shader_parameter/<name>  → shader_param (slot "surface")
-##   main_screen:arc_x / :arc_y / :auto_height / :keep_row_width / :straight_rows
+##   main_screen:arc_x / :arc_y / :auto_height / :keep_row_width / :straight_rows / :radius
 ##                                                        → shader_param (slot "shape")
 ##   main_screen:opacity (and earlier scenes' :curvature / :vertical_curvature)
 ##                                                        → shader_param (slot "display")
@@ -126,6 +126,13 @@ const LEGACY_EFFECT_SLOTS := ["effect_1", "effect_2", "effect_3", "effect_4"]
 @export_range(0.0, 1.0, 0.01) var straight_rows: float = 0.0:
 	set(value):
 		straight_rows = value
+		_sync_display()
+
+## Dome around the viewer: the sphere's radius in metres (0: as far as the
+## screen is from the viewer).
+@export_range(0.0, 500.0, 0.5) var radius: float = 0.0:
+	set(value):
+		radius = value
 		_sync_display()
 
 ## Earlier scenes' bends (0..1 of a half-turn), kept so they load and their
@@ -251,6 +258,8 @@ func surface_config() -> Dictionary:
 		params["arc_y"] = arc_y
 		params["keep_row_width"] = keep_row_width
 		params["straight_rows"] = straight_rows
+		if radius > 0.0:
+			params["radius"] = radius
 	else:
 		params["arc_y"] = arc_y
 	return {"shader": surface, "params": params, "placement": _placement()}

@@ -29,7 +29,8 @@ const HINTS := [
 		["Ctrl+Z", "undo"], ["Ctrl+Shift+Z", "redo"], ["Ctrl+S", "save"], ["Delete", "delete"],
 		["I", "key it"], ["Shift+I", "auto-key"], ["Shift+G", "snap"], ["Ctrl+L", "save its look"]]],
 	["Select", [
-		["Click", "select"], ["Drag", "move"], ["Wheel", "nearer / further (dragging)"], ["Esc", "deselect"],
+		["Click", "select"], ["Drag", "move"], ["Wheel", "nearer / further (dragging)"],
+		["Ctrl+Wheel", "scale (dragging)"], ["Esc", "deselect"],
 		["F", "go to it"], ["Shift+F", "back"]]],
 	["Viewer", [
 		["V", "key the viewer"], ["Shift+V", "cut to here"], ["Ctrl+Shift+V", "arm the ride"], ["Shift+R", "record (a take)"]]],

@@ -45,7 +45,8 @@ static func test_build_shader_runs_stages_in_order(t: TestCase) -> void:
 static func test_hints(t: TestCase) -> void:
 	var dome := ScreenGeometry.hints_for(ScreenGeometry.DOME)
 	t.assert_eq(dome.placements, ["fixed", "around", "infinity"])
-	t.assert_eq(dome.unused.get("infinity"), ["size", "distance", "height"])
+	t.assert_eq(dome.unused.get("infinity"), ["size", "distance", "height", "radius"])
+	t.assert_eq(dome.unused.get("fixed"), ["radius"])
 	t.assert_true(dome.hint != "")
 	var pillow := ScreenGeometry.hints_for(ScreenGeometry.PILLOW)
 	t.assert_eq(pillow.placements, ["fixed", "around"])
@@ -104,6 +105,35 @@ static func test_dome_around_viewer_centres_on_the_eye(t: TestCase) -> void:
 	var stretched := ScreenGeometry.surface_point(ScreenGeometry.DOME, {"auto_height": false, "arc_y": 180.0},
 			ScreenGeometry.Placement.AROUND, Vector3(0.0, HALF.y, 0.0), HALF, 8.0)
 	t.assert_true(_near(stretched, Vector3(0.0, 8.0, 8.0)), "arc_y 180: the top edge is overhead")
+
+
+static func test_dome_around_viewer_radius(t: TestCase) -> void:
+	# Radius 40: still centred on the eye 8 m from the screen, 40 m round.
+	var eye := Vector3(0.0, 0.0, 8.0)
+	for pt in [Vector3.ZERO, Vector3(HALF.x, 0.0, 0.0), Vector3(-2.0, HALF.y, 0.0)]:
+		var p := ScreenGeometry.surface_point(ScreenGeometry.DOME, {"radius": 40.0}, ScreenGeometry.Placement.AROUND,
+				pt, HALF, 8.0)
+		t.assert_true(is_equal_approx(p.distance_to(eye), 40.0), "%s is 40 m from the eye" % p)
+	var front := ScreenGeometry.surface_point(ScreenGeometry.DOME, {"radius": 40.0}, ScreenGeometry.Placement.AROUND,
+			Vector3.ZERO, HALF, 8.0)
+	t.assert_true(_near(front, Vector3(0.0, 0.0, -32.0)), "straight ahead, 40 m out: %s" % front)
+	# Fixed, it's ignored: the arc sets the bend.
+	var fixed := ScreenGeometry.surface_point(ScreenGeometry.DOME, {"arc_x": 90.0, "radius": 40.0},
+			ScreenGeometry.Placement.FIXED, Vector3(HALF.x, 0.0, 0.0), HALF, 8.0)
+	var r := HALF.x / deg_to_rad(45.0)
+	t.assert_true(is_equal_approx(fixed.distance_to(Vector3(0.0, 0.0, r)), r))
+	# Pointing hits the big dome where it is.
+	var mesh_half := Vector2(16.0, 9.0)
+	var xform := Transform3D(Basis.from_scale(Vector3.ONE * 0.25), Vector3.ZERO)
+	var dome := {"shader": ScreenGeometry.DOME, "params": {"radius": 40.0}, "placement": "around"}
+	t.assert_true(ScreenGeometry.ray_hits(Vector3(0, 0, 8), Vector3(0, 0, -1), xform, mesh_half, mesh_half, dome, 8.0))
+	t.assert_false(ScreenGeometry.ray_hits(Vector3(0, 0, 30), Vector3(0, 0, 1), xform, mesh_half, mesh_half, dome, 8.0),
+			"behind the viewer, where a 180° dome has nothing")
+
+
+static func test_infinity_is_on_the_far_plane(t: TestCase) -> void:
+	var code := ScreenGeometry.build_shader([], ScreenGeometry.DOME).code
+	t.assert_true(code.contains("POSITION.z = POSITION.w * 1e-6"), "at infinity the depth is the far plane's")
 
 
 static func test_dome_fixed_radius_follows_arc(t: TestCase) -> void:

@@ -190,6 +190,8 @@ var _held_hand := ""
 ## In the headset: the trigger was down last frame (letting go drops).
 var _trigger_was_down := false
 var _ghost: MeshInstance3D
+## 1 m lines on the floor while editing (the Studio tab's Floor grid).
+var floor_grid: StudioFloorGrid
 var _library_signature := ""
 var _watch_clock := 0.0
 ## Where the viewer was before the last Seat / Go to it jump (for Back).
@@ -262,8 +264,10 @@ func _ready() -> void:
 	_bind_shelf(shelf)
 	_make_shelf_panel()
 	_make_ghost()
+	floor_grid = StudioFloorGrid.new()
+	add_child(floor_grid)
 	# Studio's own drawing stays out of looks' snapshots.
-	for helper in [tools, _ghost, inspector_panel, ribbon_panel, shelf_panel]:
+	for helper in [tools, _ghost, floor_grid, inspector_panel, ribbon_panel, shelf_panel]:
 		StudioThumbnailer.mark_helper(helper)
 	_library_signature = library.signature()
 	_make_menu()
@@ -470,6 +474,7 @@ func _apply_mode() -> void:
 			tools.cancel()
 			_drop_held()
 		tools.visible = editing
+		_show_floor_grid()
 		flight.enabled = editing and stage.xr_mode.is_in_vr()
 		_show_inspector()
 		_show_ribbon()
@@ -1643,6 +1648,13 @@ func _apply_studio_settings() -> void:
 	tools.auto_key = studio_settings.key_mode == "all"
 	tools.key_animated = studio_settings.key_mode == "animated"
 	haptics.enabled = studio_settings.haptics
+	_show_floor_grid()
+
+
+## The floor grid shows while editing, when the setting is on.
+func _show_floor_grid() -> void:
+	if floor_grid != null:
+		floor_grid.visible = studio_settings.floor_grid and mode == Mode.EDIT
 
 
 ## The player's settings Studio applies itself (the stage does the rest).

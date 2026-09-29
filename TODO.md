@@ -10,7 +10,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 4. Delete the unused placeholder plugin `project_engine/addons/vj_editor/` (not enabled; a "Phase 6" stub).
 - [ ] 5. Decide which README the CI packages ship: they copy the developer `README.md`, while `build_release.bat` ships the end-user `release/README.md`.
 - [ ] 6. Try Studio as a full exported Windows build (so far only checked with `--export-pack`).
-- [x] 7. Make `tests/run.gd` count a test that hits a script error as failed (now it stops there but counts as passed). Done 2026-09-29: the runner registers a `Logger` (`OS.add_logger`) and fails a test during which a GDScript runtime error was logged; all 320 tests still pass.
+- [x] 7. Make `tests/run.gd` count a test that hits a script error as failed (now it stops there but counts as passed). Done 2026-09-29: the runner registers a `Logger` (`OS.add_logger`) and fails a test during which a GDScript runtime error was logged; all 319 tests still pass.
 
 ## Studio
 
@@ -18,7 +18,7 @@ Open tasks for the player, Studio and the addon. Numbers are permanent: refer to
 - [ ] 9. Minimize (–) on every panel (inspector, shelf, timeline, outliner), folding it to a tab on the wrist.
 - [ ] 10. Move panels in VR by their title bar; panels keep their place relative to you as you fly.
 - [ ] 11. Timeline scroll bar over the whole piece (with the audio's outline): drag to scroll, pull its ends to zoom.
-- [ ] 12. Draw the floor grid (1 m lines); the setting exists (`StudioSettings.floor_grid`) but nothing draws it.
+- [x] 12. Draw the floor grid (1 m lines); the setting exists (`StudioSettings.floor_grid`) but nothing draws it. Done 2026-09-29: `studio/tools/floor_grid.gd`, checked with `checks/shot_studio_floor_grid.gd`.
 - [ ] 13. Desktop drops land too far away: a card lands on the floor under the cursor, with its distance shown.
 - [ ] 14. Groups: make and animate groups in Studio (the format has spawn parents already).
 - [ ] 15. Outliner panel: the piece's objects as a tree; select, group (Ctrl+G), ungroup, drag into a group.

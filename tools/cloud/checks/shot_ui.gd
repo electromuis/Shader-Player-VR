@@ -47,7 +47,6 @@ func _initialize() -> void:
 	size_reset.pressed.emit()
 	print("size ↺ pressed: size %s, disabled %s, opacity kept %s" % [screen.size, size_reset.disabled, screen.opacity])
 	screen.opacity = 1.0
-	var tabs: TabContainer = content.config_tab.get_parent().get_parent() if content.config_tab.get_parent() is ScrollContainer else content.config_tab.get_parent().get_parent()
 	var cfg_margin: Node = content.config_tab.get_parent()
 	while not (cfg_margin.get_parent() is TabContainer):
 		cfg_margin = cfg_margin.get_parent()

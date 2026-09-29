@@ -510,12 +510,17 @@ visible = false
 layout_mode = 2
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 12
+theme_override_constants/margin_right = 16
 theme_override_constants/margin_bottom = 12
 
-[node name="ConfigTab" type="VBoxContainer" parent="Tabs/Config"]
+[node name="Scroll" type="ScrollContainer" parent="Tabs/Config"]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="ConfigTab" type="VBoxContainer" parent="Tabs/Config/Scroll"]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_horizontal = 3
 script = ExtResource("4_config")
 
 [node name="Presets" type="MarginContainer" parent="Tabs"]

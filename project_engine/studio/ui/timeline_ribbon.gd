@@ -3,8 +3,10 @@ extends PanelContainer
 
 ## Studio's timeline ribbon: the ruler with beat and bar ticks, the song's
 ## waveform, cut markers and the loop region, a lane per object (its time
-## on stage) and, under the selection's lane, a row per animated property
-## with its keys (StudioTimeline works out what's where).
+## on stage) and, under an open object's lane, a row per animated property
+## with its keys (StudioTimeline works out what's where). The selection is
+## open unless it's been folded; the triangle before a lane's name opens or
+## folds any object with animated properties.
 ##
 ## Pointer (mouse, or the laser in the headset):
 ##   press on the ruler, waveform or a lane's time → scrub there (drag on)
@@ -16,9 +18,12 @@ extends PanelContainer
 ##   a lane's block (between its ends) → drag it whole: both ends and the
 ##     object's keys inside it move together (one undo step); a press
 ##     without a drag scrubs there
-##   a lane's name → select that object
+##   a lane's name → select that object; its triangle → show or hide its
+##     property rows
 ##   wheel over the ruler or waveform (or Ctrl+wheel) → zoom about it;
 ##     Shift+wheel → scroll in time; wheel over the lanes → scroll them
+##   the lanes' scroll bar at the right (when they don't all fit): drag its
+##     thumb, or press beside it to jump there
 ##   the scroll bar along the bottom (the whole piece, with the sound's
 ##     outline): drag the view's window to scroll, pull its ends to zoom,
 ##     press beside it to jump there; the wheel over it scrolls in time
@@ -66,11 +71,14 @@ var view := StudioTimeline.new()
 var selected_key: Dictionary = {}
 
 var _lanes: Array = []
-var _rows: Array = []
+var _rows: Dictionary = {}  # object id -> its property rows (only those that have some)
+## Objects whose rows were opened or folded by hand: id -> shown. The rest
+## show theirs while selected.
+var _open: Dictionary = {}
 var _cuts: Array = []
 var _layout: Array = []  # [{kind: "lane" / "prop", y, h, id or row}]
 var _needs_data := true
-var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b / lane_start / lane_end / lane_move / bar_move / bar_a / bar_b, ti, ki, id, si, t, from, lo, hi, dt, x0, grip}
+var _drag: Dictionary = {}  # {kind: scrub / key / loop_a / loop_b / lane_start / lane_end / lane_move / bar_move / bar_a / bar_b / vbar, ti, ki, id, si, t, from, lo, hi, dt, x0, grip}
 var _vscroll := 0.0
 var _fitted := false
 var _canvas: Control
@@ -94,6 +102,8 @@ var _wave := 46.0
 var _lane := 22.0
 var _row := 20.0
 var _bar := 26.0
+var _vbar := 12.0  # the lanes' scroll bar, down the right
+var _fold := 14.0  # the open / fold triangle before a lane's name
 var _fs := 14
 # The scroll bar's outline of the whole sound: a peak per column, worked out
 # again when the sound, the piece's length or the bar's width changes.
@@ -110,6 +120,8 @@ func _ready() -> void:
 	_lane *= _k
 	_row *= _k
 	_bar *= _k
+	_vbar *= _k
+	_fold *= _k
 	_fs = int(_fs * _k)
 	var th := Theme.new()
 	th.default_font_size = _fs
@@ -228,7 +240,7 @@ func _process(_delta: float) -> void:
 	var model := edits.model
 	if model == null:
 		return
-	view.width = maxf(_canvas.size.x - _gutter, 1.0)
+	view.width = maxf(_right() - _gutter, 1.0)
 	var runner := tools.runner
 	var duration := maxf(runner.effective_duration(), 1.0)
 	if duration != view.duration:
@@ -240,10 +252,15 @@ func _process(_delta: float) -> void:
 	if _needs_data:
 		_needs_data = false
 		_lanes = StudioTimeline.lanes(model, view.duration)
-		_rows = StudioTimeline.property_rows(model, tools.selected)
+		_rows = {}
+		for lane in _lanes:
+			var rows := StudioTimeline.property_rows(model, lane.id)
+			if not rows.is_empty():
+				_rows[lane.id] = rows
 		_cuts = StudioTimeline.cuts(model)
 		if not selected_key.is_empty() and not _key_exists(selected_key):
 			selected_key = {}
+	_vscroll = clampf(_vscroll, 0.0, _vscroll_max())
 	if runner.playing and _drag.is_empty():
 		view.follow(runner.playhead)
 	_time.text = StudioStatus.timecode(runner.playhead)
@@ -267,7 +284,7 @@ func _process(_delta: float) -> void:
 func _key_exists(k: Dictionary) -> bool:
 	var tracks := edits.model.tracks()
 	return k.ti < tracks.size() and typeof(tracks[k.ti].get("keyframes")) == TYPE_ARRAY and k.ki < tracks[k.ti].keyframes.size() \
-			and _rows.any(func(r): return r.ti == k.ti)
+			and _rows.values().any(func(rows): return rows.any(func(r): return r.ti == k.ti))
 
 
 ## Key `ki` of track `ti`'s mode as the picker names it: a bezier preset
@@ -309,7 +326,7 @@ func _draw_canvas() -> void:
 	if edits == null or edits.model == null:
 		return
 	var c := _canvas
-	var w := c.size.x
+	var w := _right()
 	var h := _lanes_bottom()
 	var font := get_theme_default_font()
 	var top := _ruler + _wave
@@ -352,13 +369,16 @@ func _draw_canvas() -> void:
 	var y := top + 4 * _k - _vscroll
 	for lane in _lanes:
 		var sel: bool = lane.id == tools.selected
-		_layout.append({"kind": "lane", "y": y, "h": _lane, "id": lane.id})
+		var indent: float = 4 * _k + lane.depth * 12 * _k
+		_layout.append({"kind": "lane", "y": y, "h": _lane, "id": lane.id, "fold": indent + _fold})
 		if y + _lane > top and y < h:
 			if sel:
 				c.draw_rect(Rect2(0, y, w, _lane), Color(ACCENT, 0.12))
 			var viewer: bool = lane.id.begins_with("$")  # the viewer, the camera effects: no ends to drag
-			c.draw_string(font, Vector2(6 * _k + lane.depth * 12 * _k, y + _lane * 0.75), PSEUDO_NAMES.get(lane.id, lane.id), HORIZONTAL_ALIGNMENT_LEFT,
-					_gutter - 10 * _k - lane.depth * 12 * _k, _fs, (KEY if viewer else Color.WHITE) if sel else (Color(KEY, 0.8) if viewer else DIM))
+			if _rows.has(lane.id):
+				_fold_mark(Vector2(indent + _fold * 0.45, y + _lane * 0.5), is_open(lane.id), Color.WHITE if sel else DIM)
+			c.draw_string(font, Vector2(indent + _fold, y + _lane * 0.75), PSEUDO_NAMES.get(lane.id, lane.id), HORIZONTAL_ALIGNMENT_LEFT,
+					_gutter - 6 * _k - indent - _fold, _fs, (KEY if viewer else Color.WHITE) if sel else (Color(KEY, 0.8) if viewer else DIM))
 			for si in lane.spans.size():
 				var s: Array = _shown_span(lane, si)
 				var x0 := maxf(_gutter + view.x_of(s[0]), _gutter)
@@ -378,14 +398,15 @@ func _draw_canvas() -> void:
 				if wx1 > wx0:
 					c.draw_rect(Rect2(wx0, y + _lane * 0.2, wx1 - wx0, _lane * 0.6), Color(RECORD, 0.85))
 		y += _lane
-		if not sel:
+		if not is_open(lane.id):
 			continue
-		for row in _rows:
+		for row in _rows[lane.id]:
 			_layout.append({"kind": "prop", "y": y, "h": _row, "row": row})
 			if y + _row > top and y < h:
 				var armed := _row_armed(row)
-				c.draw_string(font, Vector2(18 * _k + lane.depth * 12 * _k, y + _row * 0.75), ("● " if armed else "") + row.label, HORIZONTAL_ALIGNMENT_LEFT,
-						_gutter - 22 * _k, int(_fs * 0.85), RECORD if armed else DIM)
+				var lx := indent + _fold + 8 * _k
+				c.draw_string(font, Vector2(lx, y + _row * 0.75), ("● " if armed else "") + row.label, HORIZONTAL_ALIGNMENT_LEFT,
+						_gutter - 6 * _k - lx, int(_fs * 0.85), RECORD if armed else DIM)
 				c.draw_line(Vector2(_gutter, y + _row * 0.5), Vector2(w, y + _row * 0.5), Color(1, 1, 1, 0.07), 1.0)
 				for k in row.keys:
 					var kt: float = k.t
@@ -428,7 +449,78 @@ func _draw_canvas() -> void:
 	var px := _gutter + view.x_of(_playhead())
 	if px >= _gutter and px <= w:
 		c.draw_line(Vector2(px, 0), Vector2(px, h), Color.WHITE, maxf(2.0, 1.5 * _k))
+	_draw_vbar()
 	_draw_bar(font)
+
+
+## The lanes' right edge: their scroll bar is beside it.
+func _right() -> float:
+	return _canvas.size.x - _vbar
+
+
+## Whether `id`'s property rows show: as opened or folded by hand, else
+## while it's selected. Only objects with animated properties have rows.
+func is_open(id: String) -> bool:
+	return _rows.has(id) and bool(_open.get(id, id == tools.selected))
+
+
+## Show (`shown`) or hide `id`'s property rows.
+func set_open(id: String, shown: bool) -> void:
+	_open[id] = shown
+	_vscroll = clampf(_vscroll, 0.0, _vscroll_max())
+	_canvas.queue_redraw()
+
+
+## The height of the lanes and the open rows, in pixels.
+func _lanes_height() -> float:
+	var total := 4 * _k
+	for lane in _lanes:
+		total += _lane
+		if is_open(lane.id):
+			total += _rows[lane.id].size() * _row
+	return total
+
+
+## How far the lanes scroll: 0 when they all fit.
+func _vscroll_max() -> float:
+	return maxf(_lanes_height() - (_lanes_bottom() - _ruler - _wave), 0.0)
+
+
+## The lanes' scroll bar: [track, thumb], the thumb empty when they all fit.
+func _vbar_rects() -> Array:
+	var top := _ruler + _wave
+	var track := Rect2(_right() + 3 * _k, top, _vbar - 4 * _k, _lanes_bottom() - top)
+	var total := _lanes_height()
+	if total <= track.size.y + 0.5:
+		return [track, Rect2()]
+	var th := maxf(track.size.y * track.size.y / total, 16 * _k)
+	var ty := track.position.y + (track.size.y - th) * _vscroll / maxf(_vscroll_max(), 1.0)
+	return [track, Rect2(track.position.x, ty, track.size.x, th)]
+
+
+func _draw_vbar() -> void:
+	var rs := _vbar_rects()
+	var track: Rect2 = rs[0]
+	var thumb: Rect2 = rs[1]
+	if thumb.size.y <= 0.0:
+		return
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(1, 1, 1, 0.06)
+	bg.set_corner_radius_all(int(track.size.x * 0.5))
+	_canvas.draw_style_box(bg, track)
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(ACCENT, 0.75 if _drag.get("kind", "") == "vbar" else 0.45)
+	box.set_corner_radius_all(int(track.size.x * 0.5))
+	_canvas.draw_style_box(box, thumb)
+
+
+## The open / fold triangle before a lane's name: down when open, right when
+## folded.
+func _fold_mark(at: Vector2, open: bool, color: Color) -> void:
+	var s := _fold * 0.3
+	var pts := PackedVector2Array([at + Vector2(-s, -s * 0.6), at + Vector2(s, -s * 0.6), at + Vector2(0, s * 0.8)]) if open \
+			else PackedVector2Array([at + Vector2(-s * 0.6, -s), at + Vector2(-s * 0.6, s), at + Vector2(s * 0.8, 0)])
+	_canvas.draw_colored_polygon(pts, color)
 
 
 ## Where the lanes end: the scroll bar is under them.
@@ -575,7 +667,7 @@ func _canvas_input(event: InputEvent) -> void:
 			elif mb.ctrl_pressed or mb.position.y < _ruler + _wave:
 				view.zoom(1.25 if up else 0.8, view.t_of(mb.position.x - _gutter) if mb.position.x > _gutter else _playhead())
 			else:
-				_vscroll = maxf(_vscroll + (-_lane * 2 if up else _lane * 2), 0.0)
+				_vscroll = clampf(_vscroll + (-_lane * 2 if up else _lane * 2), 0.0, _vscroll_max())
 			_canvas.accept_event()
 		elif mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
@@ -589,10 +681,18 @@ func _canvas_input(event: InputEvent) -> void:
 
 
 ## What's under `at`: {kind: "loop_a" / "loop_b" / "key" / "lane_start" /
-## "lane_end" / "name" / "time", ...}.
+## "lane_end" / "name" / "fold" / "time" / "vbar" / "vbar_jump", ...}.
 func hit(at: Vector2) -> Dictionary:
 	if at.y >= _lanes_bottom():
 		return _bar_hit(at)
+	if at.x >= _right():
+		var rs := _vbar_rects()
+		var thumb: Rect2 = rs[1]
+		if at.y < rs[0].position.y or thumb.size.y <= 0.0:
+			return {}
+		if at.y >= thumb.position.y and at.y < thumb.end.y:
+			return {"kind": "vbar", "grip": at.y - thumb.position.y}
+		return {"kind": "vbar_jump", "grip": thumb.size.y * 0.5}
 	var r := 10.0 * _k
 	if at.y < _ruler and loop.is_set():
 		for p in [["loop_a", loop.a], ["loop_b", loop.b]]:
@@ -602,7 +702,9 @@ func hit(at: Vector2) -> Dictionary:
 		if at.y < item.y or at.y >= item.y + item.h:
 			continue
 		if at.x < _gutter:
-			return {"kind": "name", "id": item.id} if item.kind == "lane" else {}
+			if item.kind != "lane":
+				return {}
+			return {"kind": "fold", "id": item.id} if at.x < item.fold and _rows.has(item.id) else {"kind": "name", "id": item.id}
 		if item.kind == "lane":
 			var end := _lane_end_at(item.id, at.x, r)
 			if not end.is_empty():
@@ -686,6 +788,12 @@ func _press(at: Vector2) -> void:
 			_drag = {"kind": "key", "ti": h.ti, "ki": h.ki, "t": h.t, "from": h.t}
 		"name":
 			tools.select(h.id)
+		"fold":
+			set_open(h.id, not is_open(h.id))
+		"vbar", "vbar_jump":
+			# Beside the thumb: centre it there, then carry on as a drag.
+			_drag = {"kind": "vbar", "grip": h.grip}
+			_move(at)
 		"time":
 			_drag = {"kind": "scrub"}
 			tools.stage.seek_to(h.t)
@@ -694,6 +802,12 @@ func _press(at: Vector2) -> void:
 func _move(at: Vector2) -> void:
 	var t := clampf(view.t_of(at.x - _gutter), 0.0, view.duration)
 	match _drag.kind:
+		"vbar":
+			var rs := _vbar_rects()
+			var track: Rect2 = rs[0]
+			var room: float = track.size.y - rs[1].size.y
+			if room > 0.0:
+				_vscroll = clampf((at.y - float(_drag.grip) - track.position.y) / room, 0.0, 1.0) * _vscroll_max()
 		"bar_move":
 			view.scroll_to(_bar_t(at.x) - float(_drag.grip))
 		"bar_a", "bar_b":

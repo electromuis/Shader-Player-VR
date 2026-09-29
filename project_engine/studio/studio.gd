@@ -106,6 +106,8 @@ const RIBBON_DROP := 0.55
 const RIBBON_TILT := 40.0
 const SHELF_SCENE := preload("res://studio/ui/asset_shelf.tscn")
 const MENU_SCENE := preload("res://studio/ui/studio_menu.tscn")
+## The desktop window it opens at (_size_window).
+const DESKTOP_SIZE := Vector2i(1920, 1080)
 ## The headset shelf: its size in metres and pixels, and where it goes: this
 ## far from you, turned this far left of where you look, a little below
 ## your eyes, facing you. It follows you like the inspector.
@@ -273,6 +275,7 @@ func _ready() -> void:
 	studio_settings.changed.connect(_apply_studio_settings)
 	_settings.changed.connect(_apply_player_settings)
 	_apply_studio_settings()
+	_size_window()
 	_apply_player_settings()
 	get_window().files_dropped.connect(_on_files_dropped)
 	status_view.resized.connect(_fit_shelf)
@@ -1642,6 +1645,26 @@ func _apply_studio_settings() -> void:
 func _show_floor_grid() -> void:
 	if floor_grid != null:
 		floor_grid.visible = studio_settings.floor_grid and mode == Mode.EDIT
+
+
+## Desktop Studio is laid out for 1920 × 1080: smaller, the shelf is squeezed
+## between the status and the timeline. A window still at the project's
+## default size opens at that, centred (maximized on a smaller screen); one
+## given a size (`--resolution`, as the checks do) keeps it.
+func _size_window() -> void:
+	if DisplayServer.get_name() == "headless" or OS.has_feature("mobile"):
+		return
+	var window := get_window()
+	var default := Vector2i(ProjectSettings.get_setting("display/window/size/viewport_width"),
+			ProjectSettings.get_setting("display/window/size/viewport_height"))
+	if window.mode != Window.MODE_WINDOWED or window.size != default:
+		return
+	var usable := DisplayServer.screen_get_usable_rect(window.current_screen)
+	if usable.size.x < DESKTOP_SIZE.x or usable.size.y < DESKTOP_SIZE.y + 40:  # the title bar
+		window.mode = Window.MODE_MAXIMIZED
+		return
+	window.size = DESKTOP_SIZE
+	window.position = usable.position + (usable.size - DESKTOP_SIZE) / 2
 
 
 ## The player's settings Studio applies itself (the stage does the rest).

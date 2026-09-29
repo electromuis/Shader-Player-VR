@@ -17,6 +17,7 @@ var _key_tip: Label  # what the chosen key mode does
 var _haptics: CheckButton
 var _autosave: CheckButton
 var _grid: CheckButton
+var _paths: CheckButton
 var _resets: Dictionary = {}  # field -> ↺ button
 
 
@@ -41,6 +42,9 @@ func _ready() -> void:
 	_grid = _check("1 m lines on the floor while editing")
 	_grid.toggled.connect(func(on: bool): _apply(func(): _settings.floor_grid = on))
 	_row("Floor grid", _grid, "floor_grid")
+	_paths = _check("Faint paths for every animated object, not just the selection")
+	_paths.toggled.connect(func(on: bool): _apply(func(): _settings.all_paths = on))
+	_row("Motion paths", _paths, "all_paths")
 	var reload := Button.new()
 	reload.text = "Reload shaders"
 	reload.tooltip_text = "Read every shader and image file again, to see edits made while Studio runs"
@@ -77,6 +81,7 @@ func _refresh() -> void:
 	_haptics.button_pressed = _settings.haptics
 	_autosave.button_pressed = _settings.autosave
 	_grid.button_pressed = _settings.floor_grid
+	_paths.button_pressed = _settings.all_paths
 	for field in _resets:
 		(_resets[field] as Button).disabled = _settings.is_default(field)
 	_refreshing = false

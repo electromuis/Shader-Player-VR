@@ -13,18 +13,21 @@ extends RefCounted
 ##   haptics     — controller ticks for grabs, snaps, keys and drops.
 ##   autosave    — unsaved changes kept in <piece>.autosave every minute.
 ##   floor_grid  — 1 m lines on the floor while editing.
+##   all_paths   — faint motion paths for every animated object, not just
+##                 the selection.
 
 signal changed
 
 const FILE_NAME := "studio_settings.json"
 const KIND := "studio_settings"
 const KEY_MODES := ["off", "animated", "all"]
-const DEFAULTS := {"key_mode": "off", "haptics": true, "autosave": true, "floor_grid": true}
+const DEFAULTS := {"key_mode": "off", "haptics": true, "autosave": true, "floor_grid": true, "all_paths": true}
 
 var key_mode: String = "off": set = _set_key_mode
 var haptics: bool = true: set = _set_haptics
 var autosave: bool = true: set = _set_autosave
 var floor_grid: bool = true: set = _set_floor_grid
+var all_paths: bool = true: set = _set_all_paths
 
 var _path: String
 var _loading := false
@@ -50,12 +53,13 @@ func from_dict(d: Dictionary) -> void:
 	haptics = bool(d.get("haptics", DEFAULTS.haptics))
 	autosave = bool(d.get("autosave", DEFAULTS.autosave))
 	floor_grid = bool(d.get("floor_grid", DEFAULTS.floor_grid))
+	all_paths = bool(d.get("all_paths", DEFAULTS.all_paths))
 	_loading = false
 	changed.emit()
 
 
 func to_dict() -> Dictionary:
-	return {"kind": KIND, "key_mode": key_mode, "haptics": haptics, "autosave": autosave, "floor_grid": floor_grid}
+	return {"kind": KIND, "key_mode": key_mode, "haptics": haptics, "autosave": autosave, "floor_grid": floor_grid, "all_paths": all_paths}
 
 
 ## Whether `field` is at its default (the menu's ↺ is off then).
@@ -109,4 +113,11 @@ func _set_floor_grid(v: bool) -> void:
 	if v == floor_grid:
 		return
 	floor_grid = v
+	_touch()
+
+
+func _set_all_paths(v: bool) -> void:
+	if v == all_paths:
+		return
+	all_paths = v
 	_touch()

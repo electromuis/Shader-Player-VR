@@ -1844,6 +1844,7 @@ func _apply_studio_settings() -> void:
 	tools.auto_key = studio_settings.key_mode == "all"
 	tools.key_animated = studio_settings.key_mode == "animated"
 	haptics.enabled = studio_settings.haptics
+	tools.all_paths = studio_settings.all_paths
 	_show_floor_grid()
 
 

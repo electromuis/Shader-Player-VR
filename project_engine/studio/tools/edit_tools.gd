@@ -35,13 +35,23 @@ const GHOST_COLOR := Color(0.3, 0.79, 0.94, 0.3)
 const SAME_KEY := 0.001
 const SEAT_COLOR := Color(1.0, 0.82, 0.4)
 const AXIS_LENGTH := 0.35
-## Motion paths: their colours (the viewer's in the seat's), how finely
-## they're drawn, and the key crosses' size.
-const PATH_COLOR := Color(0.3, 0.79, 0.94, 0.85)
-const KEY_PATH_COLOR := Color(1.0, 0.82, 0.4, 0.9)
+## Motion paths (StudioMotionPaths draws them): their colours (the
+## viewer's in the seat's), how finely they're sampled, and their widths and
+## key diamonds in pixels: the selection's, then other animated objects'
+## (faint). The part of the selection's path already played is dimmer; its
+## key at the playhead is white and bigger, a carried key yellow.
+const PATH_COLOR := Color(0.3, 0.79, 0.94)
+const KEY_PATH_COLOR := Color(1.0, 0.82, 0.4)
+const PATH_PLAYED_ALPHA := 0.45
+const PATH_NOW_COLOR := Color(1.0, 1.0, 1.0)
 const PATH_STEP := 1.0 / 15.0
 const PATH_POINTS := 1500.0
-const PATH_KEY_SIZE := 0.08
+const PATH_WIDTH := 5.0
+const PATH_KEY_SIZE := 12.0
+const PATH_NOW_KEY_SIZE := 16.0
+const OTHER_PATH_ALPHA := 0.35
+const OTHER_PATH_WIDTH := 2.0
+const OTHER_KEY_SIZE := 6.0
 ## Differences smaller than these don't count as a change on release.
 const MOVE_EPS := 0.0005
 const ANGLE_EPS := 0.01
@@ -61,6 +71,9 @@ var auto_key := false
 ## everything, and wins.
 var key_animated := false
 var snap := false
+## Faint paths for every animated object on stage, not just the selection's
+## (Studio's setting).
+var all_paths := true
 var selected := ""
 ## What the pointer is on (Studio sets it; "" for nothing): drawn faintly.
 var hovered := ""
@@ -74,6 +87,11 @@ var _typed_start: Dictionary = {}  # id -> node-style dict
 var _lines: ImmediateMesh
 var _lines_mesh: MeshInstance3D
 var _bounds_cache: Dictionary = {}  # node instance id -> AABB
+var _paths: StudioMotionPaths
+var _paths_on := false  # a camera draws them this frame
+## Sampled paths, kept while their keys don't change: id -> {hash, path
+## (_sampled_path's)}.
+var _path_cache: Dictionary = {}
 
 
 func _ready() -> void:
@@ -91,6 +109,9 @@ func _ready() -> void:
 	mat.render_priority = 50
 	_lines_mesh.material_override = mat
 	add_child(_lines_mesh)
+	_paths = StudioMotionPaths.new()
+	_paths.name = "MotionPaths"
+	add_child(_paths)
 
 
 # ---------- picking and selection ----------
@@ -406,17 +427,23 @@ static func _shifted_keys(kfs: Array, ch: String, before, after) -> Array:
 
 func _process(_delta: float) -> void:
 	_lines.clear_surfaces()
+	_paths_on = _paths.begin(get_viewport().get_camera_3d() if is_inside_tree() and visible else null)
+	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
+	_draw_hover()
+	_draw_selection()
+	_draw_seat_lines()
+	_draw_paths()
+	_lines.surface_end()
+	_paths.end()
+
+
+## The selection's box and axes, the snapping grid while it's carried, and
+## a ghost box where it'll be at its next key.
+func _draw_selection() -> void:
 	var id := selected
 	var node := runner.registry().get_node_by_id(id) if runner != null and id != "" else null
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
-		_lines.surface_begin(Mesh.PRIMITIVE_LINES)
-		_draw_hover()
-		_draw_seat_lines()
-		_draw_path_lines()
-		_lines.surface_end()
 		return
-	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
-	_draw_hover()
 	var key := node.get_instance_id()
 	if not _bounds_cache.has(key):
 		var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
@@ -442,9 +469,6 @@ func _process(_delta: float) -> void:
 			if not gxf.is_equal_approx(xf):
 				for e in _box_edges(box):
 					_line(gxf * e[0], gxf * e[1], GHOST_COLOR)
-	_draw_seat_lines()
-	_draw_path_lines()
-	_lines.surface_end()
 
 
 ## What the pointer would pick: a faint box (not the selection's).
@@ -509,42 +533,123 @@ func _draw_grid(at: Vector3, node: Node3D) -> void:
 		_line(pxf * (local + Vector3(-0.5, 0, off)), pxf * (local + Vector3(0.5, 0, off)), c)
 
 
-## The selection's motion path: where its position track takes it (for the
-## viewer, "$viewer", its ride), as a line with a cross at each key; a cut
-## breaks the line.
-func _draw_path_lines() -> void:
-	if model == null or selected == "":
+## Motion paths: where position tracks take things (for the viewer,
+## "$viewer", its ride; a cut breaks the line). The selection's is wide, with
+## a diamond and its time at each key (and a small camera, for the viewer);
+## with all_paths every other animated object on stage gets a faint one.
+## Something with fewer than two position keys has no path.
+func _draw_paths() -> void:
+	if not _paths_on or model == null:
 		return
-	var pts: Array = []  # [world point, joined to the one before]
-	var keys: Array = []
-	var tracks := _path_tracks()
+	var now := runner.playhead if runner != null else 0.0
+	if all_paths and runner != null:
+		for id in model.object_ids():
+			if id == selected:
+				continue
+			var node := runner.registry().get_node_by_id(id)
+			if node == null or not is_instance_valid(node) or not node.is_inside_tree() or not node.is_visible_in_tree():
+				continue
+			var p := _sampled_path(id, model.tracks())
+			if p.is_empty():
+				continue
+			var space := _path_space(id)
+			_paths.path(_world_points(p.points, space), Color(PATH_COLOR, OTHER_PATH_ALPHA), OTHER_PATH_WIDTH)
+			_paths.keys(p.keys.map(func(k): return {"world": space * (k[1] as Vector3),
+					"color": Color(PATH_COLOR, 0.55), "size": OTHER_KEY_SIZE}))
+	if selected == "":
+		return
+	var sel := _sampled_path(selected, _path_tracks())
+	if sel.is_empty():
+		return
+	var space := _path_space(selected)
+	var color := KEY_PATH_COLOR if selected == ScriptFormat.VIEWER else PATH_COLOR
+	var split := -1
+	for i in sel.points.size():
+		if float(sel.points[i][2]) <= now:
+			split = i
+	_paths.path(_world_points(sel.points, space), color, PATH_WIDTH, split, Color(color, PATH_PLAYED_ALPHA))
+	var carried := -1.0
+	if not _key_grab.is_empty():
+		carried = float(model.tracks()[_key_grab.ti].keyframes[_key_grab.ki].t)
+	var marks: Array = []
+	for k in sel.keys:
+		var t := float(k[0])
+		var big := t == carried or absf(t - now) <= StudioConfigEdits.KEY_NEAR
+		marks.append({"world": space * (k[1] as Vector3), "label": key_time_text(t),
+				"color": GRAB_COLOR if t == carried else (PATH_NOW_COLOR if big else color),
+				"size": PATH_NOW_KEY_SIZE if big else PATH_KEY_SIZE, "keep": big})
+	_paths.keys(marks)
 	if selected == ScriptFormat.VIEWER:
+		var vt := ViewerTrack.new()
+		vt.build(_path_tracks())
+		for k in sel.keys:
+			_camera_marker(vt.pose_at(float(k[0])))
+
+
+## `id`'s path in its own space (_path_space), from `tracks`: {points
+## [[point, joined to the one before, t]], keys [[t, point]]}, or {} when it
+## doesn't move (fewer than two position keys; for the viewer, no keys).
+## Sampled again only when its keys change.
+func _sampled_path(id: String, tracks: Array) -> Dictionary:
+	var viewer := id == ScriptFormat.VIEWER
+	var ti := -1
+	var mine: Array
+	if viewer:
+		mine = tracks.filter(func(t): return t.get("target", "") == ScriptFormat.VIEWER or t.get("action", "") == "vr_cut")
+	else:
+		ti = _position_track(tracks, id)
+		if ti < 0:
+			return {}
+		mine = [tracks[ti]]
+	var h := mine.hash()
+	var cached: Dictionary = _path_cache.get(id, {})
+	if cached.get("hash") == h:
+		return cached.path
+	var out := {}
+	var pts: Array = []
+	var keys: Array = []
+	if viewer:
 		var vt := ViewerTrack.new()
 		vt.build(tracks)
 		var times := vt.key_times()
-		if times.is_empty():
-			return
-		for t in _path_times(times[0], times.back()):
-			pts.append([vt.pose_at(t).position, pts.size() > 0 and not vt.is_cut_at(t) and vt.cuts_between(t - PATH_STEP, t).is_empty()])
-		for t in times:
-			_camera_marker(vt.pose_at(t))
+		if not times.is_empty():
+			for t in _path_times(times[0], times.back()):
+				pts.append([vt.pose_at(t).position, pts.size() > 0 and not vt.is_cut_at(t) and vt.cuts_between(t - PATH_STEP, t).is_empty(), t])
+			for t in times:
+				keys.append([t, vt.pose_at(t).position])
+			out = {"points": pts, "keys": keys}
 	else:
-		var ti := model.find_track(ScriptFormat.TRACK_TRANSFORM, selected, "position")
-		if ti < 0:
-			return
 		var kfs: Array = tracks[ti].get("keyframes", [])
-		var parent_xf := _path_space(selected)
-		for t in _path_times(float(kfs[0].t), float(kfs.back().t)):
-			pts.append([parent_xf * Interpolation.to_vec3(Interpolation.evaluate(kfs, t)), pts.size() > 0])
-		for k in kfs:
-			keys.append(parent_xf * Interpolation.to_vec3(k.value))
-	var color := KEY_PATH_COLOR if selected == ScriptFormat.VIEWER else PATH_COLOR
-	for i in range(1, pts.size()):
-		if pts[i][1]:
-			_line(pts[i - 1][0], pts[i][0], color)
-	for p in keys:
-		for axis in [Vector3.RIGHT, Vector3.UP, Vector3.BACK]:
-			_line(p - axis * PATH_KEY_SIZE, p + axis * PATH_KEY_SIZE, color)
+		if kfs.size() >= 2:
+			for t in _path_times(float(kfs[0].t), float(kfs.back().t)):
+				pts.append([Interpolation.to_vec3(Interpolation.evaluate(kfs, t)), pts.size() > 0, t])
+			for k in kfs:
+				keys.append([float(k.t), Interpolation.to_vec3(k.value)])
+			out = {"points": pts, "keys": keys}
+	_path_cache[id] = {"hash": h, "path": out}
+	return out
+
+
+## `id`'s position track in `tracks` (-1 if it has none).
+static func _position_track(tracks: Array, id: String) -> int:
+	for i in tracks.size():
+		var t: Dictionary = tracks[i]
+		if t.get("type") == ScriptFormat.TRACK_TRANSFORM and t.get("target") == id and t.get("channel") == "position":
+			return i
+	return -1
+
+
+static func _world_points(points: Array, space: Transform3D) -> Array:
+	return points.map(func(p): return [space * (p[0] as Vector3), p[1]])
+
+
+## A key's time as its label shows it: 0:04, 1:20.5 (tenths when it isn't
+## on a whole second).
+static func key_time_text(t: float) -> String:
+	var tenths := roundi(maxf(t, 0.0) * 10.0)
+	var secs := tenths / 10
+	var text := "%d:%02d" % [secs / 60, secs % 60]
+	return text + (".%d" % (tenths % 10) if tenths % 10 != 0 else "")
 
 
 # ---------- a path's keys, by hand ----------
@@ -714,6 +819,9 @@ func _draw_seat_lines() -> void:
 	_line(floor, tip, SEAT_COLOR)
 	_line(tip, tip - fwd * 0.18 + side, SEAT_COLOR)
 	_line(tip, tip - fwd * 0.18 - side, SEAT_COLOR)
+	# Named, so it isn't taken for a motion path: it's where the audience sits.
+	if _paths_on:
+		_paths.label(floor, "Seat", SEAT_COLOR)
 
 
 func _line(a: Vector3, b: Vector3, color: Color) -> void:

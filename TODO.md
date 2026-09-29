@@ -8,7 +8,7 @@ Open tasks carry a rough difficulty, **[D1]** (minutes to an hour) to **[D5]** (
 
 - [x] 1. Commit and push the docs cleanup of 2026-09-28 (this file, `docs/script_format.md`, the removed original plan, the README / Studio plan updates). Done 2026-09-28, in the commit that added this file.
 - [ ] 2. **[D1]** Add the `GOZEN_TOKEN` repository secret (read access to `electromuis/gde_gozen`'s contents) and confirm CI passes on `master`.
-- [ ] 3. **[D1]** Confirm the fork's `v9.7-sp4` release has its binaries published (CI and `ci/fetch_gozen.sh` now use it).
+- [x] 3. Confirm the fork's `v9.7-sp4` release has its binaries published (CI and `ci/fetch_gozen.sh` now use it). Done 2026-09-29: it has none (the release job failed, and the fork's Actions are blocked by billing, which stays so); CI uses `v9.7-sp3` instead (the player probes for sp4's hardware decoding methods), and without `GOZEN_TOKEN` runs the tests and skips packaging.
 - [ ] 4. **[D1]** Delete the unused placeholder plugin `project_engine/addons/vj_editor/` (not enabled; a "Phase 6" stub). SKIP
 - [ ] 5. **[D1]** Decide which README the CI packages ship: they copy the developer `README.md`, while `build_release.bat` ships the end-user `release/README.md`.
 - [ ] 6. **[D2]** Try Studio as a full exported Windows build (so far only checked with `--export-pack`).

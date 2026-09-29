@@ -187,7 +187,7 @@ The CI packages (below) are leaner: they ship this README, the licences and `res
 
 `.github/workflows/build.yml` runs on every push and pull request:
 
-1. **gde_gozen:** not built here. Both jobs download prebuilt binaries (debug and release) from a release of our fork, `GOZEN_REPO` @ `GOZEN_RELEASE` (`electromuis/gde_gozen`), with `ci/fetch_gozen.sh`. The fork's `.github/workflows/release.yml` builds FFmpeg + gde_gozen for Linux x86_64, Windows x86_64, macOS arm64 + x86_64 and Android arm64/arm32 and publishes them: push a `v*` tag there (or run it by hand), then point `GOZEN_RELEASE` at the new tag. The fork is private, so this repo needs a `GOZEN_TOKEN` secret: a token that can read the fork's contents (a fine-grained token with *Contents: read-only* on `electromuis/gde_gozen`).
+1. **gde_gozen:** not built here. Both jobs download prebuilt binaries (debug and release) from a release of our fork, `GOZEN_REPO` @ `GOZEN_RELEASE` (`electromuis/gde_gozen`), with `ci/fetch_gozen.sh`. The fork's `.github/workflows/release.yml` builds FFmpeg + gde_gozen for Linux x86_64, Windows x86_64, macOS arm64 + x86_64 and Android arm64/arm32 and publishes them: push a `v*` tag there (or run it by hand), then point `GOZEN_RELEASE` at the new tag. The fork is private, so this repo needs a `GOZEN_TOKEN` secret: a token that can read the fork's contents (a fine-grained token with *Contents: read-only* on `electromuis/gde_gozen`). Without it (or if the release is missing) a first *gde_gozen access* job warns, the tests run without gde_gozen, and export and packaging are skipped.
 2. **Tests:** imports the project with Godot 4.7.2, checks gde_gozen loads (`tests/check_extensions.gd`), runs `tests/run.gd`.
 3. **Export and package:** exports with `project_engine/export_presets.cfg` and uploads one artifact holding:
    - Windows: `-setup.exe` installer and a portable `.zip`
@@ -208,7 +208,7 @@ The helper scripts in `ci/` work locally too: `ci/setup_godot.sh --templates`, `
 
 - **Godot 4.7.2** (4.4 silently drops parts of 4.7-saved scenes). `build_and_run.bat` expects it on `PATH` as `godot`.
 - **Third-party addons** aren't tracked: `bash ci/fetch_addons.sh` installs godot-xr-tools and native_video into `project_engine/addons/` (`--android` adds the Meta OpenXR vendors plugin).
-- **gde_gozen binaries** (`project_engine/addons/gde_gozen/bin/`, gitignored): `GOZEN_REPO=electromuis/gde_gozen GOZEN_RELEASE=v9.7-sp4 ci/fetch_gozen.sh windows-x86_64` downloads them from the fork's release (needs `gh` with access to it; the values are the workflow's, see *Builds and releases*), or copy them from another checkout. Without them there's no video.
+- **gde_gozen binaries** (`project_engine/addons/gde_gozen/bin/`, gitignored): `GOZEN_REPO=electromuis/gde_gozen GOZEN_RELEASE=v9.7-sp3 ci/fetch_gozen.sh windows-x86_64` downloads them from the fork's release (needs `gh` with access to it; the values are the workflow's, see *Builds and releases*), or copy them from another checkout. Without them there's no video.
 - **Authoring projects** link the addon through junctions (gitignored): see [project_script_example/README.md](project_script_example/README.md).
 - **For VR:** SteamVR, Meta's runtime or another OpenXR runtime.
 

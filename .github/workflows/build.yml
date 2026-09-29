@@ -3,7 +3,9 @@ name: Build
 # Every push and PR: run the tests, export and package all platforms, upload
 # the packages as workflow artifacts. gde_gozen isn't built here: its binaries
 # come from a release of our fork (GOZEN_REPO @ GOZEN_RELEASE), which that
-# repo's release workflow builds.
+# repo's release workflow builds. If this repo can't read that release (no
+# GOZEN_TOKEN secret, or the release is missing), the tests still run without
+# it and export / packaging is skipped, with a warning.
 # A pushed tag (v1.2.3): the same, plus a GitHub release with the packages and
 # the commit messages since the previous tag.
 
@@ -24,24 +26,48 @@ env:
   # a v* tag there to publish one). The fork is private, so reading it takes
   # the GOZEN_TOKEN secret: a token with read access to its contents.
   GOZEN_REPO: electromuis/gde_gozen
-  GOZEN_RELEASE: v9.7-sp4
+  # sp4 (hardware decoding) never got a release: the fork's Actions are
+  # blocked by billing. sp3 is enough: the player probes for the sp4 methods.
+  GOZEN_RELEASE: v9.7-sp3
 
 jobs:
-  test:
-    name: Tests
+  gozen:
+    name: gde_gozen access
     runs-on: ubuntu-24.04
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Godot and addons
+      - name: Can this repo read ${{ env.GOZEN_REPO }} ${{ env.GOZEN_RELEASE }}?
+        id: check
         env:
           GH_TOKEN: ${{ secrets.GOZEN_TOKEN || github.token }}
         run: |
-          ci/fetch_gozen.sh linux-x86_64
+          if gh release view "$GOZEN_RELEASE" --repo "$GOZEN_REPO" > /dev/null; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Can't read $GOZEN_REPO release $GOZEN_RELEASE (is the GOZEN_TOKEN secret set, with read access to it?). Tests run without gde_gozen; export and packaging are skipped."
+          fi
+
+  test:
+    name: Tests
+    needs: gozen
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch gde_gozen binaries
+        if: needs.gozen.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GOZEN_TOKEN || github.token }}
+        run: ci/fetch_gozen.sh linux-x86_64
+      - name: Set up Godot and addons
+        run: |
           ci/setup_godot.sh
           ci/fetch_addons.sh
       - name: Import project
         run: ~/godot/godot --headless --path project_engine --import
       - name: gde_gozen loads (GoZenVideo, AudioStreamFFmpeg)
+        if: needs.gozen.outputs.ok == 'true'
         run: ~/godot/godot --headless --path project_engine --script res://tests/check_extensions.gd
       - name: Unit tests
         run: ~/godot/godot --headless --path project_engine --script res://tests/run.gd
@@ -50,6 +76,8 @@ jobs:
 
   package:
     name: Export and package
+    needs: gozen
+    if: needs.gozen.outputs.ok == 'true'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}

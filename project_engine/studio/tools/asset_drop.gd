@@ -14,8 +14,11 @@ extends RefCounted
 ##     other), which takes its setup and keeps its place and size; anywhere
 ##     else, a new object with it, at the size it was saved at
 ## A user asset is bundled into the piece first (StudioBundle), so the piece
-## names its own copy. Where it lands (aim): the object the ray hits, else
-## the floor within FLOOR_REACH, else AIR_DISTANCE out along the ray.
+## names its own copy. Where it lands (aim): the floor under the pointer,
+## within FLOOR_REACH, even past an object the ray crosses first (so a card
+## pointed below a big screen doesn't stick to its face); else the object
+## the ray hits; else AIR_DISTANCE out along the ray. What it lands on
+## (effects, looks) is always the object the ray hits.
 ## Screens and layers dropped on the floor stand at eye height there;
 ## anything else sits on the floor. Nothing goes below the floor. With
 ## snapping on, the spot snaps to 10 cm and the turn to 15°.
@@ -48,11 +51,42 @@ static func aim(origin: Vector3, dir: Vector3, candidates: Array) -> Dictionary:
 			if not hit.is_empty() and not hit.inside:
 				hit_t = hit.t
 	var floor_t := -origin.y / dir.y if dir.y < -1e-4 else INF
-	if floor_t < hit_t and floor_t <= FLOOR_REACH:
+	if floor_t <= FLOOR_REACH:
 		return {"point": origin + dir * maxf(floor_t, MIN_DISTANCE), "on": on, "floor": true}
 	if hit_t < INF:
 		return {"point": origin + dir * maxf(hit_t, MIN_DISTANCE), "on": on, "floor": false}
 	return {"point": origin + dir * AIR_DISTANCE, "on": on, "floor": false}
+
+
+## Whether dropping `asset` at `where` adds a new object (rather than
+## changing the one it's on), as drop() decides.
+func adds(asset: Dictionary, where: Dictionary) -> bool:
+	var on := String(where.get("on", ""))
+	var on_kind := edits.kind_for(on) if on != "" and edits != null else ""
+	match String(asset.type):
+		"effect", "vertex":
+			return false
+		"layer":
+			return on_kind != "layer"
+		"look":
+			return on == "" or on_kind != String(asset.kind)
+	return true
+
+
+## The box at scale 1 of what `asset` adds (a look's by its kind: its
+## prefab is only known once the file is read, on the drop).
+func bounds_for(asset: Dictionary) -> AABB:
+	match String(asset.type):
+		"layer":
+			return bounds_of(StudioAssetLibrary.LAYER_PREFAB)
+		"look":
+			match String(asset.kind):
+				"screen":
+					return BUILTIN_BOUNDS["res://player/prefabs/screen.tscn"]
+				"layer":
+					return BUILTIN_BOUNDS[StudioAssetLibrary.LAYER_PREFAB]
+			return BUILTIN_BOUNDS["res://player/prefabs/cube.tscn"]
+	return bounds_of(String(asset.path))
 
 
 ## The spawn transform ({position, rotation_deg, scale}) for `asset` landing

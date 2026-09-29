@@ -116,8 +116,6 @@ const SHELF_ANGLE := 38.0
 const SHELF_DROP := 0.15
 ## How often the shelf's folders are checked for new or changed files.
 const WATCH_SECONDS := 2.0
-## A carried card's picture in the world, this wide (metres).
-const GHOST_WIDTH := 0.36
 
 enum Mode { PLAY, EDIT }
 
@@ -189,7 +187,8 @@ var held_asset: Dictionary = {}
 var _held_hand := ""
 ## In the headset: the trigger was down last frame (letting go drops).
 var _trigger_was_down := false
-var _ghost: MeshInstance3D
+## Where a carried card would land (StudioDropPreview).
+var _ghost := StudioDropPreview.new()
 ## 1 m lines on the floor while editing (the Studio tab's Floor grid).
 var floor_grid: StudioFloorGrid
 var _library_signature := ""
@@ -263,7 +262,7 @@ func _ready() -> void:
 	dropper.edits = edits
 	_bind_shelf(shelf)
 	_make_shelf_panel()
-	_make_ghost()
+	add_child(_ghost)
 	floor_grid = StudioFloorGrid.new()
 	add_child(floor_grid)
 	# Studio's own drawing stays out of looks' snapshots.
@@ -1232,9 +1231,7 @@ func _on_taken(asset: Dictionary, view: StudioAssetShelf) -> void:
 	for other in _shelves():
 		other.show_held(asset.id)
 	var tex := thumbnailer.thumbnail(asset)
-	var mat := _ghost.material_override as StandardMaterial3D
-	mat.albedo_texture = tex
-	mat.albedo_color = Color(1, 1, 1, 0.85) if tex != null else Color(StudioAssetShelf.ACCENT, 0.6)
+	_ghost.set_picture(tex)
 	_say("Carrying %s: let go where it goes (Esc puts it back)." % asset.label)
 
 
@@ -1263,8 +1260,7 @@ func save_look() -> Dictionary:
 func _drop_held() -> void:
 	held_asset = {}
 	_held_hand = ""
-	if _ghost != null:
-		_ghost.visible = false
+	_ghost.visible = false
 	for view in _shelves():
 		view.show_held("")
 
@@ -1310,15 +1306,23 @@ func _carry(_delta: float) -> void:
 			return
 		_trigger_was_down = down
 	_ghost.visible = not over_ui
-	if over_ui:
-		return
+	if not over_ui:
+		show_carry(xf)
+
+
+## Show where the carried card would land, pointed along `hand_xf`'s -Z.
+func show_carry(xf: Transform3D) -> void:
 	var where := StudioAssetDrop.aim(xf.origin, -xf.basis.z, tools.candidates())
 	var head := stage.viewer_transform().origin
-	var p: Vector3 = where.point
-	# Facing you (the quad's front is +Z).
-	var to_head := head - p
-	_ghost.global_transform = Transform3D(Basis.looking_at(-to_head, Vector3.UP) if to_head.length() > 0.01 else Basis(), p)
 	message = _drop_hint(held_asset, where)
+	if not dropper.adds(held_asset, where):
+		_ghost.show_card(where.point, head)
+		return
+	var bounds := dropper.bounds_for(held_asset)
+	var spawn := StudioAssetDrop.placement(held_asset, where, head, bounds, tools.snap)
+	_ghost.show_object(spawn, bounds, head)
+	var p: Vector3 = where.point
+	message = message.trim_suffix(".") + ", %.1f m away." % Vector2(p.x - head.x, p.z - head.z).length()
 
 
 ## What letting go here would do, for the status.
@@ -1356,23 +1360,6 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed \
 			and not _mouse_over_ui():
 		drop_held_at(_mouse_hand())
-
-
-func _make_ghost() -> void:
-	_ghost = MeshInstance3D.new()
-	_ghost.name = "CarriedCard"
-	var quad := QuadMesh.new()
-	quad.size = Vector2(GHOST_WIDTH, GHOST_WIDTH * 0.625)
-	_ghost.mesh = quad
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.no_depth_test = true
-	mat.render_priority = 10
-	_ghost.material_override = mat
-	_ghost.visible = false
-	add_child(_ghost)
 
 
 ## New or changed files in the shelf's folders show up on it.

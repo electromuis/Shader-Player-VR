@@ -152,6 +152,13 @@ static func test_where_a_card_lands(tc: TestCase) -> void:
 	var at_screen := StudioAssetDrop.aim(head, Vector3(0, 0.3, -4).normalized(), cands)
 	tc.assert_eq([at_screen.on, at_screen.floor], ["main_screen", false])
 	tc.assert_eq(snappedf(at_screen.point.z, 0.001), 0.0, "on its face")
+	# Pointed at the screen but down at the floor: the floor under the
+	# pointer, beyond it (it used to stick to the screen's face).
+	var past := StudioAssetDrop.aim(head, Vector3(0, -0.3, -4).normalized(), cands)
+	tc.assert_eq([past.on, past.floor], ["main_screen", true], "still on it, for effects")
+	tc.assert_eq(Vector3(past.point).snapped(Vector3.ONE * 0.01), Vector3(0, 0, 4 - 4 * 1.7 / 0.3).snapped(Vector3.ONE * 0.01))
+	var too_far := StudioAssetDrop.aim(head, Vector3(0, -0.01, -4).normalized(), cands)
+	tc.assert_eq([too_far.floor, snappedf(too_far.point.z, 0.001)], [false, 0.0], "floor beyond reach: its face")
 	var up := StudioAssetDrop.aim(head, Vector3(0, 1, -1).normalized(), [])
 	tc.assert_eq([up.on, up.floor, snappedf(Vector3(up.point).distance_to(head), 0.001)], ["", false, StudioAssetDrop.AIR_DISTANCE])
 	# Screens stand at eye height; cubes sit on the floor; all face you.
@@ -187,6 +194,12 @@ static func test_dropping_cards_adds_and_bundles(tc: TestCase) -> void:
 	tc.assert_eq(drop.drop(_asset(lib, "object", "Screen"), floor, head, 0.0, false).id, "screen", "then screen, screen_2, ...")
 	tc.assert_eq(m.undo(), "Add Screen", "one undo step")
 	tc.assert_eq(m.object_ids(), ["main_screen"])
+	# What a card does where it points (the carried preview shows it).
+	var on_screen := {"point": Vector3.ZERO, "on": "main_screen", "floor": false}
+	tc.assert_eq([drop.adds(_asset(lib, "object", "Screen"), on_screen), drop.adds(_asset(lib, "effect", "My fx"), on_screen),
+			drop.adds(_asset(lib, "layer", "My layer"), on_screen), drop.adds(_asset(lib, "effect", "My fx"), floor)],
+			[true, false, true, false])
+	tc.assert_eq(drop.bounds_for(_asset(lib, "object", "Screen")), StudioAssetDrop.BUILTIN_BOUNDS["res://player/prefabs/screen.tscn"])
 	# A user layer shader: bundled, named, a layer spawned with it.
 	r = drop.drop(_asset(lib, "layer", "My layer"), floor, head, 0.0, false)
 	tc.assert_eq([r.ok, r.id], [true, "my_layer"])
@@ -195,6 +208,7 @@ static func test_dropping_cards_adds_and_bundles(tc: TestCase) -> void:
 	tc.assert_true(FileAccess.file_exists(root.path_join("piece/shaders/my_layer.glsl")), "copied into the piece")
 	tc.assert_eq(m.tracks()[m.spawn_index("my_layer")].prefab, "layer")
 	tc.assert_eq(edits.kind_for("my_layer"), "layer")
+	tc.assert_false(drop.adds(_asset(lib, "layer", "Own layer"), {"point": Vector3.ZERO, "on": "my_layer", "floor": false}), "a layer on a layer")
 	var cards := lib.of_type("layer").filter(func(a): return a.label == "My layer")
 	tc.assert_eq(cards.map(func(a): return [a.source, a.in_piece]), [["user", true]], "one card for it and its copy")
 	# A layer card on a layer: its shader changes instead.

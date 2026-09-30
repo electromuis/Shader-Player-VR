@@ -184,7 +184,8 @@ func rescan() -> void:
 	var found: Array[Dictionary] = []
 	var new_parts: Dictionary = {}
 	for node in get_tree().get_nodes_in_group(VisualizerShaders.RELOAD_GROUP):
-		if not (node is Screen) or not node.is_inside_tree():
+		# A generator's layer's screen counts under its host (Screen.nested).
+		if not (node is Screen) or not node.is_inside_tree() or node.nested:
 			continue
 		var screen := node as Screen
 		var owner_info := describe_owner(screen, ids)

@@ -56,6 +56,18 @@ extends Node3D
 ## still orient the video, but mount size/distance can't shrink it around
 ## the viewer).
 ##
+## A generator effect (an entry with `"shader": "generator"` and a
+## `generator`: {shader, params, resolution, effects}, see
+## VisualizerShaders.GENERATOR) mixes a layer shader into the picture: an
+## offscreen Visualizer renders it at the picture's render size (times its
+## resolution), with its own effects after it (a mask, a blur: they shape it
+## first), and one pass puts that picture over the chain's (EffectBlend's
+## generator pass: over in every mode, then crossfaded by the mix). Its
+## layer shader's params are the effect's own (`effect<N>` tracks), and its
+## effects are `effect<N>.effect<M>`. While it shows nothing (mix 0, or
+## switched off by a track) the generator is suspended, so it costs nothing.
+## A generator's own effects can't be generators.
+##
 ## A 3D layer shader (one with mainVR, set_vr_source) skips all of that:
 ## its code runs in the display shader itself, per eye on the mesh (see
 ## screen_display.gdshaderinc), with no artist pass or effect chain. Its
@@ -82,6 +94,15 @@ const PROCESS_PRIORITY := 100
 ## The viewer's home eye (where reset view puts them), in world space:
 ## surfaces placed around the viewer centre on it. Set by main.gd.
 static var viewer_eye := Vector3(0.0, 2.0, 8.0)
+
+## What the screen shows changed texture (output_texture): its chain was
+## rebuilt. A host screen rewires a generator's pass on it.
+signal output_changed
+
+## A generator's layer's screen (see Visualizer.offscreen): GpuCost counts its
+## passes under the host's effect (gpu_passes), not as a screen of its own,
+## and its effects can't be generators.
+var nested: bool = false
 
 @onready var mesh: MeshInstance3D = $Mesh
 @onready var render_viewport: SubViewport = $RenderViewport
@@ -114,6 +135,17 @@ var _effect_params: Array[Dictionary] = []
 var _effect_mix: Array[float] = []
 var _effect_blend: Array[int] = []
 var _effect_level: Array[float] = []
+## Per effect: its generator ({shader, params, resolution, effects}; {} if
+## it isn't one, or is switched off) and the offscreen Visualizer rendering
+## it (null if none).
+var _generators: Array[Dictionary] = []
+var _generator_nodes: Array = []
+var _generator_holder: Node
+var _beats: BeatClock
+## Rendering nothing (a generator's layer while its effect shows none).
+var _suspended: bool = false
+## What the display shows (output_texture).
+var _output: Texture2D
 ## Built passes: [{material, viewport, effect, prepass, blend, step, count}]
 ## per eye chain (effect _SOURCE_COPY / _MARGIN_COPY: a chain_copy pass
 ## starting the chain / adding the margin; prepass: an effect's prepass,
@@ -169,14 +201,47 @@ func _process(_delta: float) -> void:
 				Vector4(_audio.level, _audio.bass, _audio.mid, _audio.high))
 
 
-## The shared analyzer, for vertex effects that follow the music.
+## The shared analyzer, for vertex effects that follow the music (and
+## generators' layers).
 func bind_audio(audio: AudioAnalyzer) -> void:
 	_audio = audio
+	for g in _generator_nodes:
+		if g != null:
+			g.bind_audio(audio)
 
 
-## A vertex effect reads the audio, so the analyzer must run.
+## The beat clock, for generators' layers.
+func bind_beats(beats: BeatClock) -> void:
+	_beats = beats
+	for g in _generator_nodes:
+		if g != null:
+			g.bind_beats(beats)
+
+
+## A vertex effect or a generator's layer reads the audio, so the analyzer
+## must run.
 func uses_audio() -> bool:
-	return _uses_audio
+	if _uses_audio:
+		return true
+	for i in _generator_nodes.size():
+		if _generator_nodes[i] != null and _effect_active(i) and _generator_nodes[i].is_running():
+			return true
+	return false
+
+
+## The texture the display shows: the last effect pass's (the left eye's
+## for a stereo source), else the artist pass's or the source.
+func output_texture() -> Texture2D:
+	return _output
+
+
+## Render nothing until switched back (a generator's layer while its effect
+## shows none).
+func set_suspended(on: bool) -> void:
+	if on == _suspended:
+		return
+	_suspended = on
+	_wire_source_texture()
 
 
 func set_shader_material(mat: ShaderMaterial) -> void:
@@ -218,6 +283,9 @@ func set_video_texture(tex: Texture2D) -> void:
 	_video_texture = tex
 	for p in _passes:
 		p.material.set_shader_parameter("video_tex", _effect_video())
+	for g in _generator_nodes:
+		if g != null:
+			g.bind_video(_effect_video())
 	_chain_changed()
 
 
@@ -253,21 +321,30 @@ func _apply_render_size() -> void:
 	if size == render_viewport.size:
 		return
 	render_viewport.size = size
+	for g in _generator_nodes:
+		if g != null:
+			g.set_offscreen_size(size)
 	_apply_effect_params()  # resizes the passes
 
 
 ## Effect shaders run in order over the output: [{shader: key, params:
 ## {uniform: value}, enabled, mix, blend}] (ScreenSettings.effects; one
 ## switched off keeps its slot and runs nothing; mix and blend: see
-## EffectBlend). Changing only params updates the running passes; a
-## different list of shaders rebuilds them.
+## EffectBlend), or generators ({shader: "generator", generator: {shader,
+## params, resolution, effects}, ...}, see the top; shader keys as files).
+## Changing only params updates the running passes; a different list of
+## shaders rebuilds them.
 func set_effects(effects: Array) -> void:
 	var keys: Array[String] = []
 	var params: Array[Dictionary] = []
 	var mixes: Array[float] = []
 	var blends: Array[int] = []
+	var gens: Array[Dictionary] = []
 	for e in effects:
-		keys.append(String(e.get("shader", "")) if ScreenSettings.is_enabled(e) else "")
+		var on := ScreenSettings.is_enabled(e)
+		var gen := VisualizerShaders.is_generator(e)
+		keys.append(String(e.get("shader", "")) if on and (not gen or not nested) else "")
+		gens.append((e.generator as Dictionary).duplicate(true) if on and gen and not nested else {})
 		var p = e.get("params", {})
 		# Copies: set_effect_param writes into them.
 		params.append(p.duplicate() if typeof(p) == TYPE_DICTIONARY else {})
@@ -280,14 +357,86 @@ func set_effects(effects: Array) -> void:
 		_effect_level.clear()
 		for k in keys:
 			_effect_level.append(1.0)
+	_generators = gens
 	if keys == _effect_keys:
+		_update_generators()
 		_params_changed()
 		return
 	_effect_keys = keys
 	_effect_shaders.clear()
 	for k in keys:
 		_effect_shaders.append(VisualizerShaders.load_shader(k))
+	_update_generators()
 	_wire_source_texture()
+
+
+## Make, set up or free each effect's generator layer to match _generators
+## (one already there keeps its shader if it's the same, and takes the new
+## params and effects), and suspend the ones showing nothing.
+func _update_generators() -> void:
+	for i in range(_generators.size(), _generator_nodes.size()):
+		if _generator_nodes[i] != null:
+			_generator_nodes[i].queue_free()
+	_generator_nodes.resize(_generators.size())
+	for i in _generators.size():
+		var g: Dictionary = _generators[i]
+		var node: Visualizer = _generator_nodes[i]
+		if g.is_empty():
+			if node != null:
+				node.queue_free()
+				_generator_nodes[i] = null
+			continue
+		if node == null:
+			if _generator_holder == null:
+				_generator_holder = Node.new()
+				_generator_holder.name = "Generators"
+				add_child(_generator_holder)
+			node = Visualizer.new()
+			node.name = "Generator%d" % i
+			node.offscreen = true
+			_generator_holder.add_child(node)
+			if not node.is_node_ready():
+				node.notification(NOTIFICATION_READY)  # out of the tree (tests): ready it by hand
+			if _audio != null:
+				node.bind_audio(_audio)
+			node.bind_beats(_beats)
+			node.bind_video(_effect_video())
+			_generator_nodes[i] = node
+		if node.output_changed.is_connected(_on_generator_output):
+			node.output_changed.disconnect(_on_generator_output)
+		node.set_offscreen_size(render_viewport.size if render_viewport != null else _BASE_RENDER_RES)
+		node.set_shader(String(g.get("shader", "")))
+		var p = g.get("params", {})
+		node.set_params(p if typeof(p) == TYPE_DICTIONARY else {})
+		var fx = g.get("effects", [])
+		node.set_effects(fx if typeof(fx) == TYPE_ARRAY else [])
+		node.set_resolution_scale(float(g.get("resolution", 1.0)))
+		node.output_changed.connect(_on_generator_output)
+	_suspend_generators()
+
+
+## A generator's layer shows nothing while its effect doesn't: suspend it.
+func _suspend_generators() -> void:
+	for i in _generator_nodes.size():
+		if _generator_nodes[i] != null:
+			_generator_nodes[i].set_suspended(effect_amount(i) <= 0.0)
+
+
+## A generator's picture changed texture (its own chain was rebuilt): point
+## its pass at it, or rebuild if that changes which effects run.
+func _on_generator_output() -> void:
+	if _pass_counts() != _built_counts:
+		_wire_source_texture()
+		return
+	for p in _passes:
+		var i: int = p.effect
+		if i >= 0 and p.blend and _is_generator(i):
+			p.material.set_shader_parameter("effect_tex", _generator_nodes[i].output_texture())
+	_chain_changed()
+
+
+func _is_generator(index: int) -> bool:
+	return index >= 0 and index < _generator_nodes.size() and _generator_nodes[index] != null
 
 
 ## Load the effect and display shaders again (VisualizerShaders.reload_all),
@@ -301,8 +450,8 @@ func reload_shaders() -> void:
 
 
 ## One uniform of effect `index` (a `shader_param` track on
-## `<id>.effect<N>`), or its `mix`, `blend` or switch level (`enabled`, see
-## EffectSwitch; a bool or 0..1).
+## `<id>.effect<N>`; a generator's: its layer shader's), or its `mix`,
+## `blend` or switch level (`enabled`, see EffectSwitch; a bool or 0..1).
 func set_effect_param(index: int, param: String, value: Variant) -> void:
 	if index < 0 or index >= _effect_params.size():
 		return
@@ -323,8 +472,19 @@ func set_effect_param(index: int, param: String, value: Variant) -> void:
 				return
 			_effect_level[index] = l
 		_:
+			if _is_generator(index):
+				_generator_nodes[index].set_material_param("layer", param, value)
+				return
 			_effect_params[index][param] = value
+	_suspend_generators()
 	_params_changed()
+
+
+## A param of generator effect `index`'s own effect `sub_slot` ("effect<M>":
+## a track on `<id>.effect<N>.effect<M>`).
+func set_generator_effect_param(index: int, sub_slot: String, param: String, value: Variant) -> void:
+	if _is_generator(index):
+		_generator_nodes[index].set_material_param(sub_slot, param, value)
 
 
 ## How much of effect `index` shows (its mix times its switch level).
@@ -334,14 +494,19 @@ func effect_amount(index: int) -> float:
 	return _effect_mix[index] * _effect_level[index]
 
 
-## Whether effect `index` runs: it has a shader and shows at all.
+## Whether effect `index` runs: it has a shader (a generator: a picture)
+## and shows at all.
 func _effect_active(index: int) -> bool:
-	return _effect_shaders[index] != null and effect_amount(index) > 0.0
+	if _is_generator(index):
+		return _generator_nodes[index].output_texture() != null and effect_amount(index) > 0.0
+	return index < _effect_shaders.size() and _effect_shaders[index] != null and effect_amount(index) > 0.0
 
 
-## Whether effect `index` needs a blend pass after it.
+## Whether effect `index` needs a blend pass after it (a generator has its
+## own pass instead).
 func _effect_blends(index: int) -> bool:
-	return _effect_active(index) and (_effect_blend[index] != 0 or effect_amount(index) < 1.0)
+	return _effect_active(index) and not _is_generator(index) \
+			and (_effect_blend[index] != 0 or effect_amount(index) < 1.0)
 
 
 ## Source layout: a VideoProjection key (not "auto"). Only its stereo split
@@ -471,8 +636,9 @@ func set_blend(mode: String) -> void:
 ## Target for `shader_param` tracks (`<id>.<slot>`). Slot "display" drives
 ## the display pass (`opacity`, `blend` (a BLENDS name), and earlier scripts' `curvature` /
 ## `vertical_curvature`), "shape" the surface's params, "effect<N>" the
-## Nth effect and "vertex<N>" the Nth vertex effect (from 0); any other
-## slot is the artist shader.
+## Nth effect ("effect<N>.effect<M>": a generator's own effects) and
+## "vertex<N>" the Nth vertex effect (from 0); any other slot is the artist
+## shader.
 func set_material_param(slot: String, param: String, value: Variant) -> void:
 	if slot == "shape":
 		set_surface_param(param, value)
@@ -489,6 +655,10 @@ func set_material_param(slot: String, param: String, value: Variant) -> void:
 		return
 	if slot.begins_with("effect") and slot.substr(6).is_valid_int():
 		set_effect_param(int(slot.substr(6)), param, value)
+		return
+	var dot := slot.find(".")
+	if slot.begins_with("effect") and dot > 6 and slot.substr(6, dot - 6).is_valid_int():
+		set_generator_effect_param(int(slot.substr(6, dot - 6)), slot.substr(dot + 1), param, value)
 		return
 	var mat := get_shader_material()
 	if mat != null:
@@ -543,7 +713,10 @@ func _wire_source_texture() -> void:
 		return
 	var mat := get_shader_material()
 	var out: Texture2D
-	if mat == null:
+	if _suspended:
+		render_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		out = render_viewport.get_texture() if mat != null else _source_texture
+	elif mat == null:
 		# Passthrough: no artist pass, so don't pay for the intermediate
 		# viewport at all.
 		render_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
@@ -573,11 +746,14 @@ func _build_chains(src: Texture2D) -> void:
 	for i in _effect_shaders.size():
 		if _effect_active(i):
 			active.append(i)
-			_chain_static = _chain_static and not VisualizerShaders.is_animated(_effect_shaders[i])
+			# A generator's layer animates by itself.
+			_chain_static = _chain_static and not _is_generator(i) \
+					and not VisualizerShaders.is_animated(_effect_shaders[i])
 	if active.is_empty() or src == null:
 		_set_display_param("frame_tex", src)
 		_set_display_param("eyes_split", false)
 		_apply_effect_params()  # no padding left
+		_set_output(src)
 		return
 	var stereo := VideoProjection.stereo_of(_projection)
 	var eyes: Array[Rect2] = [Rect2(0, 0, 1, 1)]
@@ -597,6 +773,11 @@ func _build_chains(src: Texture2D) -> void:
 		for i in active:
 			if i == margin_at:
 				tex = _add_pass(_COPY_SHADER, tex, _MARGIN_COPY)
+			if _is_generator(i):
+				tex = _new_pass(EffectBlend.generator_shader(), tex, i, false)
+				_passes[-1].blend = true
+				_passes[-1].material.set_shader_parameter("effect_tex", _generator_nodes[i].output_texture())
+				continue
 			var before := tex
 			tex = _add_pass(_effect_shaders[i], tex, i)
 			if _effect_blends(i):
@@ -609,6 +790,12 @@ func _build_chains(src: Texture2D) -> void:
 	_set_display_param("frame_tex_right", outs[-1])
 	_set_display_param("eyes_split", outs.size() > 1)
 	_apply_effect_params()
+	_set_output(outs[0])
+
+
+func _set_output(tex: Texture2D) -> void:
+	_output = tex
+	output_changed.emit()
 
 
 func _add_pass(shader: Shader, input: Texture2D, effect: int) -> Texture2D:
@@ -643,7 +830,7 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 	vp.size = render_viewport.size  # padding resizes it in _apply_effect_params
 	vp.transparent_bg = true
 	vp.disable_3d = true
-	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED if _suspended else SubViewport.UPDATE_ALWAYS
 	var rect := ColorRect.new()
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -666,18 +853,31 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 ## The SubViewports this screen draws in, for GpuCost: [{viewport, part,
 ## effect, key}], part "shader" (the artist pass), "effect" (an effect's
 ## pass, prepass or blend pass; effect: its index, key: its shader) or
-## "copy" (a chain_copy pass). The artist pass only while it renders.
+## "copy" (a chain_copy pass). The artist pass only while it renders. A
+## generator's layer's passes (its shader and its own effects) count as its
+## effect's, keyed by its layer shader. Nothing while suspended.
 func gpu_passes() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
+	if _suspended:
+		return out
 	if render_viewport != null and render_viewport.render_target_update_mode != SubViewport.UPDATE_DISABLED:
 		out.append({"viewport": render_viewport, "part": "shader", "effect": -1, "key": ""})
 	for p in _passes:
 		var i: int = p.effect
 		if i >= 0:
-			out.append({"viewport": p.viewport, "part": "effect", "effect": i, "key": _effect_keys[i]})
+			out.append({"viewport": p.viewport, "part": "effect", "effect": i, "key": _pass_key(i)})
 		else:
 			out.append({"viewport": p.viewport, "part": "copy", "effect": i, "key": ""})
+	for i in _generator_nodes.size():
+		if _generator_nodes[i] != null and _effect_active(i):
+			for p in _generator_nodes[i].gpu_passes():
+				out.append({"viewport": p.viewport, "part": "effect", "effect": i, "key": _pass_key(i)})
 	return out
+
+
+## Effect `index`'s shader key; a generator's layer shader's.
+func _pass_key(index: int) -> String:
+	return String(_generators[index].get("shader", "")) if _is_generator(index) else _effect_keys[index]
 
 
 func _mark_step(step: int, count: int) -> void:
@@ -742,6 +942,8 @@ func _apply_effect_params() -> void:
 		if p.blend:
 			mat.set_shader_parameter("blend_mode", _effect_blend[i])
 			mat.set_shader_parameter("mix_amount", effect_amount(i))
+			if _is_generator(i):
+				mat.set_shader_parameter("picture_rect", picture_rect(base, w, h))
 			(p.viewport as SubViewport).size = pass_size(px)
 			continue
 		var params: Dictionary = _effect_params[i] if i < _effect_params.size() else {}
@@ -781,7 +983,7 @@ static func pad(base: float, px: Vector2, margin: Vector2) -> Dictionary:
 ## Render the passes once when their input frame or they themselves
 ## changed, if they can render on demand (_chain_serial); else every frame.
 func _update_chain_redraw() -> void:
-	if _passes.is_empty():
+	if _passes.is_empty() or _suspended:
 		return
 	var serial := _chain_serial()
 	if serial < 0:
@@ -797,7 +999,7 @@ func _update_chain_redraw() -> void:
 ## The passes' params, sizes or inputs changed: on demand, render them this
 ## frame (a resized pass would otherwise show its cleared texture).
 func _chain_changed() -> void:
-	if _chain_seen >= 0:
+	if _chain_seen >= 0 and not _suspended:
 		_set_passes_update(SubViewport.UPDATE_ONCE)
 
 

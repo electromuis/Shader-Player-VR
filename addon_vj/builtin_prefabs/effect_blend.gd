@@ -39,22 +39,29 @@ vec3 effect_blend(vec3 eb_b, vec3 eb_s, int eb_mode) {
 	return eb_s;
 }
 
-// `eb_fx` (the effect's output) onto `eb_base` (its input), both straight
-// alpha: normal takes eb_fx; other modes composite its colour over eb_base
-// with the mode (source-over, as CSS mix-blend-mode), then the result
-// crossfades with eb_base by `eb_amount`.
-vec4 effect_mix(vec4 eb_base, vec4 eb_fx, int eb_mode, float eb_amount) {
-	vec4 eb_res = eb_fx;
-	if (eb_mode != 0) {
-		vec3 eb_c = eb_fx.a * (1.0 - eb_base.a) * eb_fx.rgb + eb_fx.a * eb_base.a * effect_blend(eb_base.rgb, eb_fx.rgb, eb_mode)
-				+ (1.0 - eb_fx.a) * eb_base.a * eb_base.rgb;
-		float eb_ca = eb_fx.a + eb_base.a * (1.0 - eb_fx.a);
-		eb_res = vec4(eb_ca > 0.0 ? eb_c / eb_ca : vec3(0.0), eb_ca);
-	}
+// `eb_fx`'s colour composited over `eb_base` with the mode, both straight
+// alpha (source-over, as CSS mix-blend-mode: where eb_fx is see-through
+// eb_base shows).
+vec4 effect_over(vec4 eb_base, vec4 eb_fx, int eb_mode) {
+	vec3 eb_c = eb_fx.a * (1.0 - eb_base.a) * eb_fx.rgb + eb_fx.a * eb_base.a * effect_blend(eb_base.rgb, eb_fx.rgb, eb_mode)
+			+ (1.0 - eb_fx.a) * eb_base.a * eb_base.rgb;
+	float eb_ca = eb_fx.a + eb_base.a * (1.0 - eb_fx.a);
+	return vec4(eb_ca > 0.0 ? eb_c / eb_ca : vec3(0.0), eb_ca);
+}
+
+// `eb_base` crossfaded to `eb_res` by `eb_amount` (premultiplied).
+vec4 effect_fade(vec4 eb_base, vec4 eb_res, float eb_amount) {
 	float eb_m = clamp(eb_amount, 0.0, 1.0);
 	float eb_a = mix(eb_base.a, eb_res.a, eb_m);
 	vec3 eb_p = mix(eb_base.rgb * eb_base.a, eb_res.rgb * eb_res.a, eb_m);
 	return vec4(eb_a > 0.0 ? eb_p / eb_a : vec3(0.0), eb_a);
+}
+
+// `eb_fx` (the effect's output) onto `eb_base` (its input), both straight
+// alpha: normal takes eb_fx; other modes composite its colour over eb_base
+// (effect_over), then the result crossfades with eb_base by `eb_amount`.
+vec4 effect_mix(vec4 eb_base, vec4 eb_fx, int eb_mode, float eb_amount) {
+	return effect_fade(eb_base, eb_mode != 0 ? effect_over(eb_base, eb_fx, eb_mode) : eb_fx, eb_amount);
 }
 """
 
@@ -73,7 +80,31 @@ void fragment() {
 }
 """
 
+## The pass Screen adds for a generator effect (an entry with a
+## `generator`, see Screen): `effect_tex` is the generator's picture, placed
+## on the picture (`picture_rect`, see effect_prelude.gdshaderinc; see-through
+## around it) and composited over `input_tex` in every mode, normal included
+## (effect_over: its own transparency, a mask, lets the picture through),
+## then crossfaded by the mix.
+const GENERATOR_PASS_CODE := """shader_type canvas_item;
+render_mode blend_disabled;
+
+uniform sampler2D input_tex : filter_linear, repeat_disable;
+uniform sampler2D effect_tex : filter_linear, repeat_disable;
+uniform vec4 picture_rect = vec4(0.0, 0.0, 1.0, 1.0);
+uniform int blend_mode = 0;
+uniform float mix_amount = 1.0;
+%s
+void fragment() {
+	vec2 g = (UV - picture_rect.xy) / picture_rect.zw;
+	vec4 top = g == clamp(g, 0.0, 1.0) ? texture(effect_tex, g) : vec4(0.0);
+	vec4 base = texture(input_tex, UV);
+	COLOR = effect_fade(base, effect_over(base, top, blend_mode), mix_amount);
+}
+"""
+
 static var _pass_shader: Shader
+static var _generator_shader: Shader
 
 
 ## MODES index of `mode` (unknown ones: normal).
@@ -87,6 +118,14 @@ static func pass_shader() -> Shader:
 		_pass_shader = Shader.new()
 		_pass_shader.code = PASS_CODE % FUNCTIONS
 	return _pass_shader
+
+
+## The generator pass's shader (one, shared).
+static func generator_shader() -> Shader:
+	if _generator_shader == null:
+		_generator_shader = Shader.new()
+		_generator_shader.code = GENERATOR_PASS_CODE % FUNCTIONS
+	return _generator_shader
 
 
 ## An entry's mix (0..1; missing: 1).

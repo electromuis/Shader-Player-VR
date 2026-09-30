@@ -653,6 +653,7 @@ func _on_object_spawned(id: String, node: Node3D) -> void:
 	if node is Screen:
 		if audio != null:
 			node.bind_audio(audio)
+		node.bind_beats(beats)  # for its generator effects' layers
 		_apply_display_to(node)
 	if node is Visualizer:
 		if audio != null:

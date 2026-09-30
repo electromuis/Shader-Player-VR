@@ -350,38 +350,64 @@ static func _validate_config(cfg, loc: String, errors: Array) -> void:
 			if s.has("placement") and not s["placement"] in ScreenGeometry.PLACEMENTS:
 				errors.append("%s.surface.placement must be one of %s" % [loc, ScreenGeometry.PLACEMENTS])
 	for list_key in ["effects", "vertex_effects"]:
-		if not cfg.has(list_key):
-			continue
-		var effects = cfg[list_key]
-		if typeof(effects) != TYPE_ARRAY:
-			errors.append("%s.%s must be an array" % [loc, list_key])
-			continue
-		for i in effects.size():
-			var e = effects[i]
-			if typeof(e) != TYPE_DICTIONARY or typeof(e.get("shader")) != TYPE_STRING:
-				errors.append("%s.%s[%d] must be an object with a shader (a shaders[] key)" % [loc, list_key, i])
-			elif e.has("params") and typeof(e["params"]) != TYPE_DICTIONARY:
-				errors.append("%s.%s[%d].params must be an object" % [loc, list_key, i])
-			elif e.has("enabled") and typeof(e["enabled"]) != TYPE_BOOL:
-				errors.append("%s.%s[%d].enabled must be true or false" % [loc, list_key, i])
-			elif not _valid_mix(e):
-				errors.append("%s.%s[%d].mix must be a number from 0 to 1" % [loc, list_key, i])
-			elif e.has("blend") and (list_key != "effects" or not e["blend"] in EffectBlend.MODES):
-				errors.append("%s.%s[%d].blend must be one of %s%s" % [loc, list_key, i, EffectBlend.MODES,
-						" (effects only; a vertex effect has a mix)" if list_key != "effects" else ""])
-			elif e.has("tracks"):
-				# A switched-off effect's own shader_param tracks, kept for when
-				# it's switched back on (Studio); {param, keyframes} each.
-				var parked = e["tracks"]
-				if typeof(parked) != TYPE_ARRAY:
-					errors.append("%s.%s[%d].tracks must be an array" % [loc, list_key, i])
-					continue
-				for k in parked.size():
-					var ploc := "%s.%s[%d].tracks[%d]" % [loc, list_key, i, k]
-					if typeof(parked[k]) != TYPE_DICTIONARY or typeof(parked[k].get("param")) != TYPE_STRING:
-						errors.append("%s must be an object with a param" % ploc)
-					else:
-						_validate_keyframes(parked[k].get("keyframes"), ploc, -1, errors)
+		if cfg.has(list_key):
+			_validate_effects(cfg[list_key], "%s.%s" % [loc, list_key], list_key, errors, list_key == "effects")
+
+
+## An effect list (`list_key` "effects" or "vertex_effects") at `loc`.
+## `generators`: an entry may be a generator (VisualizerShaders.GENERATOR,
+## with a `generator` object: a layer shader and its own effects, which
+## can't be generators).
+static func _validate_effects(effects, loc: String, list_key: String, errors: Array, generators: bool) -> void:
+	if typeof(effects) != TYPE_ARRAY:
+		errors.append("%s must be an array" % loc)
+		return
+	for i in effects.size():
+		var e = effects[i]
+		var eloc := "%s[%d]" % [loc, i]
+		if typeof(e) != TYPE_DICTIONARY or typeof(e.get("shader")) != TYPE_STRING:
+			errors.append("%s must be an object with a shader (a shaders[] key)" % eloc)
+		elif e.has("params") and typeof(e["params"]) != TYPE_DICTIONARY:
+			errors.append("%s.params must be an object" % eloc)
+		elif e.has("enabled") and typeof(e["enabled"]) != TYPE_BOOL:
+			errors.append("%s.enabled must be true or false" % eloc)
+		elif not _valid_mix(e):
+			errors.append("%s.mix must be a number from 0 to 1" % eloc)
+		elif e.has("blend") and (list_key != "effects" or not e["blend"] in EffectBlend.MODES):
+			errors.append("%s.blend must be one of %s%s" % [eloc, EffectBlend.MODES,
+					" (effects only; a vertex effect has a mix)" if list_key != "effects" else ""])
+		elif e.has("generator"):
+			var g = e["generator"]
+			if list_key != "effects":
+				errors.append("%s.generator: generators are pixel effects only" % eloc)
+			elif not generators:
+				errors.append("%s can't be a generator (a generator's own effects are plain effects)" % eloc)
+			elif e["shader"] != VisualizerShaders.GENERATOR:
+				errors.append("%s has a generator, so its shader must be \"%s\"" % [eloc, VisualizerShaders.GENERATOR])
+			elif typeof(g) != TYPE_DICTIONARY or typeof(g.get("shader")) != TYPE_STRING:
+				errors.append("%s.generator must be an object with a shader (a shaders[] key for a layer shader)" % eloc)
+			elif g.has("params") and typeof(g["params"]) != TYPE_DICTIONARY:
+				errors.append("%s.generator.params must be an object" % eloc)
+			elif g.has("resolution") and typeof(g["resolution"]) not in [TYPE_INT, TYPE_FLOAT]:
+				errors.append("%s.generator.resolution must be a number" % eloc)
+			elif g.has("effects"):
+				_validate_effects(g["effects"], eloc + ".generator.effects", "effects", errors, false)
+		if typeof(e) == TYPE_DICTIONARY and e.has("tracks"):
+			# A switched-off effect's own shader_param tracks, kept for when
+			# it's switched back on (Studio); {param, keyframes, and for a
+			# generator's own effects its `sub` slot ("effect<M>")} each.
+			var parked = e["tracks"]
+			if typeof(parked) != TYPE_ARRAY:
+				errors.append("%s.tracks must be an array" % eloc)
+				continue
+			for k in parked.size():
+				var ploc := "%s.tracks[%d]" % [eloc, k]
+				if typeof(parked[k]) != TYPE_DICTIONARY or typeof(parked[k].get("param")) != TYPE_STRING:
+					errors.append("%s must be an object with a param" % ploc)
+				elif parked[k].has("sub") and typeof(parked[k]["sub"]) != TYPE_STRING:
+					errors.append("%s.sub must be a string (the generator's effect slot, \"effect<M>\")" % ploc)
+				else:
+					_validate_keyframes(parked[k].get("keyframes"), ploc, -1, errors)
 
 
 ## `camera`: {"effects": [...]}, each effect like a screen's (shader,

@@ -544,23 +544,8 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 			out["params"] = _param_values(params)
 	for list_key in ["effects", "vertex_effects"]:
 		var effects = cfg.get(list_key)
-		if typeof(effects) != TYPE_ARRAY:
-			continue
-		var list: Array = []
-		for e in effects:
-			if typeof(e) != TYPE_DICTIONARY or e.get("enabled", true) == false:
-				continue  # switched off: kept for editors, skipped (and not counted in effect<N>)
-			var params = e.get("params", {})
-			var entry := {
-				"shader": _shader_path(String(e.get("shader", ""))),
-				"params": _param_values(params) if typeof(params) == TYPE_DICTIONARY else {},
-				"enabled": bool(e.get("enabled", true)),
-			}
-			for k in ["mix", "blend"]:
-				if e.has(k):
-					entry[k] = e[k]
-			list.append(entry)
-		out[list_key] = list
+		if typeof(effects) == TYPE_ARRAY:
+			out[list_key] = _resolve_effects(effects, list_key == "effects")
 	var surface = cfg.get("surface")
 	if typeof(surface) == TYPE_DICTIONARY:
 		var params = surface.get("params", {})
@@ -570,6 +555,39 @@ func _resolve_config(cfg: Dictionary, is_layer: bool) -> Dictionary:
 			"placement": String(surface.get("placement", "")),
 		}
 	return out
+
+
+## An effect list resolved as _resolve_config does (switched-off entries
+## dropped); a generator (`generators`: pixel effects only, and not inside
+## one) keeps its "generator" key and gets its layer shader's file, its
+## params and its own effects resolved.
+func _resolve_effects(effects: Array, generators: bool) -> Array:
+	var list: Array = []
+	for e in effects:
+		if typeof(e) != TYPE_DICTIONARY or e.get("enabled", true) == false:
+			continue  # switched off: kept for editors, skipped (and not counted in effect<N>)
+		var params = e.get("params", {})
+		var gen := VisualizerShaders.is_generator(e)
+		var entry := {
+			"shader": VisualizerShaders.GENERATOR if gen else _shader_path(String(e.get("shader", ""))),
+			"params": _param_values(params) if typeof(params) == TYPE_DICTIONARY else {},
+			"enabled": bool(e.get("enabled", true)),
+		}
+		for k in ["mix", "blend"]:
+			if e.has(k):
+				entry[k] = e[k]
+		if gen and generators:
+			var g: Dictionary = e.generator
+			var gp = g.get("params", {})
+			var gfx = g.get("effects", [])
+			entry["generator"] = {
+				"shader": _shader_path(String(g.get("shader", ""))),
+				"params": _param_values(gp) if typeof(gp) == TYPE_DICTIONARY else {},
+				"resolution": float(g.get("resolution", 1.0)),
+				"effects": _resolve_effects(gfx, false) if typeof(gfx) == TYPE_ARRAY else [],
+			}
+		list.append(entry)
+	return list
 
 
 ## The file a config's shader key names: a `shaders[]` key, or a built-in

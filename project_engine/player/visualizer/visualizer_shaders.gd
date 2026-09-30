@@ -106,6 +106,10 @@ const VIDEO := "video"
 ## The layer shader that was a blurred copy of the video, now a VIDEO layer
 ## with a Blur effect (LayerSettings.from_dict migrates it).
 const LEGACY_VIDEO_BLUR := "res://player/visualizer/shaders/video_blur.gdshader"
+## Not a file: the effect that mixes a layer shader into the picture. Its
+## entry names the layer in `generator` ({shader, params, resolution,
+## effects}: the generator's own effects shape it first); see Screen.
+const GENERATOR := "generator"
 
 const KEY_BLACK := "res://player/visualizer/effects/key_black.gdshader"
 const BLUR := "res://player/visualizer/effects/blur.gdshader"
@@ -155,6 +159,12 @@ static var _hint_helpers := _HintHelpers.new()
 ## Set by reload_all(): from then on built-ins and their res:// includes are
 ## read from their files, not Godot's resource cache, so edits show up.
 static var _builtins_fresh := false
+
+
+## Whether effect entry `e` is a generator (GENERATOR, with its `generator`).
+static func is_generator(e) -> bool:
+	return typeof(e) == TYPE_DICTIONARY and String(e.get("shader", "")) == GENERATOR \
+			and typeof(e.get("generator")) == TYPE_DICTIONARY
 
 
 ## [{key, label}] for the built-in layer shaders, or effects when `effects`.

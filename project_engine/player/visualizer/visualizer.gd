@@ -48,14 +48,26 @@ extends Node3D
 ## A script's layers are the same node, spawned from prefabs/layer.tscn
 ## (`at_origin`): the quad then sits at this node's own transform, like a
 ## screen prefab's, and the runner sets it up through configure().
+##
+## An effect's generator (see Screen: an effect entry with a `generator`) is
+## this node too, `offscreen`: its Screen's mesh is hidden, it renders at
+## the size the host screen gives it (set_offscreen_size, the host's picture,
+## times its resolution), and the host reads output_texture().
 
 const SCREEN_SCENE := preload("res://player/prefabs/screen.tscn")
 const _AUDIO_RES := Vector3(AudioAnalyzer.BINS, 2.0, 1.0)
 const ORDER_STEP := 0.01  # metres
 
+## What the layer shows changed texture (output_texture; see
+## Screen.output_changed).
+signal output_changed
+
 ## Put the quad at this node's origin at scale 1 (scripted layers) instead
 ## of where the default main screen sits.
 @export var at_origin: bool = false
+## A generator's layer: draws nothing itself (see the top). Set before it
+## enters the tree.
+var offscreen: bool = false
 
 var _screen: Screen
 var _material: ShaderMaterial  # the shader's; the Screen's display material when _vr
@@ -77,16 +89,23 @@ var _locked: bool = false
 var _locked_size: float = 1.0
 var _locked_distance: float = 0.0
 var _nudge: float = ORDER_STEP  # toward the viewer, from the stack position
+var _offscreen_size: Vector2i = Vector2i.ZERO  # set_offscreen_size's; 0 = the shader's own
 
 
 func _ready() -> void:
 	add_to_group(VisualizerShaders.RELOAD_GROUP)
 	_screen = SCREEN_SCENE.instantiate()
 	_screen.name = "Screen"
-	if not at_origin:
+	_screen.nested = offscreen
+	if not at_origin and not offscreen:
 		_screen.position = Vector3(DefaultScreen.POSITION[0], DefaultScreen.POSITION[1], DefaultScreen.POSITION[2])
 		_screen.scale = Vector3.ONE * DefaultScreen.SCALE
 	add_child(_screen)
+	if not _screen.is_node_ready():
+		_screen.notification(NOTIFICATION_READY)  # out of the tree (tests): ready it by hand
+	_screen.output_changed.connect(output_changed.emit)
+	if offscreen:
+		_screen.mesh.visible = false
 	_home = _screen.transform
 	set_order(0)
 	_screen.set_render_size(VisualizerShaders.DEFAULT_RESOLUTION)
@@ -102,6 +121,8 @@ func bind_audio(audio: AudioAnalyzer) -> void:
 
 func bind_beats(beats: BeatClock) -> void:
 	_beats = beats
+	if _screen != null:
+		_screen.bind_beats(beats)
 
 
 func bind_video(tex: Texture2D) -> void:
@@ -323,13 +344,43 @@ func _process(_delta: float) -> void:
 	_material.set_shader_parameter("audio_high", _audio.high)
 
 
+## An offscreen layer's render size (before its resolution scale): the
+## host's picture, so the generator takes its shape.
+func set_offscreen_size(size: Vector2i) -> void:
+	if size == _offscreen_size:
+		return
+	_offscreen_size = size
+	if _material != null and not _vr:
+		_configure_screen()
+
+
+## Render nothing until switched back (see Screen.set_suspended): an
+## offscreen layer whose effect shows none.
+func set_suspended(on: bool) -> void:
+	_screen.set_suspended(on)
+
+
+## The SubViewports it draws in (Screen.gpu_passes).
+func gpu_passes() -> Array[Dictionary]:
+	return _screen.gpu_passes()
+
+
+## What the layer shows, its effects included (see Screen.output_texture):
+## an offscreen layer's picture. Null without a shader (or for a 3D shader,
+## which draws on its mesh).
+func output_texture() -> Texture2D:
+	if _screen == null or _material == null or _vr:
+		return null
+	return _screen.output_texture()
+
+
 ## Render size, shape and stereo split for the loaded shader.
 func _configure_screen() -> void:
 	var video := uses_video()
 	var aspect := 16.0 / 9.0
 	if video and _video_aspect > 0.0:
 		aspect = _video_aspect
-	var res: Vector2i = _hints.resolution
+	var res: Vector2i = _offscreen_size if _offscreen_size != Vector2i.ZERO else _hints.resolution
 	if res == Vector2i.ZERO:
 		res = VisualizerShaders.DEFAULT_RESOLUTION
 		if video:
@@ -337,7 +388,7 @@ func _configure_screen() -> void:
 	if res.x == 0:
 		res.x = roundi(res.y * aspect)
 	_screen.set_render_size(res)
-	res = _screen.render_viewport.size  # after clamping
+	res = _screen.render_viewport.size  # after clamping (and the resolution scale)
 	_screen.configure({"fit_aspect": true}, null)
 	_screen.set_source_layout(_flat_projection() if video else "flat")
 	_screen.set_content_aspect(aspect if video else float(res.x) / res.y)

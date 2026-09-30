@@ -81,7 +81,7 @@ Open tasks carry a rough difficulty, **[D1]** (minutes to an hour) to **[D5]** (
 - [ ] 82. **[D2]** More logical default keyboard bindings (`player/input/input_bindings.gd`), in the player and Studio: keep WASD + Q / E for movement, and group the rest sensibly; list the new defaults in the README.
 - [ ] 83. **[D2]** Colour correction pixel effects: at least lift / gamma / gain (or brightness, contrast), saturation, hue shift, temperature / tint, levels; maybe split into a couple of effects if that's clearer. Keyable params, as the other effects.
 - [ ] 84. **[D3]** An option to feed the BPM detection (`player/beats/`) into the audio channel, so audio-reactive shaders and effects can pulse on the beat without rewriting them: e.g. a mode where the bass / level inputs (or a beat pulse) follow the detected beat, per layer or globally.
-- [ ] 85. **[D2]** Check that sliders and options in their inactive state (0, off) cost no GPU: an effect at mix 0, a blur of 0, a switched-off layer or effect should skip its pass, not run it. Measure with the Performance tab (19) and fix what still runs.
+- [x] 85. **[D2]** Check that sliders and options in their inactive state (0, off) cost no GPU: an effect at mix 0, a blur of 0, a switched-off layer or effect should skip its pass, not run it. Measure with the Performance tab (19) and fix what still runs. — done in ec94887
 
 ## Addon and example pieces
 

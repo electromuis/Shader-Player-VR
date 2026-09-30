@@ -306,6 +306,8 @@ var _shelf_top := 150.0
 
 
 func _ready() -> void:
+	# The project's name is the player's; Studio shares its user folder.
+	get_window().title = "Shader Player Studio"
 	_parse_cli_args()
 	_use_studio_fly_keys()
 	_settings = PlayerSettings.new()
@@ -362,7 +364,7 @@ func _ready() -> void:
 	dropper.edits = edits
 	shadertoy_receiver = ShadertoyReceiver.new()
 	shadertoy_receiver.name = "ShadertoyReceiver"
-	shadertoy_receiver.app_name = "VJ Studio"
+	shadertoy_receiver.app_name = "Shader Player Studio"
 	shadertoy_receiver.library = ShadertoyLibrary.new(library.shadertoy_dir)
 	shadertoy_receiver.received.connect(_on_shadertoy_received)
 	add_child(shadertoy_receiver)
@@ -397,7 +399,7 @@ func _ready() -> void:
 	else:
 		runner.load_timeline(DefaultScreen.idle_timeline())
 		runner.seek(0.0)
-		_say("No piece open: open one from the shelf (B), or start Studio with -- --piece <script.json or video>.")
+		_say("No SPScript open: open one from the shelf (B), or start Studio with -- --spscript <file.spscript or video>.")
 		shelf_on = true
 		shelf.show_tab(StudioAssetShelf.OPEN_TAB)
 		_show_shelf()
@@ -573,7 +575,7 @@ func open_piece(path: String) -> bool:
 	_cli_start = 0.0
 	_show_ribbon()
 	if fresh:
-		_say("New piece %s: %s" % [model.path.get_file(),
+		_say("New SPScript %s: %s" % [model.path.get_file(),
 				"it starts with a screen showing the video; add more from the shelf." if model.spawn_index("main_screen") >= 0
 				else "add things from the shelf."])
 		shelf_on = true
@@ -667,7 +669,7 @@ func save_as(to_path: String) -> bool:
 	runner.apply_edit(model.timeline(), true)  # its new folder
 	var copied: Array = r.copied
 	_say("Saved as %s%s." % [model.path.get_file(),
-			"" if copied.is_empty() else ", with %d of the piece's files" % copied.size()])
+			"" if copied.is_empty() else ", with %d of the SPScript's files" % copied.size()])
 	for view in _shelves():
 		view.saved_as()
 	return true
@@ -676,7 +678,7 @@ func save_as(to_path: String) -> bool:
 ## The shelf's Open tab, at its Save as line.
 func show_save_as() -> void:
 	if model == null:
-		_say("Open a piece first.")
+		_say("Open an SPScript first.")
 		return
 	shelf_on = true
 	for view in _shelves():
@@ -2024,7 +2026,7 @@ func _keep_shelf_near() -> void:
 ## right hand in the headset).
 func _on_taken(asset: Dictionary, view: StudioAssetShelf) -> void:
 	if model == null:
-		_say("Open a piece first (the Open tab).")
+		_say("Open an SPScript first (the Open tab).")
 		view.show_held("")
 		return
 	held_asset = asset
@@ -2197,11 +2199,11 @@ func _watch_library(delta: float) -> void:
 ## piece starts one); a shader or prefab is copied into the piece.
 func _on_files_dropped(files: PackedStringArray) -> void:
 	for f in files:
-		if DefaultScreen.is_video(f) or f.get_extension().to_lower() == "json":
+		if DefaultScreen.is_video(f) or ScriptFormat.is_script_path(f):
 			open_piece(f)
 			return
 	if model == null:
-		_say("Open a piece first, then drop shaders or prefabs on it.")
+		_say("Open an SPScript first, then drop shaders or prefabs on it.")
 		return
 	var added: Array = []
 	for f in files:
@@ -2213,7 +2215,7 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 			else:
 				_say(b.error)
 	if not added.is_empty():
-		_say("In the piece now, on the shelf: %s." % ", ".join(added))
+		_say("In the SPScript now, on the shelf: %s." % ", ".join(added))
 		shelf_on = true
 		_show_shelf()
 		_refresh_shelf()
@@ -2355,7 +2357,7 @@ func _rec_chip() -> String:
 
 func _piece_name() -> String:
 	if model == null:
-		return "No piece"
+		return "No SPScript"
 	var title := String(model.document().get("meta", {}).get("title", ""))
 	return title if title != "" else model.path.get_file()
 
@@ -2382,7 +2384,7 @@ func _parse_cli_args() -> void:
 	var args := OS.get_cmdline_user_args()
 	for i in args.size():
 		var a: String = args[i]
-		if a == "--piece" and i + 1 < args.size():
+		if a in ["--spscript", "--piece"] and i + 1 < args.size():
 			_cli_piece = args[i + 1]
 		elif a == "--start" and i + 1 < args.size():
 			_cli_start = float(args[i + 1])
@@ -2397,7 +2399,7 @@ func _parse_cli_args() -> void:
 	# "Open with" / dropping a file on the .exe.
 	if _cli_piece == "":
 		for a in OS.get_cmdline_args():
-			if (DefaultScreen.is_video(a) or a.get_extension().to_lower() == "json") and FileAccess.file_exists(a):
+			if (DefaultScreen.is_video(a) or ScriptFormat.is_script_path(a)) and FileAccess.file_exists(a):
 				_cli_piece = a
 
 

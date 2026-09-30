@@ -78,7 +78,7 @@ func _initialize() -> void:
 	var repo := OS.get_environment("REPO")
 	var piece_dir := OS.get_environment("WORK").path_join("studio_scrollbar_piece")
 	copy_dir(repo.path_join("scripts/moving_screen"), piece_dir)
-	var piece := piece_dir.path_join("video.json")
+	var piece := piece_dir.path_join("video.spscript")
 
 	studio = load("res://studio/studio.tscn").instantiate()
 	root.add_child(studio)

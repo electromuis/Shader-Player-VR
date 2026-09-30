@@ -83,7 +83,7 @@ func _initialize() -> void:
 				"transform": {"position": [0, 2, 0], "scale": [0.12, 0.12, 0.12]}, "config": {"shader": "ring"}},
 		],
 	}
-	var f := FileAccess.open(dir.path_join("clip.json"), FileAccess.WRITE)
+	var f := FileAccess.open(dir.path_join("clip.spscript"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(doc, "  "))
 	f.close()
 
@@ -91,7 +91,7 @@ func _initialize() -> void:
 	root.add_child(studio)
 	await frames(10)
 	view = studio.inspector
-	print("open: ", studio.open_piece(dir.path_join("clip.json")))
+	print("open: ", studio.open_piece(dir.path_join("clip.spscript")))
 	studio.runner.set_video_duration(20.0)
 	studio.stage.seek_to(0.0)
 	await frames(5)

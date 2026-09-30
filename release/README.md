@@ -1,6 +1,6 @@
 # Player
 
-A VR video player with sound-reactive shader layers and effects. It plays ordinary videos, including 180°/360° and 3D ones, and scripted videos, where a `.json` script moves the screen, spawns objects and animates shaders in time with the music.
+A VR video player with sound-reactive shader layers and effects. It plays ordinary videos, including 180°/360° and 3D ones, and scripted videos, where an SPScript (a `.spscript` file) moves the screen, spawns objects and animates shaders in time with the music.
 
 It works with or without a headset. If an OpenXR headset (SteamVR, Oculus/Meta, WMR, …) is connected when the player starts, it goes straight into VR. Otherwise it runs in a desktop window. Start it with `Player.exe -- --desktop` to stay on the desktop even with a headset connected, and `-- --windowed` to open the window windowed even if you left it fullscreen (F11 still toggles). The player's own options always come after a lone `--`.
 
@@ -42,7 +42,7 @@ Every button, stick and key here is a default: **F2 → Controls** lists each co
 - **Files** browses your drives. You can also drop a video on the window or on `Player.exe`, use *Open with* in Explorer, or start with `Player.exe -- --script <file>`.
 - **Network** lists DLNA/UPnP media servers on your network (Plex, Jellyfin, MiniDLNA, Windows media sharing, …).
 - **Source** (how the file is read: flat, 180° or 360°, mono, side-by-side or top-bottom, and swapped eyes) is read from the file name (`_180`, `_360`, `_LR` / `_SBS`, `_RL`, `_TB` / `_OU`, …). If it guesses wrong, change it in **F2 → Camera**. 180° and 360° videos play on a dome around you.
-- **Scripted videos:** put a `.json` with the same name next to the video (`clip.mp4` + `clip.json`) and it plays with that script.
+- **Scripted videos:** put a `.json` with the same name next to the video (`clip.mp4` + `clip.spscript`) and it plays with that script.
 - **Timecode:** a Whirligig-compatible server runs on `127.0.0.1:2000` for MultiFunPlayer / ScriptPlayer. `-- --whirligig-port N` changes the port (0 turns it off) and `-- --whirligig-lan` lets other machines connect.
 - **DaVinci Resolve:** copy `resolve/VJ Sync.py` into Resolve's `Scripts/Utility` folder and run it from **Workspace → Scripts**. The player then follows Resolve's playhead, and timeline markers can become script events. See `resolve/README.md`.
 
@@ -98,4 +98,4 @@ The background is black by default. Other options are in **F2 → Config**, incl
 
 Because of `portable.ini`, the player keeps everything it saves in this folder: settings in `save/` and presets in `presets/`. Copy the whole folder to a USB stick or another PC and it comes along. Delete `save/` to reset your settings.
 
-If you'd rather have your saves in your user profile, delete `portable.ini`. The player then uses `%APPDATA%\Godot\app_userdata\Scripted VJ Video Player\` for settings and its `presets` subfolder for presets, and ignores `save/` and `presets/` here. Move your preset files over first if you want to keep them. With `portable.ini` removed, extra shaders, skyboxes and images can also go in the `shaders`, `skyboxes` and `images` subfolders there.
+If you'd rather have your saves in your user profile, delete `portable.ini`. The player then uses `%APPDATA%\Godot\app_userdata\Shader Player VR\` for settings and its `presets` subfolder for presets, and ignores `save/` and `presets/` here. Move your preset files over first if you want to keep them. With `portable.ini` removed, extra shaders, skyboxes and images can also go in the `shaders`, `skyboxes` and `images` subfolders there.

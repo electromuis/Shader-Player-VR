@@ -1,12 +1,12 @@
-# Script format
+# SPScript format
 
-A VJ script is a JSON file that plays on top of a video: it spawns screens, shader layers and objects, moves them, animates their shaders, and moves the viewer. The player, Studio and the Godot addon all read and write it, and it can be written by hand. `ScriptFormat` (`project_engine/player/script_format/script_format.gd`) is the validator; what it accepts is the format.
+An SPScript (shader player script) is a JSON file with the extension `.spscript` that plays on top of a video: it spawns screens, shader layers and objects, moves them, animates their shaders, and moves the viewer. The player, Studio and the Godot addon all read and write it, and it can be written by hand. `ScriptFormat` (`project_engine/player/script_format/script_format.gd`) is the validator; what it accepts is the format.
 
-## A script's folder
+## The SPScript's folder
 
 ```
 clip.mp4
-clip.json            # the script; the player picks it up next to a same-name video
+clip.spscript        # the SPScript; the player picks it up next to a same-name video
 prefabs/forest.tscn  # custom prefabs (the exporter and Studio copy them here)
 shaders/glow.gdshader
 ```
@@ -82,7 +82,7 @@ Two kinds. **Continuous tracks** (`transform`, `shader_param`) are sampled every
 
 `$camera.effect<N>` animates a camera effect's params, its `strength`, `blend` and `enabled`.
 
-**Switching an effect on and off over time:** a `shader_param` track with param `enabled` on `<id>.effect<N>`, `<id>.effect<N>.effect<M>`, `<id>.vertex<N>` or `$camera.effect<N>`. Its keys are `true` / `false`; each holds until the next (write them as `step`). A key may carry `"transition": {"type": "fade", "duration": s}`: from the key on, the effect fades over `s` seconds from where it was to on or off (its mix, or a camera effect's strength, going to or from 0). Before the first key the effect is as that key says. The effect keeps its place while it's off, so its `effect<N>` stays the same and the numbers after it don't move; only `"enabled": false` in the config (below) takes an effect out of the count, for the whole piece.
+**Switching an effect on and off over time:** a `shader_param` track with param `enabled` on `<id>.effect<N>`, `<id>.effect<N>.effect<M>`, `<id>.vertex<N>` or `$camera.effect<N>`. Its keys are `true` / `false`; each holds until the next (write them as `step`). A key may carry `"transition": {"type": "fade", "duration": s}`: from the key on, the effect fades over `s` seconds from where it was to on or off (its mix, or a camera effect's strength, going to or from 0). Before the first key the effect is as that key says. The effect keeps its place while it's off, so its `effect<N>` stays the same and the numbers after it don't move; only `"enabled": false` in the config (below) takes an effect out of the count, for the whole SPScript.
 
 ```json
 { "type": "shader_param", "target": "main_screen.effect1", "param": "enabled", "keyframes": [
@@ -146,6 +146,6 @@ A key may carry `"transition": {"type": "fade_to_black", "duration": 1}` for its
 ## Shader values
 
 - Numeric arrays of 2 to 4 become `Vector2/3/4`.
-- A texture param is a path relative to the script (Studio copies picked images into the piece's `images/`).
+- A texture param is a path relative to the script (Studio copies picked images into the SPScript's `images/`).
 - A string key in a `shader_param` track (a `display` slot's `blend`, an image path) holds until the next key, whatever its `interp`; Studio writes such keys as `step`.
 - Shader time follows the video; a shader with a `// @free_time` line keeps its own.

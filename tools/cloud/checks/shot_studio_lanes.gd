@@ -78,7 +78,7 @@ func _initialize() -> void:
 	root.add_child(studio)
 	await frames(10)
 	ribbon = studio.ribbon
-	print("open: ", studio.open_piece(piece_dir.path_join("video.json")))
+	print("open: ", studio.open_piece(piece_dir.path_join("video.spscript")))
 	studio.runner.set_video_duration(170.0)
 	studio.stage.seek_to(40.0)
 	await frames(12)

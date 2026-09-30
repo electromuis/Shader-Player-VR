@@ -100,7 +100,7 @@ func _ready() -> void:
 		# it without starting playback.
 		runner.load_timeline(DefaultScreen.idle_timeline())
 		runner.seek(0.0)
-		_set_status("Open a video or script: F2 → Files, or drop a file on this window.")
+		_set_status("Open a video or SPScript: F2 → Files, or drop a file on this window.")
 
 	# --vr forces an attempt (and reports failure); otherwise go straight to
 	# VR only when a headset is already up, staying silently on desktop if not.
@@ -157,7 +157,7 @@ func open_file(path: String, autoplay: bool = true) -> void:
 			if autoplay:
 				runner.play()
 			return
-	if path.get_extension().to_lower() != "json":
+	if not ScriptFormat.is_script_path(path):
 		_set_status("Unsupported file: %s" % path.get_file())
 		return
 	_set_status("Loading %s..." % path)
@@ -295,7 +295,7 @@ func _parse_cli_args() -> void:
 	# argument; pick it up unless --script already chose something.
 	if _cli_script_path == "":
 		for a in OS.get_cmdline_args():
-			if (DefaultScreen.is_video(a) or a.get_extension().to_lower() == "json") \
+			if (DefaultScreen.is_video(a) or ScriptFormat.is_script_path(a)) \
 					and FileAccess.file_exists(a):
 				_cli_script_path = a
 

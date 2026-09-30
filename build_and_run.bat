@@ -21,7 +21,7 @@ if "%REPO:~-1%"=="\" set REPO=%REPO:~0,-1%
 
 set ENGINE_PROJECT=%REPO%\project_engine
 set TEMPLATE_PROJECT=%REPO%\project_script_example
-set SCRIPT_OUT=%REPO%\scripts\moving_screen\video.json
+set SCRIPT_OUT=%REPO%\scripts\moving_screen\video.spscript
 set BUILD_DIR=%REPO%\build
 set BINARY=%BUILD_DIR%\VRmviewer.exe
 set PRESET=Windows Desktop

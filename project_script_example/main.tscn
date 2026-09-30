@@ -110,7 +110,7 @@ title = "Phase 2 demo: moving screen + spawned cube"
 author = "scaffold"
 created = "2026-09-22"
 video_relative_path = "../minimal/video.mp4"
-output_path = "res://../scripts/moving_screen/video.json"
+output_path = "res://../scripts/moving_screen/video.spscript"
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 10, 0)

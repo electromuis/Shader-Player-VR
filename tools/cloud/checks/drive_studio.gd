@@ -77,7 +77,7 @@ func _initialize() -> void:
 	var repo := OS.get_environment("REPO")
 	var piece_dir := OS.get_environment("WORK").path_join("studio_piece")
 	copy_dir(repo.path_join("scripts/forest_tunnel"), piece_dir)
-	var piece := piece_dir.path_join("video.json")
+	var piece := piece_dir.path_join("video.spscript")
 	var original := FileAccess.get_file_as_bytes(piece)
 
 	studio = load("res://studio/studio.tscn").instantiate()

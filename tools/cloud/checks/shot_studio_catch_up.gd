@@ -51,7 +51,7 @@ func _initialize() -> void:
 	var dir := work.path_join("piece")
 	DirAccess.make_dir_recursive_absolute(dir)
 	DirAccess.make_dir_recursive_absolute(work.path_join("mine"))
-	for f in ["clip.json", "images/logo.png"]:
+	for f in ["clip.spscript", "images/logo.png"]:
 		DirAccess.remove_absolute(dir.path_join(f))
 	var f := FileAccess.open(dir.path_join("clip.mp4"), FileAccess.WRITE)
 	f.store_string("a stand-in: nothing here decodes video")

@@ -240,7 +240,7 @@ func _initialize() -> void:
 
 	print("saved: ", studio.save())
 	var named := {}
-	for m in RegEx.create_from_string('"(shaders/[^"]+)"').search_all(FileAccess.get_file_as_string(dir.path_join("clip.json"))):
+	for m in RegEx.create_from_string('"(shaders/[^"]+)"').search_all(FileAccess.get_file_as_string(dir.path_join("clip.spscript"))):
 		named[m.get_string(1)] = true
 	print("the piece names: ", named.keys())
 	print("in the piece's shaders/: ", DirAccess.get_files_at(dir.path_join("shaders")))

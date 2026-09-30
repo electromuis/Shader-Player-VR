@@ -62,7 +62,7 @@ static func test_default_screen_respects_script(t: TestCase) -> void:
 static func test_video_detection(t: TestCase) -> void:
 	t.assert_true(DefaultScreen.is_video("a/b/C.MP4"))
 	t.assert_true(DefaultScreen.is_video("x.mkv"))
-	t.assert_false(DefaultScreen.is_video("x.json"))
+	t.assert_false(DefaultScreen.is_video("x.spscript"))
 	t.assert_false(DefaultScreen.is_video("x.funscript"))
 
 

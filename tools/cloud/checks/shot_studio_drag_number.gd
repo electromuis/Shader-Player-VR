@@ -68,7 +68,7 @@ func drag(vp: Viewport, spin: SpinBox, dx: float, shift := false, shot_name := "
 func _initialize() -> void:
 	var dir := OS.get_environment("WORK").path_join("studio_drag_number/piece")
 	DirAccess.make_dir_recursive_absolute(dir)
-	DirAccess.remove_absolute(dir.path_join("clip.json"))
+	DirAccess.remove_absolute(dir.path_join("clip.spscript"))
 	var f := FileAccess.open(dir.path_join("clip.mp4"), FileAccess.WRITE)
 	f.store_string("a stand-in: nothing here decodes video")
 	f.close()

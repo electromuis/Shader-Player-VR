@@ -2,8 +2,8 @@
 extends EditorPlugin
 
 ## Tools menu:
-##   VJ: Export current scene to script.json…  — write the JSON
-##   VJ: Import script.json…                   — build the scene from a script, in
+##   VJ: Export current scene to SPScript…  — write the .spscript
+##   VJ: Import SPScript…                   — build the scene from an SPScript, in
 ##                                               an empty project only (importer/)
 ##   VJ: Preview in player                     — export, then run the player on it
 ##   VJ: Make VJ object                        — attach vj_object.gd to the selection
@@ -34,8 +34,8 @@ extends EditorPlugin
 ## it is connected, Preview and saving the scene re-export and hot-reload it
 ## at the scrub time instead of starting another player.
 
-const _MENU_EXPORT := "VJ: Export current scene to script.json…"
-const _MENU_IMPORT := "VJ: Import script.json…"
+const _MENU_EXPORT := "VJ: Export current scene to SPScript…"
+const _MENU_IMPORT := "VJ: Import SPScript…"
 const _MENU_PREVIEW := "VJ: Preview in player"
 const _MENU_MAKE_OBJECT := "VJ: Make VJ object"
 const _MENU_TO_BEZIER := "VJ: Convert value tracks to Bezier"
@@ -146,14 +146,14 @@ func _on_export_pressed() -> void:
 	SceneExporterScript.export_from_root(root)
 
 
-## Picks a script JSON and builds res://main.tscn from it. The importer
+## Picks an SPScript and builds res://main.tscn from it. The importer
 ## refuses a project that already has scenes, so nothing gets merged.
 func _on_import_pressed() -> void:
 	var dialog := EditorFileDialog.new()
-	dialog.title = "Import a VJ script into this empty project"
+	dialog.title = "Import an SPScript into this empty project"
 	dialog.file_mode = EditorFileDialog.FILE_MODE_OPEN_FILE
 	dialog.access = EditorFileDialog.ACCESS_FILESYSTEM
-	dialog.add_filter("*.json", "VJ script")
+	dialog.add_filter("*.spscript", "SPScript")
 	dialog.file_selected.connect(func(path: String):
 		dialog.queue_free()
 		_import(path))

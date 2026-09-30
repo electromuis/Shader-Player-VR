@@ -93,7 +93,7 @@ func _ready() -> void:
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 12)
 	_benchmark = Button.new()
-	_benchmark.text = "▶ Benchmark the piece"
+	_benchmark.text = "▶ Benchmark the SPScript"
 	_benchmark.custom_minimum_size = Vector2(240, 44)
 	_benchmark.pressed.connect(_on_benchmark)
 	buttons.add_child(_benchmark)
@@ -110,7 +110,7 @@ func _ready() -> void:
 	_bench_progress.custom_minimum_size = Vector2(0, 8)
 	_bench_progress.visible = false
 	add_child(_bench_progress)
-	_bench_text = _dim_label("The benchmark plays the piece through as fast as it draws and lists the heaviest moments.")
+	_bench_text = _dim_label("The benchmark plays the SPScript through as fast as it draws and lists the heaviest moments.")
 	add_child(_bench_text)
 	_moments = VBoxContainer.new()
 	add_child(_moments)
@@ -263,7 +263,7 @@ func _on_benchmark() -> void:
 		_bench.cancel()
 		return
 	if _stage.runner.effective_duration() <= 0.0:
-		_bench_text.text = "Nothing to benchmark: open a piece or a video first."
+		_bench_text.text = "Nothing to benchmark: open an SPScript or a video first."
 		return
 	_bench_progress.value = 0.0
 	_bench_progress.visible = true
@@ -278,7 +278,7 @@ func _on_benchmark_done(report: Dictionary) -> void:
 	_update_buttons()
 	_clear_moments()
 	if report.samples.is_empty():
-		_bench_text.text = "Nothing to benchmark: open a piece or a video first."
+		_bench_text.text = "Nothing to benchmark: open an SPScript or a video first."
 		return
 	var over: bool = report.moments.any(func(m): return m.over)
 	_bench_text.text = "%s%s: average %.1f ms, peak %.1f ms of %.1f ms. %s:" % [
@@ -302,7 +302,7 @@ func _update_buttons() -> void:
 	if _probe == null:
 		return
 	_probe.text = "Stop measuring" if _cost != null and _cost.probing else "Measure the 3D view's parts"
-	_benchmark.text = "■ Stop the benchmark" if _bench.running else "▶ Benchmark the piece"
+	_benchmark.text = "■ Stop the benchmark" if _bench.running else "▶ Benchmark the SPScript"
 	_probe.disabled = _bench.running
 	_benchmark.disabled = _cost != null and _cost.probing
 

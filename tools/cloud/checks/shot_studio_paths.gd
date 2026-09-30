@@ -55,16 +55,16 @@ func _initialize() -> void:
 				key(2.0, [0.0, 2.0, 8.0]), key(9.0, [-1.5, 2.2, 5.0]), key(16.0, [1.0, 2.0, 3.5])]},
 		],
 	}
-	f = FileAccess.open(dir.path_join("clip.json"), FileAccess.WRITE)
+	f = FileAccess.open(dir.path_join("clip.spscript"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(piece, "  "))
 	f.close()
-	DirAccess.remove_absolute(dir.path_join("clip.json.autosave"))
+	DirAccess.remove_absolute(dir.path_join("clip.spscript.autosave"))
 	DirAccess.remove_absolute(AppPaths.save_path(StudioSettings.FILE_NAME))
 	studio = load("res://studio/studio.tscn").instantiate()
 	studio._cli_desktop = true
 	root.add_child(studio)
 	await frames(10)
-	studio.open_piece(dir.path_join("clip.json"))
+	studio.open_piece(dir.path_join("clip.spscript"))
 	await frames(6)
 	studio.stage.seek_to(5.0)
 	var cam = studio.stage.desktop_camera

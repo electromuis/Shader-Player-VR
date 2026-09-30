@@ -389,7 +389,7 @@ func _set_mode_line(text: String, color: Color) -> void:
 
 static func _help(id: StringName) -> String:
 	if id == &"studio_save":
-		return "Save the piece (the file it was opened from)."
+		return "Save the SPScript (the file it was opened from)."
 	for p in PAGES:
 		for t in p:
 			if t[0] == id:

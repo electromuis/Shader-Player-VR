@@ -20,7 +20,7 @@ func _init(p_items: Array[Dictionary] = [], p_index: int = -1) -> void:
 	index = p_index
 
 
-## Local files in listing order, positioned on `current`. A script (.json)
+## Local files in listing order, positioned on `current`. A script (.spscript)
 ## that is the sidecar of a video in the list is dropped: opening the video
 ## already plays it, and keeping both would play the same thing twice.
 static func from_paths(paths: Array[String], current: String) -> Playlist:
@@ -30,7 +30,7 @@ static func from_paths(paths: Array[String], current: String) -> Playlist:
 			videos[p.get_basename().to_lower()] = true
 	var out: Array[Dictionary] = []
 	for p in paths:
-		if p.get_extension().to_lower() != "json" or not videos.has(p.get_basename().to_lower()):
+		if not ScriptFormat.is_script_path(p) or not videos.has(p.get_basename().to_lower()):
 			out.append({"path": p, "name": ""})
 	var at := out.map(func(it: Dictionary) -> String: return it["path"]).find(current)
 	if at == -1:
@@ -50,7 +50,7 @@ static func from_folder(path: String, sort: String = "name") -> Playlist:
 		return Playlist.new()
 	var paths: Array[String] = []
 	for f in d.get_files():
-		if f.get_extension().to_lower() == "json" or DefaultScreen.is_video(f):
+		if ScriptFormat.is_script_path(f) or DefaultScreen.is_video(f):
 			paths.append(dir.path_join(f))
 	if sort == "random":
 		paths.shuffle()

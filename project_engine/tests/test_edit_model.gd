@@ -50,7 +50,7 @@ static func _j(v) -> String:
 
 
 static func test_save_unchanged_is_byte_identical(tc: TestCase) -> void:
-	for rel in ["forest_tunnel/video.json", "moving_screen/video.json", "minimal/video.json"]:
+	for rel in ["forest_tunnel/video.spscript", "moving_screen/video.spscript", "minimal/video.spscript"]:
 		var src := _example(rel)
 		var r := EditModel.open(src)
 		tc.assert_ok(r, rel)
@@ -58,7 +58,7 @@ static func test_save_unchanged_is_byte_identical(tc: TestCase) -> void:
 			continue
 		var m: EditModel = r.model
 		tc.assert_false(m.is_dirty(), rel)
-		var out := _tmp(rel.get_base_dir() + ".json")
+		var out := _tmp(rel.get_base_dir() + ".spscript")
 		tc.assert_ok(m.save(out), rel)
 		tc.assert_eq(FileAccess.get_file_as_string(out), FileAccess.get_file_as_string(src), "%s saved byte-identical" % rel)
 		# Changed and changed back: still the original bytes.
@@ -75,7 +75,7 @@ static func test_save_unchanged_is_byte_identical(tc: TestCase) -> void:
 static func test_edited_save_is_valid_and_keeps_style(tc: TestCase) -> void:
 	var m := _model(tc)
 	tc.assert_true(m.set_key("transform", "scr", "position", 2.0, [5, 1, -3]))
-	var out := _tmp("edited.json")
+	var out := _tmp("edited.spscript")
 	tc.assert_ok(m.save(out))
 	var text := FileAccess.get_file_as_string(out)
 	tc.assert_true(text.begins_with("{\n\t\"format_version\""), "tab indentation like the original")
@@ -195,7 +195,7 @@ static func test_undo_redo_and_dirty(tc: TestCase) -> void:
 	tc.assert_eq(seen, [false, true, true, true])
 	tc.assert_eq(m.redo(), "", "nothing to redo")
 	# Saved, undone, then something new: the saved state is gone for good.
-	var out := _tmp("dirty.json")
+	var out := _tmp("dirty.spscript")
 	m.path = out
 	tc.assert_ok(m.save())
 	tc.assert_false(m.is_dirty())
@@ -214,7 +214,7 @@ static func test_undo_redo_and_dirty(tc: TestCase) -> void:
 
 static func test_invalid_document_is_not_saved(tc: TestCase) -> void:
 	var m := _model(tc)
-	var out := _tmp("invalid.json")
+	var out := _tmp("invalid.spscript")
 	if FileAccess.file_exists(out):
 		DirAccess.remove_absolute(out)
 	m.set_config("scr", "opacity", "very")
@@ -226,8 +226,8 @@ static func test_invalid_document_is_not_saved(tc: TestCase) -> void:
 
 
 static func test_bad_files_do_not_open(tc: TestCase) -> void:
-	tc.assert_err(EditModel.open("user://nope.json"), "not found")
-	tc.assert_err(EditModel.from_text("[1, 2]"), "Not a script JSON")
+	tc.assert_err(EditModel.open("user://nope.spscript"), "not found")
+	tc.assert_err(EditModel.from_text("[1, 2]"), "Not an SPScript")
 	tc.assert_err(EditModel.from_text('{"format_version": 2, "media": {}}'), "media.video")
 
 
@@ -237,7 +237,7 @@ static func test_v1_is_upgraded(tc: TestCase) -> void:
 	var ti := m.find_track("transform", "scr", "position")
 	tc.assert_eq(m.tracks()[ti].keyframes[1].interp, "ease", "v1 cubic meant ease")
 	tc.assert_eq(m.document().format_version, 2)
-	var out := _tmp("v1.json")
+	var out := _tmp("v1.spscript")
 	tc.assert_ok(m.save(out))
 	tc.assert_eq(FileAccess.get_file_as_string(out), v1, "unchanged: written as it was")
 	m.set_key("transform", "scr", "position", 2.0, [9, 9, 9])

@@ -108,7 +108,7 @@ static func test_enum_and_image_params(tc: TestCase) -> void:
 	var img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
 	img.fill(Color.RED)
 	img.save_png(root.path_join("mine/logo.png"))
-	var e := _edits(tc, root.path_join("piece/clip.json"))
+	var e := _edits(tc, root.path_join("piece/clip.spscript"))
 	var m := e.model
 	var s := e.sections("scr", null, "screen")
 	var mode := _field(s, "effect0/mode")

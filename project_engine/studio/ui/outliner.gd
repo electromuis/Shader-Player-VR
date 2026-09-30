@@ -183,7 +183,7 @@ func _build() -> void:
 	_rows.clear()
 	_spans.clear()
 	if model == null:
-		_hint.text = "Open a piece to see its objects."
+		_hint.text = "Open an SPScript to see its objects."
 		_group_button.disabled = true
 		_ungroup_button.disabled = true
 		return

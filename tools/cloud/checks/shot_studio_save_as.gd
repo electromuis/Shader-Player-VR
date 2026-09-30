@@ -109,7 +109,7 @@ func _initialize() -> void:
 	shelf.press_save_as()
 	await frames(2)
 	print("saved as: '%s', path %s, dirty %s, file there %s" % [studio.message, m.path.get_file(), m.is_dirty(), FileAccess.file_exists(m.path)])
-	print("clip.json still: %s" % FileAccess.file_exists(dir.path_join("clip.json")))
+	print("clip.spscript still: %s" % FileAccess.file_exists(dir.path_join("clip.spscript")))
 	# A taken name asks first.
 	shelf._save_name.text = "clip"
 	shelf.press_save_as()

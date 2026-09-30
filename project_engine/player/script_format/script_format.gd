@@ -26,6 +26,13 @@ const INTERP_MODES := ["linear", "cubic", "step", "ease", "bezier"]
 const VIEWER := "$viewer"
 const TRANSITIONS := ["fade_to_black"]
 const EffectBlend := preload("res://player/visualizer/effect_blend.gd")
+## An SPScript's file extension (the file is JSON).
+const EXTENSION := "spscript"
+
+
+## Whether `path` names an SPScript (by its extension).
+static func is_script_path(path: String) -> bool:
+	return path.get_extension().to_lower() == EXTENSION
 
 
 static func load_from_file(path: String) -> Dictionary:

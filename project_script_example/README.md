@@ -1,8 +1,8 @@
 # project_script_example — Moving Screen
 
-Godot authoring project for **one** VJ piece (the moving-screen demo). Edit
+Godot authoring project for **one** SPScript (the moving-screen demo). Edit
 `main.tscn` in Godot, then click **▶ Preview in player** in the 3D editor
-toolbar (or **Tools > VJ: Export current scene to script.json…** to only
+toolbar (or **Tools > VJ: Export current scene to SPScript…** to only
 write the JSON). See [addon_vj/README.md](../addon_vj/README.md) for how
 scenes map to scripts.
 
@@ -34,7 +34,7 @@ New-Item -ItemType Junction `
 
 ## Export target
 
-`Stage.output_path` is `res://../scripts/moving_screen/video.json`, the
+`Stage.output_path` is `res://../scripts/moving_screen/video.spscript`, the
 repo's `scripts/moving_screen/`. The player reads that same file
 (`project_engine` launched with `--script <path>`, or
 `build_and_run.bat`).

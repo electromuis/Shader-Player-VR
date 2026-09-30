@@ -42,7 +42,7 @@ static func _field(sections: Array, key: String) -> Dictionary:
 static func test_new_piece_from_the_template(tc: TestCase) -> void:
 	var dir := ProjectSettings.globalize_path("user://test_quick_wins_tmp")
 	DirAccess.make_dir_recursive_absolute(dir)
-	for f in ["clip.json", "bare.json"]:
+	for f in ["clip.spscript", "bare.spscript"]:
 		DirAccess.remove_absolute(dir.path_join(f))
 	var template := EditModel.new_piece_template()
 	tc.assert_eq(template.tracks[0].id, "main_screen", "the built-in template has a screen")
@@ -56,7 +56,7 @@ static func test_new_piece_from_the_template(tc: TestCase) -> void:
 	tc.assert_false(m.is_dirty(), "written straight away")
 	var bare := EditModel.new_piece(dir.path_join("bare.mp4"))
 	tc.assert_eq(bare.model.object_ids(), [], "no template: empty, as before")
-	for f in ["clip.json", "bare.json"]:
+	for f in ["clip.spscript", "bare.spscript"]:
 		DirAccess.remove_absolute(dir.path_join(f))
 
 

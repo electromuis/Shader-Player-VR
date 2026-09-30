@@ -110,14 +110,14 @@ func _initialize() -> void:
 	doc.tracks.append({"type": "event", "t": 0, "action": "spawn", "id": "warp", "prefab": "screen",
 		"transform": {"position": [ROW.warp, 2, 0], "scale": small.scale},
 		"config": {"effects": [{"shader": "warp"}], "vertex_effects": [{"shader": "ripple", "params": {}}]}})
-	var f := FileAccess.open(dir.path_join("clip.json"), FileAccess.WRITE)
+	var f := FileAccess.open(dir.path_join("clip.spscript"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(doc, "  "))
 	f.close()
 
 	studio = load("res://studio/studio.tscn").instantiate()
 	root.add_child(studio)
 	await frames(10)
-	print("open: ", studio.open_piece(dir.path_join("clip.json")))
+	print("open: ", studio.open_piece(dir.path_join("clip.spscript")))
 	studio.runner.set_video_duration(30.0)
 	# A test card on the screen (there's no video here).
 	var card := Image.create(320, 180, false, Image.FORMAT_RGBA8)

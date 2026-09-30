@@ -3,7 +3,7 @@
 `VJ Sync.py` connects DaVinci Resolve to the player. It does two things:
 
 - **Playhead sync:** playing, pausing and scrubbing in Resolve drives the player (on the desktop or in the headset). When you pause the player or scrub it while it's paused, Resolve's playhead moves to the same spot. This is the same live sync the Godot addon's **▶ Preview in player** uses.
-- **Markers → script events:** timeline markers named after an event (`vr_cut`, `despawn cube_1`, …) are written into the clip's VJ script as events.
+- **Markers → script events:** timeline markers named after an event (`vr_cut`, `despawn cube_1`, …) are written into the clip's SPScript as events.
 
 It works in the free version of Resolve and needs no extra Python packages.
 
@@ -19,9 +19,9 @@ Run it from **Workspace → Scripts → VJ Sync**. It opens a small window, and 
 
 ## Which script goes with a clip
 
-The player shows the VJ script of the clip under Resolve's playhead. If clips overlap, the one on the top video track wins. A clip's script is:
+The player shows the SPScript of the clip under Resolve's playhead. If clips overlap, the one on the top video track wins. A clip's script is:
 
-- the `.json` with the same name next to its media file (`clip.mp4` + `clip.json`), which is the player's own convention, or
+- the `.spscript` with the same name next to its media file (`clip.mp4` + `clip.spscript`), which is the player's own convention, or
 - a script you added with **Add script…** whose `media.video` is that media file. Use this for a script that the Godot addon exports somewhere else.
 
 The time in the script is the time in the media file, so trims, and clips moved along the timeline, still line up. Clip speed changes are taken into account on Resolve 21.1 and later. Moving to a different clip with a script opens that script in the player.

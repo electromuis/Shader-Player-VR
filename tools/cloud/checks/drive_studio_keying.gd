@@ -101,7 +101,7 @@ func _initialize() -> void:
 				"transform": {"position": [1.5, 1, 0], "scale": [0.4, 0.4, 0.4]}},
 		],
 	}
-	var f := FileAccess.open(dir.path_join("clip.json"), FileAccess.WRITE)
+	var f := FileAccess.open(dir.path_join("clip.spscript"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(doc, "  "))
 	f.close()
 
@@ -109,7 +109,7 @@ func _initialize() -> void:
 	root.add_child(studio)
 	await frames(10)
 	view = studio.inspector
-	print("open: ", studio.open_piece(dir.path_join("clip.json")))
+	print("open: ", studio.open_piece(dir.path_join("clip.spscript")))
 	studio.runner.set_video_duration(20.0)
 	var cam: Camera3D = studio.stage.desktop_camera
 	cam.global_position = Vector3(0.7, 2, 5)
@@ -173,6 +173,6 @@ func _initialize() -> void:
 	await key(KEY_Z, true)
 	print("undo: '", studio.message, "' position keys ", keys("box", "position"))
 	print("save: ", studio.model.save().ok, ", opacity keys in the file ",
-			(JSON.parse_string(FileAccess.get_file_as_string(dir.path_join("clip.json"))).tracks as Array)
+			(JSON.parse_string(FileAccess.get_file_as_string(dir.path_join("clip.spscript"))).tracks as Array)
 			.filter(func(t): return t.get("param") == "opacity").map(func(t): return t.keyframes))
 	quit()

@@ -70,10 +70,10 @@ const BUILTIN_PREFABS := {
 
 
 ## What a new piece starts with (Studio uses it): the user's
-## `studio_new_piece.json` in the save folder if there is one, else the
+## `studio_new.spscript` in the save folder if there is one, else the
 ## built-in one (a screen showing the video).
-const NEW_PIECE_TEMPLATE := "res://studio/new_piece.json"
-const USER_TEMPLATE := "studio_new_piece.json"
+const NEW_PIECE_TEMPLATE := "res://studio/new.spscript"
+const USER_TEMPLATE := "studio_new.spscript"
 
 
 ## The new-piece template ({} if it can't be read): its `meta`, `prefabs`,
@@ -89,14 +89,14 @@ static func new_piece_template() -> Dictionary:
 	return {}
 
 
-## A new piece for the video at `video_path`: `<video>.json` next to it
+## A new piece for the video at `video_path`: `<video>.spscript` next to it
 ## (format 2, the video named relatively, the built-in prefabs named, no
 ## default screen). With no `template`, no objects: what you add is what
 ## there is; with one (new_piece_template()), what it holds. It's written
 ## straight away, so the piece exists from the start. {ok, model} or
 ## {ok: false, error, errors}.
 static func new_piece(video_path: String, template: Dictionary = {}) -> Dictionary:
-	var path := video_path.get_basename() + ".json"
+	var path := video_path.get_basename() + "." + ScriptFormat.EXTENSION
 	if FileAccess.file_exists(path):
 		var err := "%s is already there" % path.get_file()
 		return {"ok": false, "error": err, "errors": [err]}
@@ -130,7 +130,7 @@ static func new_piece(video_path: String, template: Dictionary = {}) -> Dictiona
 static func from_text(text: String, file_path: String = "") -> Dictionary:
 	var parsed = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
-		return {"ok": false, "error": "Not a script JSON: %s" % file_path, "errors": ["Not a script JSON: %s" % file_path]}
+		return {"ok": false, "error": "Not an SPScript: %s" % file_path, "errors": ["Not an SPScript: %s" % file_path]}
 	var valid := ScriptFormat.load_from_dict(parsed.duplicate(true), file_path if file_path != "" else "<memory>")
 	if not valid.ok:
 		return valid
@@ -216,7 +216,7 @@ func save(to_path: String = "") -> Dictionary:
 		return {"ok": false, "error": "No file to save to"}
 	var valid := ScriptFormat.load_from_dict(_doc.duplicate(true), target)
 	if not valid.ok:
-		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % valid.error}
+		return {"ok": false, "error": "Not saved, the SPScript would be invalid: %s" % valid.error}
 	var text := _original_text if _undo.size() == _loaded_depth else to_text()
 	var written := _write(target, text)
 	if written.ok and target == path:
@@ -231,15 +231,15 @@ func save(to_path: String = "") -> Dictionary:
 ## copied along)} or {ok: false, error}.
 func save_as(to_path: String) -> Dictionary:
 	to_path = to_path.simplify_path()
-	if to_path.get_extension().to_lower() != "json":
-		return {"ok": false, "error": "A piece is saved as a .json file"}
+	if not ScriptFormat.is_script_path(to_path):
+		return {"ok": false, "error": "An SPScript is saved as a .spscript file"}
 	if to_path.to_lower() == path.simplify_path().to_lower():
 		var r := save()
 		r["copied"] = []
 		return r
 	var now := check()  # before anything is copied
 	if not now.ok:
-		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % now.error}
+		return {"ok": false, "error": "Not saved, the SPScript would be invalid: %s" % now.error}
 	var doc := _doc
 	var carried := {}
 	var from_dir := path.get_base_dir().simplify_path()
@@ -254,7 +254,7 @@ func save_as(to_path: String) -> Dictionary:
 		doc = carried.doc
 	var valid := ScriptFormat.load_from_dict(doc.duplicate(true), to_path)
 	if not valid.ok:
-		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % valid.error}
+		return {"ok": false, "error": "Not saved, the SPScript would be invalid: %s" % valid.error}
 	var was := _doc
 	_doc = doc
 	DirAccess.make_dir_recursive_absolute(to_dir)
@@ -298,7 +298,7 @@ static func _write(target: String, text: String) -> Dictionary:
 func replace_document(text: String, label: String) -> Dictionary:
 	var json := JSON.new()
 	if json.parse(text) != OK or typeof(json.data) != TYPE_DICTIONARY:
-		return {"ok": false, "error": "not a script JSON"}
+		return {"ok": false, "error": "not an SPScript"}
 	var doc: Dictionary = json.data
 	var valid := ScriptFormat.load_from_dict(doc.duplicate(true), path if path != "" else "<memory>")
 	if not valid.ok:

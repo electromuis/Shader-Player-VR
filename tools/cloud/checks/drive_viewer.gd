@@ -72,7 +72,7 @@ func _initialize() -> void:
 	var repo := OS.get_environment("REPO")
 	var dir := OS.get_environment("WORK").path_join("viewer_piece")
 	copy_tree(repo.path_join("scripts/forest_tunnel"), dir)
-	var piece := dir.path_join("video.json")
+	var piece := dir.path_join("video.spscript")
 	var doc = JSON.parse_string(FileAccess.get_file_as_string(piece))
 	doc.tracks.append_array(RIDE)
 	var f := FileAccess.open(piece, FileAccess.WRITE)

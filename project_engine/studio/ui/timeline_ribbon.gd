@@ -943,7 +943,7 @@ func step_key(dir: int) -> bool:
 		return false
 	var times := StudioTimeline.key_times(edits.model, tools.selected)
 	var t := StudioTimeline.step_key(times, _playhead(), dir)
-	var whose := tools.selected if tools.selected != "" else "the piece"
+	var whose := tools.selected if tools.selected != "" else "the SPScript"
 	if t < 0.0:
 		said.emit("No key %s here for %s." % ["after" if dir > 0 else "before", whose])
 		return false

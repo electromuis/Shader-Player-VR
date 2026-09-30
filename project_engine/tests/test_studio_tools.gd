@@ -172,7 +172,7 @@ static func test_along_an_axis(tc: TestCase) -> void:
 
 
 static func test_lock(tc: TestCase) -> void:
-	var path := "user://test_studio_lock.json"
+	var path := "user://test_studio_lock.spscript"
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string(JSON.stringify({"format_version": 2, "media": {"video": "v.mp4", "duration": 30.0},
 			"prefabs": {"group": "res://player/prefabs/group.tscn"},
@@ -220,7 +220,7 @@ static func _box_node(pos: Vector3, size: Vector3) -> Node3D:
 
 
 static func _model() -> EditModel:
-	var path := "user://test_studio_tools.json"
+	var path := "user://test_studio_tools.spscript"
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string(JSON.stringify({"format_version": 2, "media": {"video": "v.mp4", "duration": 30.0},
 			"prefabs": {"group": "res://player/prefabs/group.tscn"},

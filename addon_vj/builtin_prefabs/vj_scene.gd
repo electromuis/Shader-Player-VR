@@ -2,7 +2,7 @@
 class_name VJScene
 extends Node3D
 
-## Scene-root marker for a VJ script authored in Godot.
+## Scene-root marker for an SPScript authored in Godot.
 ##
 ## Holds the metadata that ends up in the exported JSON's `meta` and `media`
 ## blocks, plus the target output path. The exporter (Tools > VJ menu) walks
@@ -21,8 +21,8 @@ extends Node3D
 @export var duration: float = 0.0
 
 @export_group("Export")
-## Where the exporter writes the JSON: an absolute path, or res:// (which
-## may climb out of the project, e.g. "res://../scripts/x/video.json").
+## Where the exporter writes the SPScript (.spscript): an absolute path, or res:// (which
+## may climb out of the project, e.g. "res://../scripts/x/video.spscript").
 @export var output_path: String = ""
 
 @export_group("Preview")

@@ -43,6 +43,7 @@ const TABS := [
 	[&"studio_toggle_inspector", "Inspector", "N"],
 	[&"studio_toggle_timeline", "Timeline", "T"],
 	[&"studio_toggle_shelf", "Shelf", "B"],
+	[&"studio_toggle_outliner", "Outliner", "O"],
 ]
 
 ## Wrist layout: bigger text, no keyboard hints.

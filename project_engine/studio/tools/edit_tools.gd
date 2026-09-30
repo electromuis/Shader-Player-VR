@@ -140,8 +140,14 @@ func candidates() -> Array:
 	return out
 
 
+## What the ray points at. Something inside the selection (a group's
+## member) picks the selection, so a group can be grabbed by any of its
+## members; the outliner selects a member itself.
 func pick(origin: Vector3, dir: Vector3) -> String:
-	return StudioPicker.pick(origin, dir.normalized(), candidates())
+	var id := StudioPicker.pick(origin, dir.normalized(), candidates())
+	if id != "" and selected != "" and model != null and StudioGrouping.is_inside(model, id, selected):
+		return selected
+	return id
 
 
 ## Select `id` ("" deselects).
@@ -554,9 +560,8 @@ func _draw_selection() -> void:
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
 		return
 	var key := node.get_instance_id()
-	if not _bounds_cache.has(key):
-		var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
-		_bounds_cache = {key: StudioPicker.local_bounds(node, others)}
+	if not _bounds_cache.has(key) or node.get_meta("vj_group", false):  # a group's members move inside it
+		_bounds_cache = {key: _outline_bounds(node)}
 	var box: AABB = _bounds_cache[key]
 	var xf := node.global_transform
 	var color := GRAB_COLOR if is_grabbing() else SELECT_COLOR
@@ -580,6 +585,14 @@ func _draw_selection() -> void:
 					_line(gxf * e[0], gxf * e[1], GHOST_COLOR)
 
 
+## The box drawn around `node`: its own meshes (not the objects inside it),
+## or, with none of its own (a group), everything inside it.
+func _outline_bounds(node: Node3D) -> AABB:
+	var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
+	var box := StudioPicker.local_bounds(node, others)
+	return box if box.size != Vector3.ZERO else StudioPicker.local_bounds(node)
+
+
 ## What the pointer would pick: a faint box (not the selection's).
 func _draw_hover() -> void:
 	if hovered == "" or hovered == selected or runner == null:
@@ -588,9 +601,8 @@ func _draw_hover() -> void:
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
 		return
 	var key := node.get_instance_id()
-	if not _hover_bounds.has(key):
-		var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
-		_hover_bounds = {key: StudioPicker.local_bounds(node, others)}
+	if not _hover_bounds.has(key) or node.get_meta("vj_group", false):
+		_hover_bounds = {key: _outline_bounds(node)}
 	var box: AABB = _hover_bounds[key]
 	var xf := node.global_transform
 	for e in _box_edges(box):

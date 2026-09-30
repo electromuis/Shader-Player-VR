@@ -24,6 +24,8 @@ signal said(text: String)
 signal taken(asset: Dictionary)
 ## The Open tab picked a file (a piece, or a video).
 signal open_requested(path: String)
+## Save as: the piece to `path` (the Open tab's Save as line).
+signal save_as_requested(path: String)
 ## – : fold the shelf to its tab (the wrist's Shelf button).
 signal close_requested
 
@@ -39,7 +41,7 @@ const HINTS := {
 	"vertex": "Vertex effects bend a screen's or layer's shape (ripple, twist, spin, pulse). Drop one on a screen or a layer: it goes at the end of its vertex effects.",
 	"look": "Your saved looks (the inspector's Save look). Drop one on something of its kind to restyle it (it keeps its place and size), or in the space to add one.",
 	"shadertoy": "Shaders from shadertoy.com. Layer makes one a layer (drop it in the space), Effect an effect (drop it on a screen or a layer). Search opens the site; Paste takes a link to a shader, or its code.",
-	OPEN_TAB: "Open a piece (.json), or a video to start a new piece for it.",
+	OPEN_TAB: "Open a piece (.json), or a video to start a new piece for it. Save as puts this piece in the folder shown, under the name below.",
 }
 const SHADERTOY_TAB := "shadertoy"
 ## How long after the extension was last in touch it counts as there
@@ -66,6 +68,8 @@ var receiver: ShadertoyReceiver
 var open_url: Callable = func(url: String): OS.shell_open(url)
 ## The Shadertoy tab's filter.
 var shadertoy_filter := ""
+## The open piece's file ("" when none), for Save as: Studio's.
+var piece_path: Callable = func(): return ""
 
 static var _placeholders := {}  # kind -> Texture2D
 static var _st_notes := {}  # "<json path>|<modified>" -> [layer notes, effect notes] (ShadertoyShader.analyze)
@@ -84,6 +88,10 @@ var _st_bar: Control
 var _st_filter_edit: LineEdit
 var _st_status: Label
 var _st_clock := 0.0
+var _save_bar: Control
+var _save_name: LineEdit
+var _save_button: Button
+var _save_armed := false  # "Replace it?" asked
 var _fs := 15
 var _card := Vector2(128, 80)
 
@@ -162,6 +170,9 @@ func _ready() -> void:
 	_files.visible = false
 	_files.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rows.add_child(_files)
+	_save_bar = _make_save_bar()
+	_save_bar.visible = false
+	rows.add_child(_save_bar)
 	resized.connect(func(): _needs_build = true)
 
 
@@ -171,8 +182,20 @@ func refresh() -> void:
 
 
 func show_tab(t: String) -> void:
+	if t == OPEN_TAB and tab != OPEN_TAB:
+		suggest_save_name()
 	tab = t
 	_needs_build = true
+
+
+## The Open tab, for Save as: a free name in the browser's folder, picked
+## for typing over.
+func show_save_as() -> void:
+	show_tab(OPEN_TAB)
+	suggest_save_name()
+	if not vr and _save_name.is_visible_in_tree():
+		_save_name.grab_focus()
+	_save_name.select_all()
 
 
 ## Show `id` as being carried ("" for none).
@@ -244,6 +267,7 @@ func _build() -> void:
 	var files := tab == OPEN_TAB
 	_scroll.visible = not files
 	_files.visible = files
+	_save_bar.visible = files and String(piece_path.call()) != ""
 	if files:
 		if _files.has_method("bind") and not _files.get_meta("bound", false):
 			_files.set_meta("bound", true)
@@ -522,6 +546,106 @@ static func _placeholder(asset: Dictionary) -> Texture2D:
 
 ## The player's Files tab browser (player/ui/files_tab.gd), built here with
 ## the nodes it expects, showing pieces and videos.
+## The Open tab's last line: Save as, the piece under the name typed here
+## in the folder the browser shows.
+func _make_save_bar() -> Control:
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 8 if vr else 4)
+	var label := Label.new()
+	label.text = "Save as"
+	bar.add_child(label)
+	_save_name = LineEdit.new()
+	_save_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_save_name.tooltip_text = "The new file's name (.json is added). Ctrl+Shift+S comes here."
+	_save_name.text_changed.connect(func(_t): _disarm_save())
+	_save_name.text_submitted.connect(func(_t): press_save_as())
+	bar.add_child(_save_name)
+	_save_button = Button.new()
+	_save_button.focus_mode = Control.FOCUS_NONE
+	_save_button.tooltip_text = "Save the piece as this file and go on with it; the piece's own files come along to another folder."
+	_save_button.pressed.connect(press_save_as)
+	bar.add_child(_save_button)
+	if vr:
+		for c in [_save_name, _save_button]:
+			c.custom_minimum_size.y = _fs * 1.7
+	_disarm_save()
+	return bar
+
+
+## Where Save as writes now: the name (with .json) in the browser's
+## folder; "" in the drives view or without a name.
+func save_as_target() -> String:
+	var dir: String = _files.current_dir() if _files.has_method("current_dir") else ""
+	var name := _save_name.text.strip_edges()
+	if dir == "" or name == "" or not name.is_valid_filename():
+		return ""
+	if name.get_extension().to_lower() != "json":
+		name += ".json"
+	return dir.path_join(name)
+
+
+## Save as, from the button or Enter: a file that's there already (not
+## the piece's own) is replaced only on a second press.
+func press_save_as() -> void:
+	var target := save_as_target()
+	if target == "":
+		said.emit("Save as: pick a folder above and name the file.")
+		return
+	var own := target.simplify_path().to_lower() == String(piece_path.call()).simplify_path().to_lower()
+	if FileAccess.file_exists(target) and not own and not _save_armed:
+		_save_armed = true
+		_save_button.text = "Replace it?"
+		said.emit("%s is there already: press again to replace it." % target.get_file())
+		return
+	_disarm_save()
+	save_as_requested.emit(target)
+
+
+func _disarm_save() -> void:
+	_save_armed = false
+	if _save_button != null:
+		_save_button.text = "Save here"
+
+
+## After a Save as: the browser lists the new file, and the line offers
+## the next free name.
+func saved_as() -> void:
+	if _files.has_method("refresh"):
+		_files.refresh()
+	suggest_save_name()
+
+
+## Put a free name for the piece in the Save as line: in the browser's
+## folder, its own name if that isn't taken there, else the next "name N".
+func suggest_save_name() -> void:
+	if _save_name == null:
+		return
+	var dir: String = _files.current_dir() if _files.has_method("current_dir") else ""
+	var piece := String(piece_path.call())
+	if dir == "" and piece != "":
+		dir = piece.get_base_dir()
+	_save_name.text = free_name(piece, dir).get_basename()
+	_disarm_save()
+
+
+## A file name for `piece` in `dir` that isn't taken: its own, else
+## "name 2", "name 3" ... (counting on from a number it ends in).
+static func free_name(piece: String, dir: String) -> String:
+	var base := piece.get_file().get_basename()
+	if base == "":
+		base = "piece"
+	var n := 2
+	var numbered := RegEx.create_from_string("^(.*\\S) (\\d+)$").search(base)
+	if numbered != null:
+		base = numbered.get_string(1)
+		n = int(numbered.get_string(2)) + 1
+	var name := piece.get_file() if piece.get_file() != "" else base + ".json"
+	while dir != "" and FileAccess.file_exists(dir.path_join(name)):
+		name = "%s %d.json" % [base, n]
+		n += 1
+	return name
+
+
 func _make_files_browser() -> Control:
 	var tab_root := VBoxContainer.new()
 	tab_root.set_script(load("res://player/ui/files_tab.gd"))

@@ -1,4 +1,5 @@
 // @title Chroma split
+// @idle amount <= 0.0
 // Splits red, green and blue apart, radially from the centre and in a slow
 // orbit, for rainbow fringes on every edge.
 shader_type canvas_item;

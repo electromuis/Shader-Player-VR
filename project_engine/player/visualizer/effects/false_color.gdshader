@@ -1,4 +1,5 @@
 // @title False colour
+// @idle mix_amount <= 0.0
 // Maps the picture's brightness through a cycling rainbow, like a thermal
 // camera on acid. `bands` repeats the rainbow over the brightness range.
 shader_type canvas_item;

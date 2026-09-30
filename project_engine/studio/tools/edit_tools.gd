@@ -21,6 +21,12 @@ extends Node3D
 ##
 ## While a drag runs the runner leaves the object alone (ScriptRunner.held),
 ## so the live move shows even where tracks animate it.
+##
+## The move gizmo: an arrow on each of the selection's axis lines (its own
+## x / y / z); pressing one (pick_axis, grab_axis) drags the object along
+## that axis only, and letting go writes it like any grab. A locked object
+## (EditModel.is_locked) has no arrows and can't be grabbed, nor its path's
+## keys; typed numbers in the inspector still move it.
 
 signal said(text: String)
 ## The selection changed (to "" when nothing is selected).
@@ -39,6 +45,20 @@ const GHOST_COLOR := Color(0.3, 0.79, 0.94, 0.3)
 const SAME_KEY := 0.001
 const SEAT_COLOR := Color(1.0, 0.82, 0.4)
 const AXIS_LENGTH := 0.35
+const AXIS_COLORS := [Color(1, 0.36, 0.36), Color(0.43, 0.88, 0.48), Color(0.36, 0.55, 1)]
+## The move gizmo: its arrows are this share of the camera's distance long
+## (never shorter than AXIS_LENGTH), so they look the same size near or far;
+## a press within GIZMO_PICK of an arrow's length of its shaft, from
+## GIZMO_FROM of the way out to the tip, takes it. The arrowhead's length and
+## radius, and the shaft's width in pixels.
+const GIZMO_SHARE := 0.15
+const GIZMO_PICK := 0.12
+const GIZMO_FROM := 0.3
+const ARROW_HEAD := 0.2
+const ARROW_RADIUS := 0.06
+const SHAFT_WIDTH := 4.0
+## How a locked selection's box is drawn.
+const LOCKED_COLOR := Color(0.62, 0.64, 0.7)
 ## Motion paths (StudioMotionPaths draws them): their colours (the
 ## viewer's in the seat's), how finely they're sampled, and their widths and
 ## key diamonds in pixels: the selection's, then other animated objects'
@@ -80,7 +100,10 @@ var all_paths := true
 var selected := ""
 ## What the pointer is on (Studio sets it; "" for nothing): drawn faintly.
 var hovered := ""
+## The gizmo arrow the pointer is on (0 x, 1 y, 2 z; -1 none; Studio sets it).
+var hovered_axis := -1
 var _hover_bounds: Dictionary = {}  # node instance id -> AABB (one)
+var _arrows: Array = []  # MeshInstance3D per axis
 
 ## The drag in progress: {id, node, primary, hands {name: Transform3D},
 ## offset, start (node-style dict), two ({} or {a0, b0, obj0})}.
@@ -118,6 +141,27 @@ func _ready() -> void:
 	_paths = StudioMotionPaths.new()
 	_paths.name = "MotionPaths"
 	add_child(_paths)
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 1.0
+	cone.height = 1.0
+	cone.radial_segments = 16
+	cone.rings = 1
+	for i in 3:
+		var arrow := MeshInstance3D.new()
+		arrow.name = "Arrow" + "XYZ"[i]
+		arrow.mesh = cone
+		arrow.top_level = true
+		arrow.visible = false
+		arrow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var am := StandardMaterial3D.new()
+		am.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		am.no_depth_test = true
+		am.render_priority = 51
+		am.albedo_color = AXIS_COLORS[i]
+		arrow.material_override = am
+		add_child(arrow)
+		_arrows.append(arrow)
 
 
 # ---------- picking and selection ----------
@@ -140,8 +184,14 @@ func candidates() -> Array:
 	return out
 
 
+## What the ray points at. Something inside the selection (a group's
+## member) picks the selection, so a group can be grabbed by any of its
+## members; the outliner selects a member itself.
 func pick(origin: Vector3, dir: Vector3) -> String:
-	return StudioPicker.pick(origin, dir.normalized(), candidates())
+	var id := StudioPicker.pick(origin, dir.normalized(), candidates())
+	if id != "" and selected != "" and model != null and StudioGrouping.is_inside(model, id, selected):
+		return selected
+	return id
 
 
 ## Select `id` ("" deselects).
@@ -174,6 +224,9 @@ func grab(id: String, hand: String, hand_xf: Transform3D) -> bool:
 	if node == null or not node.is_inside_tree():
 		return false
 	select(id)
+	if is_locked(id):
+		_say("%s is locked: unlock it in the inspector's Transform to move it by hand." % id)
+		return false
 	runner.held[id] = true
 	_grab = {
 		"id": id, "node": node, "primary": hand, "hands": {hand: hand_xf},
@@ -196,7 +249,7 @@ func move_hand(hand: String, hand_xf: Transform3D) -> void:
 ## A second hand takes hold too: from now on the distance between the two
 ## scales the object and their turn turns it.
 func add_hand(hand: String, hand_xf: Transform3D) -> void:
-	if not is_grabbing() or _grab.hands.has(hand) or _grab.hands.size() >= 2:
+	if not is_grabbing() or _grab.hands.has(hand) or _grab.hands.size() >= 2 or is_grabbing_axis():
 		return
 	_grab.hands[hand] = hand_xf
 	var node: Node3D = _grab.node
@@ -223,7 +276,7 @@ func release_hand(hand: String) -> String:
 
 ## Push the carried object further along the hand (negative pulls).
 func push(metres: float) -> void:
-	if not is_grabbing() or not _grab.two.is_empty() or metres == 0.0:
+	if not is_grabbing() or not _grab.two.is_empty() or metres == 0.0 or is_grabbing_axis():
 		return
 	_grab.offset = GrabMath.pushed(_grab.offset, metres)
 	_apply()
@@ -232,7 +285,7 @@ func push(metres: float) -> void:
 ## Scale the carried object by `factor` about its own origin, as it's
 ## carried (not while two hands hold it: their spread scales it then).
 func scale_by(factor: float) -> void:
-	if not is_grabbing() or not _grab.two.is_empty() or factor <= 0.0 or factor == 1.0:
+	if not is_grabbing() or not _grab.two.is_empty() or factor <= 0.0 or factor == 1.0 or is_grabbing_axis():
 		return
 	_grab.offset = GrabMath.scaled(_grab.offset, factor)
 	_apply()
@@ -241,7 +294,7 @@ func scale_by(factor: float) -> void:
 ## `hand` is now at `hand_xf`, but the object stays put: it carries on from
 ## here (the desktop's Ctrl+drag scales instead of carrying).
 func regrip(hand: String, hand_xf: Transform3D) -> void:
-	if not is_grabbing() or not _grab.hands.has(hand) or not _grab.two.is_empty():
+	if not is_grabbing() or not _grab.hands.has(hand) or not _grab.two.is_empty() or is_grabbing_axis():
 		return
 	var now := GrabMath.carried(_grab.hands[hand], _grab.offset) if hand == _grab.primary 			else (_grab.node as Node3D).global_transform
 	_grab.hands[hand] = hand_xf
@@ -288,6 +341,9 @@ func _apply() -> void:
 		_grab = {}  # it left the stage (despawned) while held
 		return
 	var node: Node3D = _grab.node
+	if is_grabbing_axis():
+		_apply_axis(node)
+		return
 	var global: Transform3D
 	if not _grab.two.is_empty():
 		var two: Dictionary = _grab.two
@@ -303,6 +359,107 @@ func _apply() -> void:
 		_grab.on_grid = on_grid
 		local = GrabMath.from_dict(on_grid)
 	node.transform = local
+
+
+# ---------- the move gizmo ----------
+
+func is_locked(id: String) -> bool:
+	return model != null and model.is_locked(id)
+
+
+## Lock or unlock `id` (one undo step). Returns the undo label ("" if
+## nothing changed).
+func set_locked(id: String, on: bool) -> String:
+	if model == null or not model.set_locked(id, on):
+		return ""
+	var label := ("Locked %s: hands and the gizmo leave it where it is" if on else "Unlocked %s") % id
+	_say(label + ".")
+	return model.undo_label()
+
+
+## The selection's gizmo: {origin (world), axes [x, y, z] (world, unit),
+## length (m)}, or {} when it has none (nothing selected, the viewer or the
+## camera, locked, off stage). Sized for the camera drawing the view (or,
+## without one, for someone at `eye`).
+func gizmo(eye: Vector3 = Vector3.INF) -> Dictionary:
+	if selected == "" or selected.begins_with("$") or runner == null or is_locked(selected):
+		return {}
+	var node := runner.registry().get_node_by_id(selected)
+	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
+		return {}
+	var xf := node.global_transform
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam != null:
+		eye = cam.global_position
+	var length := AXIS_LENGTH
+	if eye != Vector3.INF:
+		length = maxf(AXIS_LENGTH, eye.distance_to(xf.origin) * GIZMO_SHARE)
+	var b := xf.basis.orthonormalized()
+	return {"origin": xf.origin, "axes": [b.x, b.y, b.z], "length": length}
+
+
+## The gizmo arrow the ray from `origin` along `dir` presses (0 x, 1 y,
+## 2 z), or -1: the nearest shaft it passes within reach of.
+func pick_axis(origin: Vector3, dir: Vector3) -> int:
+	if is_grabbing():
+		return -1
+	var g := gizmo(origin)
+	if g.is_empty():
+		return -1
+	dir = dir.normalized()
+	var best := -1
+	var best_miss := INF
+	for i in 3:
+		var axis: Vector3 = g.axes[i]
+		var r := GrabMath.ray_to_segment(origin, dir, g.origin + axis * g.length * GIZMO_FROM, g.origin + axis * g.length)
+		if r.miss <= g.length * GIZMO_PICK and r.miss < best_miss:
+			best_miss = r.miss
+			best = i
+	return best
+
+
+func is_grabbing_axis() -> bool:
+	return _grab.has("axis")
+
+
+## The axis being dragged (0 x, 1 y, 2 z), or -1.
+func grabbed_axis() -> int:
+	return int(_grab.axis.i) if is_grabbing_axis() else -1
+
+
+## Start dragging the selection along gizmo axis `axis` with `hand` (at
+## `hand_xf`, pointing along its -Z): it follows where the hand's ray
+## comes closest to the axis. Released like any grab.
+func grab_axis(axis: int, hand: String, hand_xf: Transform3D) -> bool:
+	var g := gizmo(hand_xf.origin)
+	if g.is_empty() or axis < 0 or axis > 2 or not grab(selected, hand, hand_xf):
+		return false
+	var dir: Vector3 = g.axes[axis]
+	_grab.axis = {"i": axis, "dir": dir, "o0": g.origin, "xf0": (_grab.node as Node3D).global_transform,
+			"s0": GrabMath.along_axis(g.origin, dir, hand_xf.origin, -hand_xf.basis.z), "shift": 0.0}
+	return true
+
+
+## An axis drag: the object slides along the axis to where the hand's ray
+## comes closest to it (not while the ray runs along it), in 10 cm steps
+## with snapping on.
+func _apply_axis(node: Node3D) -> void:
+	var a: Dictionary = _grab.axis
+	var hand: Transform3D = _grab.hands[_grab.primary]
+	var s := GrabMath.along_axis(a.o0, a.dir, hand.origin, -hand.basis.z)
+	if is_nan(s):
+		return
+	if is_nan(float(a.s0)):
+		a.s0 = s  # pressed looking along it: it goes from here
+	var shift := s - float(a.s0)
+	if snap:
+		shift = snappedf(shift, StudioSnap.GRID)
+		if shift != float(a.shift):
+			felt.emit("snap", _grab.primary)
+	a.shift = shift
+	var global: Transform3D = a.xf0
+	global.origin = (a.o0 as Vector3) + (a.dir as Vector3) * shift
+	node.transform = GrabMath.to_local(node.get_parent().global_transform, global) if node.get_parent() is Node3D else global
 
 
 # ---------- writing ----------
@@ -540,6 +697,7 @@ func _process(_delta: float) -> void:
 	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
 	_draw_hover()
 	_draw_selection()
+	_draw_gizmo()
 	_draw_seat_lines()
 	_draw_paths()
 	_lines.surface_end()
@@ -554,21 +712,23 @@ func _draw_selection() -> void:
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
 		return
 	var key := node.get_instance_id()
-	if not _bounds_cache.has(key):
-		var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
-		_bounds_cache = {key: StudioPicker.local_bounds(node, others)}
+	if not _bounds_cache.has(key) or node.get_meta("vj_group", false):  # a group's members move inside it
+		_bounds_cache = {key: _outline_bounds(node)}
 	var box: AABB = _bounds_cache[key]
 	var xf := node.global_transform
-	var color := GRAB_COLOR if is_grabbing() else SELECT_COLOR
+	var locked := is_locked(id)
+	var color := GRAB_COLOR if is_grabbing() else (LOCKED_COLOR if locked else SELECT_COLOR)
 	if box.size != Vector3.ZERO:
 		for e in _box_edges(box):
 			_line(xf * e[0], xf * e[1], color)
 	var o := xf.origin
-	var b := xf.basis.orthonormalized()
-	_line(o, o + b.x * AXIS_LENGTH, Color(1, 0.36, 0.36))
-	_line(o, o + b.y * AXIS_LENGTH, Color(0.43, 0.88, 0.48))
-	_line(o, o + b.z * AXIS_LENGTH, Color(0.36, 0.55, 1))
-	if is_grabbing() and snap:
+	if gizmo().is_empty() or (is_grabbing() and not is_grabbing_axis()):  # else the gizmo's arrows are its axes
+		var b := xf.basis.orthonormalized()
+		for i in 3:
+			_line(o, o + b[i] * AXIS_LENGTH, AXIS_COLORS[i])
+	if locked and _paths_on:
+		_paths.label(xf * (box.get_center() + Vector3(0, box.size.y * 0.5, 0)), "Locked", LOCKED_COLOR)
+	if is_grabbing() and snap and not is_grabbing_axis():
 		_draw_grid(o, node)
 	elif not is_grabbing() and box.size != Vector3.ZERO:
 		var ghost := next_key_pose(id)
@@ -580,6 +740,51 @@ func _draw_selection() -> void:
 					_line(gxf * e[0], gxf * e[1], GHOST_COLOR)
 
 
+## The box drawn around `node`: its own meshes (not the objects inside it),
+## or, with none of its own (a group), everything inside it.
+func _outline_bounds(node: Node3D) -> AABB:
+	var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
+	var box := StudioPicker.local_bounds(node, others)
+	return box if box.size != Vector3.ZERO else StudioPicker.local_bounds(node)
+
+
+## The gizmo: a shaft and an arrowhead on each axis, the one pointed at
+## yellow. While one is dragged only it shows, with a faint line along the
+## whole axis and how far it's gone.
+func _draw_gizmo() -> void:
+	for arrow in _arrows:
+		(arrow as MeshInstance3D).visible = false
+	var g := gizmo() if not is_grabbing() or is_grabbing_axis() else {}
+	if g.is_empty():
+		return
+	var active := grabbed_axis() if is_grabbing_axis() else hovered_axis
+	var o: Vector3 = g.origin
+	var length: float = g.length
+	var head := length * ARROW_HEAD
+	var radius := length * ARROW_RADIUS
+	for i in 3:
+		if is_grabbing_axis() and i != active:
+			continue
+		var axis: Vector3 = g.axes[i]
+		var color: Color = GRAB_COLOR if i == active else AXIS_COLORS[i]
+		var tip := o + axis * length
+		if _paths_on:
+			_paths.path([[o, false], [tip - axis * head, true]], color, SHAFT_WIDTH)
+		else:
+			_line(o, tip, color)
+		var side := axis.cross(Vector3.UP if absf(axis.y) < 0.9 else Vector3.RIGHT).normalized()
+		var arrow: MeshInstance3D = _arrows[i]
+		arrow.global_transform = Transform3D(Basis(side * radius, axis * head, side.cross(axis) * radius), tip - axis * head * 0.5)
+		(arrow.material_override as StandardMaterial3D).albedo_color = color
+		arrow.visible = true
+	if is_grabbing_axis():
+		var a: Dictionary = _grab.axis
+		var dir: Vector3 = a.dir
+		_line(a.o0 - dir * 100.0, a.o0 + dir * 100.0, Color(AXIS_COLORS[active], 0.35))
+		if _paths_on:
+			_paths.label(o + dir * length, "%s %+.2f m" % ["xyz"[active], float(a.shift)], GRAB_COLOR)
+
+
 ## What the pointer would pick: a faint box (not the selection's).
 func _draw_hover() -> void:
 	if hovered == "" or hovered == selected or runner == null:
@@ -588,9 +793,8 @@ func _draw_hover() -> void:
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
 		return
 	var key := node.get_instance_id()
-	if not _hover_bounds.has(key):
-		var others: Array = model.object_ids().map(func(o): return runner.registry().get_node_by_id(o)) if model != null else []
-		_hover_bounds = {key: StudioPicker.local_bounds(node, others)}
+	if not _hover_bounds.has(key) or node.get_meta("vj_group", false):
+		_hover_bounds = {key: _outline_bounds(node)}
 	var box: AABB = _hover_bounds[key]
 	var xf := node.global_transform
 	for e in _box_edges(box):
@@ -799,8 +1003,10 @@ func path_keys() -> Array:
 
 
 ## The selection's key nearest the ray (from `origin`, `dir`) within
-## KEY_PICK, or {}.
+## KEY_PICK, or {} (always, when it's locked).
 func pick_key(origin: Vector3, dir: Vector3) -> Dictionary:
+	if is_locked(selected):
+		return {}
 	dir = dir.normalized()
 	var best := {}
 	var best_d := INF

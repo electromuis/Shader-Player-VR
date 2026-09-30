@@ -156,9 +156,10 @@ func _process(delta: float) -> void:
 	var now: Dictionary = {}
 	var sum := 0.0
 	for t in _tracked:
-		var vp: Viewport = t.viewport
-		if not is_instance_valid(vp):
+		# Checked before it's typed: a rebuilt chain frees its passes.
+		if not is_instance_valid(t.viewport):
 			continue
+		var vp: Viewport = t.viewport
 		var ms := RenderingServer.viewport_get_measured_render_time_gpu(vp.get_viewport_rid())
 		now[t.key] = float(now.get(t.key, 0.0)) + ms
 		sum += ms

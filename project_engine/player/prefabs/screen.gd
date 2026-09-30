@@ -44,6 +44,12 @@ extends Node3D
 ## every frame. Screens process after other nodes (PROCESS_PRIORITY), so a
 ## frame the decoder or a script track changed this frame renders now.
 ##
+## Nothing runs for what can't be seen: an effect at mix 0, switched off
+## or at params its `@idle` hint says leave the picture as it is
+## (VisualizerShaders.is_idle; only with the normal blend) is left out of
+## the chain, and while the screen is at opacity 0 or hidden (_showing)
+## its artist pass and effect passes stop and its mesh isn't drawn.
+##
 ## An effect that declares `prepass_tex` (VisualizerShaders.has_prepass) gets
 ## a prepass: the same shader with `prepass` on, at `prepass_scale` of the
 ## pass's size, whose output it reads as `prepass_tex`. Heavy, soft work
@@ -169,6 +175,10 @@ var _resolution_scale: float = 1.0
 ## configure() keys a script set ("effects", "opacity", ...): the viewer's
 ## screen settings leave those alone (see is_scripted).
 var _scripted: Dictionary = {}
+var _opacity: float = 1.0
+## Whether the passes run and the mesh draws (_showing, applied by
+## _update_showing).
+var _shown: bool = true
 
 
 func _ready() -> void:
@@ -191,6 +201,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_update_showing()
 	_update_chain_redraw()
 	if _display_material == null:
 		return
@@ -238,10 +249,8 @@ func output_texture() -> Texture2D:
 ## Render nothing until switched back (a generator's layer while its effect
 ## shows none).
 func set_suspended(on: bool) -> void:
-	if on == _suspended:
-		return
 	_suspended = on
-	_wire_source_texture()
+	_update_showing()
 
 
 func set_shader_material(mat: ShaderMaterial) -> void:
@@ -494,12 +503,16 @@ func effect_amount(index: int) -> float:
 	return _effect_mix[index] * _effect_level[index]
 
 
-## Whether effect `index` runs: it has a shader (a generator: a picture)
-## and shows at all.
+## Whether effect `index` runs: it has a shader (a generator: a picture),
+## shows at all, and isn't idle at its params (a blend other than normal
+## changes the picture even when the effect gives it back unchanged).
 func _effect_active(index: int) -> bool:
 	if _is_generator(index):
 		return _generator_nodes[index].output_texture() != null and effect_amount(index) > 0.0
-	return index < _effect_shaders.size() and _effect_shaders[index] != null and effect_amount(index) > 0.0
+	if index >= _effect_shaders.size() or _effect_shaders[index] == null or effect_amount(index) <= 0.0:
+		return false
+	return _effect_blend[index] != 0 or not VisualizerShaders.is_idle(_effect_keys[index],
+			_effect_params[index] if index < _effect_params.size() else {})
 
 
 ## Whether effect `index` needs a blend pass after it (a generator has its
@@ -623,7 +636,39 @@ func _set_pillow_arc(param: String, degrees: float) -> void:
 
 ## 0..1 fade of the screen.
 func set_opacity(amount: float) -> void:
-	_set_display_param("opacity", clampf(amount, 0.0, 1.0))
+	_opacity = clampf(amount, 0.0, 1.0)
+	_set_display_param("opacity", _opacity)
+	_update_showing()
+
+
+## Whether anything of the screen can be seen: not at opacity 0, hidden or
+## suspended (out of the tree it counts as shown).
+func _showing() -> bool:
+	return not _suspended and _opacity > 0.0 and (not is_inside_tree() or is_visible_in_tree())
+
+
+## Stop the passes and the mesh's drawing while the screen can't be seen
+## (the mesh stays visible, for picking and bounds: it's taken off every
+## render layer), and start them again when it can.
+func _update_showing() -> void:
+	var shown := _showing()
+	if shown == _shown or render_viewport == null:
+		return
+	_shown = shown
+	mesh.layers = 1 if shown else 0
+	_set_artist_update()
+	if shown:
+		_chain_seen = -1  # every frame until _update_chain_redraw says otherwise
+		_set_passes_update(SubViewport.UPDATE_ALWAYS)
+	else:
+		_set_passes_update(SubViewport.UPDATE_DISABLED)
+
+
+## The artist pass renders every frame while there is one and the screen
+## shows.
+func _set_artist_update() -> void:
+	var on := get_shader_material() != null and _shown
+	render_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 
 
 ## How the picture goes over what's behind it: one of BLENDS (unknown ones
@@ -713,16 +758,12 @@ func _wire_source_texture() -> void:
 		return
 	var mat := get_shader_material()
 	var out: Texture2D
-	if _suspended:
-		render_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
-		out = render_viewport.get_texture() if mat != null else _source_texture
-	elif mat == null:
-		# Passthrough: no artist pass, so don't pay for the intermediate
-		# viewport at all.
-		render_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	# Passthrough (no artist pass): don't pay for the intermediate viewport
+	# at all.
+	_set_artist_update()
+	if mat == null:
 		out = _source_texture
 	else:
-		render_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 		out = render_viewport.get_texture()
 		if _source_texture != null:
 			mat.set_shader_parameter(_SOURCE_TEX_UNIFORM, _source_texture)
@@ -789,6 +830,8 @@ func _build_chains(src: Texture2D) -> void:
 	_set_display_param("frame_tex", outs[0])
 	_set_display_param("frame_tex_right", outs[-1])
 	_set_display_param("eyes_split", outs.size() > 1)
+	if not _shown:
+		_set_passes_update(SubViewport.UPDATE_DISABLED)
 	_apply_effect_params()
 	_set_output(outs[0])
 
@@ -830,7 +873,7 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 	vp.size = render_viewport.size  # padding resizes it in _apply_effect_params
 	vp.transparent_bg = true
 	vp.disable_3d = true
-	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED if _suspended else SubViewport.UPDATE_ALWAYS
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var rect := ColorRect.new()
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -853,12 +896,13 @@ func _new_pass(shader: Shader, input: Texture2D, effect: int, prepass: bool) -> 
 ## The SubViewports this screen draws in, for GpuCost: [{viewport, part,
 ## effect, key}], part "shader" (the artist pass), "effect" (an effect's
 ## pass, prepass or blend pass; effect: its index, key: its shader) or
-## "copy" (a chain_copy pass). The artist pass only while it renders. A
-## generator's layer's passes (its shader and its own effects) count as its
-## effect's, keyed by its layer shader. Nothing while suspended.
+## "copy" (a chain_copy pass). Only while they render: none while the
+## screen can't be seen (or is a suspended generator's). A generator's
+## layer's passes (its shader and its own effects) count as its effect's,
+## keyed by its layer shader.
 func gpu_passes() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	if _suspended:
+	if not _shown:
 		return out
 	if render_viewport != null and render_viewport.render_target_update_mode != SubViewport.UPDATE_DISABLED:
 		out.append({"viewport": render_viewport, "part": "shader", "effect": -1, "key": ""})
@@ -983,7 +1027,7 @@ static func pad(base: float, px: Vector2, margin: Vector2) -> Dictionary:
 ## Render the passes once when their input frame or they themselves
 ## changed, if they can render on demand (_chain_serial); else every frame.
 func _update_chain_redraw() -> void:
-	if _passes.is_empty() or _suspended:
+	if _passes.is_empty() or not _shown:
 		return
 	var serial := _chain_serial()
 	if serial < 0:
@@ -999,7 +1043,7 @@ func _update_chain_redraw() -> void:
 ## The passes' params, sizes or inputs changed: on demand, render them this
 ## frame (a resized pass would otherwise show its cleared texture).
 func _chain_changed() -> void:
-	if _chain_seen >= 0 and not _suspended:
+	if _chain_seen >= 0 and _shown:
 		_set_passes_update(SubViewport.UPDATE_ONCE)
 
 

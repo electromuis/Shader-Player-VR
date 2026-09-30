@@ -46,6 +46,15 @@ extends Node3D
 ## dropped on the window: a piece or video opens, a shader or prefab goes
 ## into the piece.
 ##
+## The outliner (StudioOutliner) lists the piece's objects as a tree:
+## select what you can't point at (a group has no picture of its own), pick
+## several and group them (Ctrl+G), ungroup (Ctrl+Shift+G), drag a row onto
+## a group to put it in (StudioGrouping does the edits, keeping everything
+## where it is). A group moves, turns, scales and keys like any object, and
+## its members come along; with a group selected, pointing at a member
+## grabs the group. On the desktop it's a panel at the right (left of the
+## inspector); in the headset a panel to your side.
+##
 ## Each of those panels has – to fold it to a tab: in the headset the
 ## wrist's button for it, on the desktop a tab in the status; the tab (or
 ## N / T / B) brings it back. In the headset the panels ride on the rig,
@@ -143,6 +152,18 @@ const SHELF_PIXELS := Vector2(1280, 800)
 const SHELF_DISTANCE := 0.75
 const SHELF_ANGLE := 38.0
 const SHELF_DROP := 0.15
+const OUTLINER_SCENE := preload("res://studio/ui/outliner.tscn")
+## The desktop outliner's width (pixels), and the headset's: its size in
+## metres and pixels (1500 a metre, as the inspector), and where it goes:
+## this far from you, turned this far to the off hand's side of where you
+## look (further with the shelf open there), a little below your eyes.
+const OUTLINER_WIDTH := 300.0
+const OUTLINER_SIZE := Vector2(0.36, 0.52)
+const OUTLINER_PIXELS := Vector2(540, 780)
+const OUTLINER_DISTANCE := 0.7
+const OUTLINER_ANGLE := 40.0
+const OUTLINER_ANGLE_BY_SHELF := 80.0
+const OUTLINER_DROP := 0.08
 ## How often the shelf's folders are checked for new or changed files.
 const WATCH_SECONDS := 2.0
 
@@ -154,6 +175,7 @@ enum Mode { PLAY, EDIT }
 @onready var inspector: StudioInspector = $UI/Inspector
 @onready var ribbon: StudioTimelineRibbon = $UI/Timeline
 @onready var shelf: StudioAssetShelf = $UI/Shelf
+@onready var outliner: StudioOutliner = $UI/Outliner
 
 ## The piece being edited; null until one is open.
 var model: EditModel
@@ -216,6 +238,12 @@ var _autosave_clock := 0.0
 var _autosaved_text := ""
 ## When the last autosave was written (ticks in ms), -1 = none since.
 var _autosaved_at := -1
+## Whether the outliner shows (in Edit); the headset's panel and the
+## outliner inside it; the rows picked for grouping (both outliners').
+var outliner_on := false
+var outliner_panel: XRToolsViewport2DIn3D
+var _outliner_vr: StudioOutliner
+var outliner_picked: Array = []
 ## Whether the shelf shows (in Edit).
 var shelf_on := false
 var shelf_panel: XRToolsViewport2DIn3D
@@ -308,11 +336,13 @@ func _ready() -> void:
 	shadertoy_receiver.start()
 	_bind_shelf(shelf)
 	_make_shelf_panel()
+	_bind_outliner(outliner)
+	_make_outliner_panel()
 	add_child(_ghost)
 	floor_grid = StudioFloorGrid.new()
 	add_child(floor_grid)
 	# Studio's own drawing stays out of looks' snapshots.
-	for helper in [tools, _ghost, floor_grid, inspector_panel, ribbon_panel, shelf_panel]:
+	for helper in [tools, _ghost, floor_grid, inspector_panel, ribbon_panel, shelf_panel, outliner_panel]:
 		StudioThumbnailer.mark_helper(helper)
 	_library_signature = library.signature()
 	_make_wrist_2d()
@@ -349,6 +379,7 @@ func _process(delta: float) -> void:
 	_keep_inspector_near()
 	_keep_ribbon_near()
 	_keep_shelf_near()
+	_keep_outliner_near()
 	_carry(delta)
 	_watch_library(delta)
 	_record_tick()
@@ -385,6 +416,7 @@ func _update_hover(delta: float) -> void:
 		return
 	_hover_clock = 0.0
 	var id := ""
+	var axis := -1
 	if mode == Mode.EDIT and model != null and not tools.is_grabbing() and not tools.is_grabbing_key() and held_asset.is_empty():
 		var xf := Transform3D()
 		var aiming := false
@@ -395,8 +427,11 @@ func _update_hover(delta: float) -> void:
 			aiming = not _mouse_over_ui()
 			xf = _mouse_hand()
 		if aiming:
-			id = tools.pick(xf.origin, -xf.basis.z)
+			axis = tools.pick_axis(xf.origin, -xf.basis.z)
+			if axis < 0:
+				id = tools.pick(xf.origin, -xf.basis.z)
 	tools.hovered = id
+	tools.hovered_axis = axis
 
 
 # ---------- keeping work safe ----------
@@ -492,6 +527,10 @@ func open_piece(path: String) -> bool:
 	_beats_applied = JSON.stringify(model.document().get("media", {}).get("beats"))
 	library.piece_dir = model.path.get_base_dir()
 	_refresh_shelf()
+	outliner_picked.clear()
+	for view in _outliners():
+		view.model = model
+		view.request_rebuild()
 	runner.load_timeline(model.timeline())
 	runner.pause()
 	stage.seek_to(_cli_start)
@@ -547,6 +586,7 @@ func _apply_mode() -> void:
 		_show_inspector()
 		_show_ribbon()
 		_show_shelf()
+		_show_outliner()
 		_show_wrist()
 		_show_menu()
 
@@ -565,6 +605,47 @@ func save() -> bool:
 		_autosaved_at = -1
 	_say("Saved %s." % model.path.get_file() if r.ok else String(r.error))
 	return r.ok
+
+
+## Save the piece as `to_path` and go on with that file (the shelf's Open
+## tab). In another folder its own files come along (EditModel.save_as).
+## The file it came from keeps what it had at its last save, and its
+## autosave goes: those changes are in the new file now.
+func save_as(to_path: String) -> bool:
+	if model == null:
+		return false
+	var was := model.path
+	if to_path.simplify_path().to_lower() == was.simplify_path().to_lower():
+		return save()
+	StudioSafety.back_up(to_path)  # the file it replaces, if there's one
+	var r := model.save_as(to_path)
+	if not r.ok:
+		_say(String(r.error))
+		return false
+	StudioSafety.clear_autosave(was)
+	StudioSafety.clear_autosave(model.path)
+	_autosaved_text = ""
+	_autosaved_at = -1
+	library.piece_dir = model.path.get_base_dir()
+	_refresh_shelf()
+	runner.apply_edit(model.timeline(), true)  # its new folder
+	var copied: Array = r.copied
+	_say("Saved as %s%s." % [model.path.get_file(),
+			"" if copied.is_empty() else ", with %d of the piece's files" % copied.size()])
+	for view in _shelves():
+		view.saved_as()
+	return true
+
+
+## The shelf's Open tab, at its Save as line.
+func show_save_as() -> void:
+	if model == null:
+		_say("Open a piece first.")
+		return
+	shelf_on = true
+	for view in _shelves():
+		view.show_save_as()
+	_show_shelf()
 
 
 func undo() -> void:
@@ -595,6 +676,8 @@ func _on_model_changed(structural: bool) -> void:
 		view.request_rebuild()
 	for view in _ribbons():
 		view.request_refresh()
+	for view in _outliners():
+		view.request_rebuild()
 	recorder.prune(model.object_ids())
 	_apply_piece_beats()
 
@@ -633,6 +716,7 @@ func _on_command(id: StringName) -> void:
 			if model != null:
 				ribbon.step_key(1 if id == &"studio_next_key" else -1)
 		&"studio_save": save()
+		&"studio_save_as": show_save_as()
 		&"studio_undo": undo()
 		&"studio_redo": redo()
 		&"studio_reset_view": stage.reset_view()
@@ -726,6 +810,13 @@ func _on_command(id: StringName) -> void:
 			if inspector_on:
 				_place_inspector_panel()
 			_show_inspector()
+		&"studio_toggle_outliner":
+			outliner_on = not outliner_on
+			if outliner_on:
+				_place_outliner_panel()
+			_show_outliner()
+		&"studio_group": group_objects(outliner.group_ids())
+		&"studio_ungroup": ungroup(tools.selected)
 
 
 func _on_command_released(id: StringName) -> void:
@@ -773,6 +864,9 @@ func _side() -> float:
 
 func _select_pointed() -> void:
 	var xf := _hand_xf(_main_hand())
+	if tools.pick_axis(xf.origin, -xf.basis.z) >= 0:
+		_say("Hold the grip on an arrow to move along it.")  # not a click on empty space
+		return
 	tools.select(tools.pick(xf.origin, -xf.basis.z))
 
 
@@ -785,7 +879,9 @@ func _grab_with(hand: String) -> void:
 		tools.add_hand(hand, _hand_xf(hand))
 		return
 	var xf := _hand_xf(hand)
-	var k := tools.pick_key(xf.origin, -xf.basis.z)  # a key of the selection's path first
+	if tools.grab_axis(tools.pick_axis(xf.origin, -xf.basis.z), hand, xf):  # the gizmo's arrows first
+		return
+	var k := tools.pick_key(xf.origin, -xf.basis.z)  # then a key of the selection's path
 	if not k.is_empty():
 		tools.grab_key(k, hand, xf)
 		return
@@ -842,7 +938,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			if mb.pressed:
 				var xf := _mouse_hand()
 				var k := tools.pick_key(xf.origin, -xf.basis.z)
-				if not k.is_empty():
+				if tools.grab_axis(tools.pick_axis(xf.origin, -xf.basis.z), "M", xf):
+					pass  # an arrow of the gizmo: along that axis
+				elif not k.is_empty():
 					tools.grab_key(k, "M", xf)
 				else:
 					var id := tools.pick(xf.origin, -xf.basis.z)
@@ -923,6 +1021,10 @@ func _vr_inspector() -> StudioInspector:
 func _on_selection_changed(id: String) -> void:
 	for view in _ribbons():
 		view.request_refresh()
+	# A new selection starts a new pick (Ctrl+click in the outliner adds).
+	outliner_picked.clear()
+	for view in _outliners():
+		view.request_rebuild()
 	for view in _inspectors():
 		view.show_object(id)
 	if id != "":
@@ -938,6 +1040,7 @@ func _show_inspector() -> void:
 	var show := mode == Mode.EDIT and inspector_on and tools.selected != ""
 	var in_vr := stage.xr_mode.is_in_vr()
 	inspector.visible = show and not in_vr
+	_fit_outliner()
 	if inspector_panel != null:
 		if show and in_vr and not inspector_panel.visible:
 			_place_inspector_panel()
@@ -1007,7 +1110,7 @@ func folded_panels() -> Array:
 	var out: Array = []
 	for t in StudioStatus.TABS:
 		var on: bool = {&"studio_toggle_inspector": inspector_on, &"studio_toggle_timeline": timeline_on,
-				&"studio_toggle_shelf": shelf_on}[t[0]]
+				&"studio_toggle_shelf": shelf_on, &"studio_toggle_outliner": outliner_on}[t[0]]
 		if not on:
 			out.append(t[0])
 	return out
@@ -1067,6 +1170,7 @@ func _show_ribbon() -> void:
 	ribbon.visible = show and not in_vr
 	# The desktop shelf reaches down to the strip, or the bottom without it.
 	shelf.offset_bottom = ribbon.offset_top - 12.0 if ribbon.visible else -12.0
+	_fit_outliner()
 	if ribbon_panel != null:
 		if show and in_vr and not ribbon_panel.visible:
 			_place_ribbon_panel()
@@ -1095,6 +1199,155 @@ func _keep_ribbon_near() -> void:
 		return
 	if stage.viewer_transform().origin.distance_to(ribbon_panel.global_transform.origin) > INSPECTOR_REPLACE:
 		_place_ribbon_panel()
+
+
+# ---------- the outliner and groups ----------
+
+func _bind_outliner(view: StudioOutliner) -> void:
+	view.tools = tools
+	view.edits = edits
+	view.model = model
+	view.picked = outliner_picked
+	view.playhead = func(): return runner.playhead
+	view.said.connect(_say)
+	view.minimize_requested.connect(_fold.bind(&"studio_toggle_outliner"), CONNECT_DEFERRED)
+	view.group_requested.connect(group_objects, CONNECT_DEFERRED)
+	view.ungroup_requested.connect(ungroup, CONNECT_DEFERRED)
+	view.parent_requested.connect(set_parent_of, CONNECT_DEFERRED)
+	view.picked_changed.connect(func():
+		for other in _outliners():
+			other.request_rebuild())
+
+
+func _outliners() -> Array:
+	var out: Array = [outliner]
+	if _outliner_vr != null and is_instance_valid(_outliner_vr):
+		out.append(_outliner_vr)
+	return out
+
+
+func _make_outliner_panel() -> void:
+	outliner_panel = VP2D3D_SCENE.instantiate()
+	outliner_panel.name = "OutlinerPanel"
+	outliner_panel.scene = OUTLINER_SCENE
+	outliner_panel.viewport_size = OUTLINER_PIXELS
+	outliner_panel.screen_size = OUTLINER_SIZE
+	outliner_panel.material = FloatingPanel.ui_material()
+	outliner_panel.visible = false
+	# On the rig: it comes along as you fly, turn or jump.
+	stage.xr_rig.add_child(outliner_panel)
+	stage.add_masked_panel(outliner_panel)
+
+
+func _vr_outliner() -> StudioOutliner:
+	if _outliner_vr != null and is_instance_valid(_outliner_vr):
+		return _outliner_vr
+	var sub := outliner_panel.get_node_or_null("Viewport") as SubViewport if outliner_panel != null else null
+	if sub == null or sub.get_child_count() == 0:
+		return null
+	_outliner_vr = sub.get_child(0) as StudioOutliner
+	if _outliner_vr != null:
+		_bind_outliner(_outliner_vr)
+		_outliner_vr.request_rebuild()
+	return _outliner_vr
+
+
+## In Edit while it's on: the desktop panel, or the headset panel.
+func _show_outliner() -> void:
+	if outliner == null or tools == null:
+		return
+	var show := mode == Mode.EDIT and outliner_on
+	var in_vr := stage.xr_mode.is_in_vr()
+	outliner.visible = show and not in_vr
+	_fit_outliner()
+	if outliner_panel != null:
+		if show and in_vr and not outliner_panel.visible:
+			_place_outliner_panel()
+		outliner_panel.visible = show and in_vr
+
+
+## Desktop: at the right, left of the inspector while it shows (it can be
+## wider than its offsets: its contents' width), down to the timeline strip.
+func _fit_outliner() -> void:
+	if outliner == null or inspector == null or ribbon == null:
+		return
+	var right := -12.0
+	if inspector.visible:
+		right = inspector.position.x - get_viewport().get_visible_rect().size.x - 12.0
+	outliner.offset_right = right
+	outliner.offset_left = right - OUTLINER_WIDTH
+	outliner.offset_bottom = ribbon.offset_top - 12.0 if ribbon.visible else -12.0
+
+
+## To the side of the hand that doesn't point (left; right when
+## left-handed), past the shelf when it's open there, facing you.
+func _place_outliner_panel() -> void:
+	if outliner_panel == null:
+		return
+	var head := stage.viewer_transform()
+	var fwd := -head.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(0, 0, -1)
+	var angle := OUTLINER_ANGLE_BY_SHELF if shelf_on else OUTLINER_ANGLE
+	var toward := fwd.rotated(Vector3.UP, deg_to_rad(angle) * _side())
+	var at := head.origin + toward * OUTLINER_DISTANCE - Vector3(0, OUTLINER_DROP, 0)
+	# The quad's front is +Z: look away from the head.
+	outliner_panel.global_transform = Transform3D(Basis.looking_at(at - head.origin, Vector3.UP), at)
+	_vr_outliner()
+
+
+func _keep_outliner_near() -> void:
+	_vr_outliner()
+	if outliner.visible:
+		_fit_outliner()  # the inspector's width follows what it shows
+	if outliner_panel == null or not outliner_panel.visible:
+		return
+	if stage.viewer_transform().origin.distance_to(outliner_panel.global_transform.origin) > INSPECTOR_REPLACE:
+		_place_outliner_panel()
+
+
+## Put `ids` in a new group (Ctrl+G, the outliner's Group) and select it.
+func group_objects(ids: Array) -> bool:
+	if model == null:
+		return false
+	if tools.is_grabbing():
+		tools.cancel()
+	if ids.is_empty():
+		_say("Select something to group (Ctrl+click in the outliner picks several).")
+		return false
+	var r := StudioGrouping.group(model, ids, runner.playhead)
+	if not r.ok:
+		_say(r.error + ".")
+		return false
+	outliner_picked.clear()
+	tools.select(r.id)
+	_say("%s: move, turn, scale or key %s and they come along." % [model.undo_label(), r.id])
+	return true
+
+
+## Take the group `id`'s members out and remove it (Ctrl+Shift+G, the
+## outliner's Ungroup); its first member is selected.
+func ungroup(id: String) -> bool:
+	if model == null:
+		return false
+	if tools.is_grabbing():
+		tools.cancel()
+	var r := StudioGrouping.ungroup(model, id, runner.playhead)
+	if not r.ok:
+		_say(r.error + ".")
+		return false
+	tools.select(r.ids[0] if not r.ids.is_empty() else "")
+	_say("Ungrouped %s%s." % [id, "; " + r.note if r.note != "" else ""])
+	return true
+
+
+## Put `id` in `parent` ("" takes it out of its group), where it is now.
+func set_parent_of(id: String, parent: String) -> bool:
+	if model == null:
+		return false
+	var r := StudioGrouping.set_parent(model, id, parent, runner.playhead)
+	_say((model.undo_label() if r.ok else r.error) + ".")
+	return r.ok
 
 
 # ---------- the viewer ----------
@@ -1257,6 +1510,8 @@ func _bind_shelf(view: StudioAssetShelf) -> void:
 	view.said.connect(_say)
 	view.taken.connect(_on_taken.bind(view))
 	view.open_requested.connect(func(path: String): open_piece(path))
+	view.save_as_requested.connect(func(path: String): save_as(path))
+	view.piece_path = func(): return model.path if model != null else ""
 	view.close_requested.connect(_fold.bind(&"studio_toggle_shelf"), CONNECT_DEFERRED)
 	thumbnailer.thumbnail_ready.connect(view.on_thumbnail)
 	thumbnailer.loop_ready.connect(view.on_loop)
@@ -1495,7 +1750,7 @@ func _drop_hint(asset: Dictionary, where: Dictionary) -> String:
 ## Desktop: whether the mouse is over one of Studio's panels.
 func _mouse_over_ui() -> bool:
 	var at := get_viewport().get_mouse_position()
-	for panel in [shelf, inspector, ribbon, status_view, wrist_2d, corner_tabs]:
+	for panel in [shelf, inspector, ribbon, outliner, status_view, wrist_2d, corner_tabs]:
 		if panel != null and panel.visible and panel.get_global_rect().has_point(at):
 			return true
 	return menu_2d != null and menu_2d.visible and menu_2d.get_global_rect().has_point(at)
@@ -1654,7 +1909,7 @@ func _show_status() -> void:
 			wrist_2d if wrist_2d.visible else null]:
 		if view != null:
 			view.show_state(_wrist_state(args))
-			view.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer, miniature_on)
+			view.show_toggles(tools.auto_key, tools.snap, inspector_on, timeline_on, loop.on, shelf_on, recorder.is_active(), recorder.arm_viewer, miniature_on, outliner_on)
 	if wrist_2d.visible:
 		_place_wrist_2d()
 

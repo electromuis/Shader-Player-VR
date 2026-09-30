@@ -1,4 +1,5 @@
 // @title Edge blur
+// @idle radius <= 0.0
 // Softens the edges of whatever is already cut out by alpha (by Key black,
 // an Oval mask, or a shader's own transparency): alpha is blurred over
 // `radius`, the width of the soft edge as a fraction of the picture's

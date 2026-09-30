@@ -92,7 +92,7 @@ Two kinds. **Continuous tracks** (`transform`, `shader_param`) are sampled every
 
 ### Events
 
-- **`spawn`**: `id` (unique across the script; ids starting with `$` are reserved), `prefab` (a `prefabs` name), optional `transform`, `parent` and `config`. With `parent` (an object that already exists) the object sits inside it, in its space, and goes when it goes. At the same `t` events run in file order, so spawn a parent before its children.
+- **`spawn`**: `id` (unique across the script; ids starting with `$` are reserved), `prefab` (a `prefabs` name), optional `transform`, `parent` and `config`. With `parent` (an object that already exists) the object sits inside it, in its space, and goes when it goes. `"locked": true` is an editor flag: Studio won't let hands or its move gizmo move the object, and the addon's importer turns it into Godot's own node lock (and back); the player ignores it. At the same `t` events run in file order, so spawn a parent before its children.
 - **`despawn`**: `target`, and optionally `"transition": {"type": "fade", "duration": s}`, which fades any mesh out, MultiMeshes included.
 - **`vr_cut`** / **`vr_teleport`**: `"to": {"position": [...], "rotation_deg": [...]}`, optionally `"transition": {"type": "fade_to_black", "duration": s}`. They join the viewer's track as cuts (below).
 

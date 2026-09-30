@@ -499,7 +499,7 @@ static func _vec_of(r: Dictionary) -> Array:
 ## A row per channel: its name (click it for a slider per axis), x / y / z
 ## numbers to type in (or drag), its diamond; Uniform under scale.
 func _add_transform() -> void:
-	var body := _add_section("Transform", "Transform", [], Callable(), false, "position · rotation · scale")
+	var body := _add_section("Transform", "Transform", [], _add_lock, false, "position · rotation · scale")
 	if not body.visible:
 		return
 	for ch in StudioConfigEdits.CHANNELS:
@@ -578,6 +578,18 @@ func _add_transform() -> void:
 
 
 ## A number field for a transform axis (type, drag it sideways, or its arrows).
+## The Transform header's lock: "Locked" and a switch. Locked, hands and
+## the move gizmo leave the object where it is; the numbers here still move it.
+func _add_lock(head: HBoxContainer) -> void:
+	var locked := tools.is_locked(_id)
+	var name := _label(head, int(_fs * 0.9), ACCENT if locked else DIM)
+	name.text = "Locked" if locked else "Lock"
+	var sw := _pill(locked, func(on: bool): tools.set_locked(_id, on))
+	sw.tooltip_text = "Lock its place: hands and the move gizmo can't move it (the numbers below still can)"
+	sw.name = "LockSwitch"
+	head.add_child(sw)
+
+
 func _number(ch: String) -> SpinBox:
 	var s := SpinBox.new()
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1436,9 +1448,12 @@ func _pill(on: bool, on_toggle: Callable) -> Button:
 		if state.begins_with("hover"):
 			sb.bg_color = sb.bg_color.lightened(0.12)
 		b.add_theme_stylebox_override(state, sb)
-	b.add_theme_font_size_override("font_size", int(h * 0.8))
-	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
-		b.add_theme_color_override(c, Color.WHITE)
+	# The knob is drawn, not a "●" in the text: a glyph sits where the
+	# font's metrics put it, off the track's middle.
+	b.draw.connect(func():
+		var r := b.size.y / 2.0
+		var x := b.size.x - r if b.button_pressed else r
+		b.draw_circle(Vector2(x, r), r * 0.72, Color.WHITE if b.button_pressed else Color(0.85, 0.87, 0.9), true, -1.0, true))
 	_show_pill(b, on)
 	b.toggled.connect(func(v: bool):
 		_show_pill(b, v)
@@ -1448,8 +1463,7 @@ func _pill(on: bool, on_toggle: Callable) -> Button:
 
 static func _show_pill(b: Button, on: bool) -> void:
 	b.set_pressed_no_signal(on)
-	b.text = "●"
-	b.alignment = HORIZONTAL_ALIGNMENT_RIGHT if on else HORIZONTAL_ALIGNMENT_LEFT
+	b.queue_redraw()
 	b.tooltip_text = b.tooltip_text if b.tooltip_text != "" else "On / off"
 
 

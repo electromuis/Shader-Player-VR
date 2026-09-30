@@ -1,4 +1,5 @@
 // @title Match video brightness
+// @idle strength <= 0.0
 // Scales the picture's brightness to follow the playing video's: when the
 // video goes dark the picture dims with it, when it's bright the picture
 // brightens. Put it on a layer so it sits with the video instead of

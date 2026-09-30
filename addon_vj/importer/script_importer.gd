@@ -276,6 +276,8 @@ static func _spawn_node(ctx: _Ctx, ev: Dictionary) -> void:
 	ctx.nodes[id] = node
 	ctx.parents[id] = parent_id
 	node.transform = _transform_from(ev.get("transform", {}))
+	if ev.get("locked", false) == true:
+		node.set_meta("_edit_lock_", true)  # Studio's lock is the editor's
 	_apply_config(ctx, node, ev.get("config", {}), id)
 
 

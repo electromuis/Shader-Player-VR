@@ -1,4 +1,5 @@
 // @title Kaleidoscope
+// @idle mix_amount <= 0.0
 // Folds the picture into a turning kaleidoscope: `segments` mirrored
 // wedges around the centre, `zoom` into the source, `spin` turns per second.
 shader_type canvas_item;

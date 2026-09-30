@@ -1,4 +1,5 @@
 // @title Blur
+// @idle radius <= 0.0
 // Blurs the whole picture: `radius` is the blur's reach as a fraction of
 // the picture's height (a Gaussian, sigma radius / sqrt(6)). Cheap at a low
 // resolution, where it's all blur anyway: a video layer at 25% with this,

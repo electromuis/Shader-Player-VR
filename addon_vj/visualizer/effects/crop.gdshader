@@ -1,4 +1,5 @@
 // @title Crop
+// @idle left <= 0.0 and top <= 0.0 and width >= 1.0 and height >= 1.0
 // Shows one part of the picture stretched over the whole screen: the
 // rectangle `width` × `height` from (`left`, `top`), in fractions of the
 // picture. Split screens use thirds: `left` 0, ⅓, ⅔ with `width` ⅓, each on

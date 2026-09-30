@@ -218,7 +218,67 @@ func save(to_path: String = "") -> Dictionary:
 	if not valid.ok:
 		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % valid.error}
 	var text := _original_text if _undo.size() == _loaded_depth else to_text()
-	# Write next to it, then swap, so a failed write never leaves half a file.
+	var written := _write(target, text)
+	if written.ok and target == path:
+		_saved_depth = _undo.size()
+	return written
+
+
+## Save as `to_path` (a .json) and go on editing that file. In another
+## folder the piece's own files come along and its video is named from
+## there (StudioBundle.carry), so the copy plays as this one does; the
+## file it came from stays as it was last saved. {ok, copied (the files
+## copied along)} or {ok: false, error}.
+func save_as(to_path: String) -> Dictionary:
+	to_path = to_path.simplify_path()
+	if to_path.get_extension().to_lower() != "json":
+		return {"ok": false, "error": "A piece is saved as a .json file"}
+	if to_path.to_lower() == path.simplify_path().to_lower():
+		var r := save()
+		r["copied"] = []
+		return r
+	var now := check()  # before anything is copied
+	if not now.ok:
+		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % now.error}
+	var doc := _doc
+	var carried := {}
+	var from_dir := path.get_base_dir().simplify_path()
+	var to_dir := to_path.get_base_dir()
+	if from_dir != "" and from_dir.to_lower() != to_dir.to_lower():
+		var history: Array = []
+		for cmd in _undo + _redo:
+			history.append_array(cmd.changes)
+		carried = StudioBundle.carry(_doc, from_dir, to_dir, history)
+		if not carried.ok:
+			return carried
+		doc = carried.doc
+	var valid := ScriptFormat.load_from_dict(doc.duplicate(true), to_path)
+	if not valid.ok:
+		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % valid.error}
+	var was := _doc
+	_doc = doc
+	DirAccess.make_dir_recursive_absolute(to_dir)
+	var text := to_text() if not carried.is_empty() or _undo.size() != _loaded_depth else _original_text
+	var written := _write(to_path, text)
+	if not written.ok:
+		_doc = was
+		return written
+	if not carried.is_empty():
+		var i := 0
+		for cmd in _undo + _redo:
+			for c in cmd.changes.size():
+				cmd.changes[c] = carried.history[i]
+				i += 1
+	path = to_path
+	_original_text = text
+	_loaded_depth = _undo.size()
+	_saved_depth = _undo.size()
+	return {"ok": true, "copied": carried.get("copied", [])}
+
+
+## Write `text` to `target`: next to it, then swapped in, so a failed
+## write never leaves half a file. {ok} or {ok: false, error}.
+static func _write(target: String, text: String) -> Dictionary:
 	var tmp := target + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
@@ -229,8 +289,6 @@ func save(to_path: String = "") -> Dictionary:
 	if err != OK:
 		DirAccess.remove_absolute(tmp)
 		return {"ok": false, "error": "Could not replace %s (error %d)" % [target, err]}
-	if target == path:
-		_saved_depth = _undo.size()
 	return {"ok": true}
 
 
@@ -452,6 +510,24 @@ func set_spawn_transform(id: String, transform: Dictionary) -> bool:
 	if changes.is_empty():
 		return false
 	return _do("Move %s" % id, true, changes)
+
+
+## Whether `id` is locked: hands and the move gizmo leave it where it is
+## (its first spawn's `"locked": true`; an editor flag, the player ignores it).
+func is_locked(id: String) -> bool:
+	var i := spawn_index(id)
+	return i >= 0 and tracks()[i].get("locked", false) == true
+
+
+## Lock or unlock `id` (every spawn of it). False if it has no spawn or
+## already is.
+func set_locked(id: String, on: bool) -> bool:
+	var changes: Array = []
+	for i in spawn_indices(id):
+		changes.append(_change(["tracks", i, "locked"], true) if on else _removal(["tracks", i, "locked"]))
+	if changes.is_empty():
+		return false
+	return _do(("Lock %s" if on else "Unlock %s") % id, false, changes)
 
 
 ## Replace track `ti`'s keys (e.g. a path shifted as a whole).
@@ -1137,6 +1213,12 @@ func add_object(spawn: Dictionary, despawn_at = null) -> bool:
 	if despawn_at != null:
 		list.append({"type": "event", "t": float(despawn_at), "action": "despawn", "target": id})
 	return _do("Add %s" % id, true, [_change(["tracks"], list)])
+
+
+## Replace the whole track list (StudioGrouping's regrouping, which changes
+## spawn events, their order and tracks together).
+func set_tracks(list: Array, label: String) -> bool:
+	return _do(label, true, [_change(["tracks"], list)])
 
 
 ## Remove an object: its spawn / despawn events and tracks, and the same

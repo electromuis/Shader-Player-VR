@@ -93,6 +93,16 @@ func bind(runner: ScriptRunner, open_file: Callable, thumbs: OsThumbnails = null
 ## Shares the list/tiles choice with the Network tab via PlayerSettings, and
 ## keeps this tab's sort order and last folder there. Bind before bind() so
 ## the first folder shown is the remembered one.
+## The folder shown ("" in the drives view).
+func current_dir() -> String:
+	return _current_dir
+
+
+## List the folder again (a file was saved into it).
+func refresh() -> void:
+	_refresh_listing()
+
+
 func bind_view(settings: PlayerSettings) -> void:
 	_settings = settings
 	if _settings != null:

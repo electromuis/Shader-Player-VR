@@ -13,7 +13,7 @@ extends PanelContainer
 ## laser. Each tile asks Studio to run a command (`action`, the router's
 ## Studio command ids); toggles are lit while on (show_toggles): auto-key,
 ## a take and an armed ride red, the rest blue. The panel buttons
-## (inspector, timeline, shelf) are the folded panels' tabs. The desktop
+## (inspector, timeline, shelf, outliner) are the folded panels' tabs. The desktop
 ## shows it too, scaled down, on P or the status's Wrist button (the mouse
 ## presses and swipes).
 
@@ -21,8 +21,9 @@ signal action(id: StringName)
 
 const ACCENT := WristTile.ACCENT
 const RECORD := WristTile.RECORD
-## The two pages: [command id, icon, caption, what it does]. The Outliner
-## tile of the mockup takes Key it's place once the outliner exists (TODO 15).
+## The two pages: [command id, icon, caption, what it does]. Key it is A
+## on the controller (I on the keyboard); its tile made way for the
+## Outliner, as in the mockup.
 const PAGES := [
 	[
 		[&"studio_prev_key", &"prev_key", "Prev key", "Jump to the previous key (the selection's, or any)."],
@@ -35,7 +36,7 @@ const PAGES := [
 		[&"studio_undo", &"undo", "Undo", "Undo the last change."],
 		[&"studio_toggle_shelf", &"shelf", "Shelf", "Show the shelf: screens, layers, effects and looks to carry out."],
 		[&"studio_toggle_inspector", &"inspector", "Inspector", "Show the inspector: the selection's settings."],
-		[&"studio_key_selection", &"key_it", "Key it", "Key the selection's place at the playhead."],
+		[&"studio_toggle_outliner", &"outliner", "Outliner", "Show the outliner: every object as a tree, to select, group and ungroup."],
 		[&"studio_toggle_timeline", &"timeline", "Timeline", "Show the timeline: lanes, keys, the song and its beats."],
 	],
 	[
@@ -352,7 +353,7 @@ func show_state(s: Dictionary) -> void:
 
 
 ## The toggles as they are in Studio (not what a press toggled).
-func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline: bool = false, looping: bool = false, shelf: bool = false, recording: bool = false, ride: bool = false, miniature: bool = false) -> void:
+func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline: bool = false, looping: bool = false, shelf: bool = false, recording: bool = false, ride: bool = false, miniature: bool = false, outliner: bool = false) -> void:
 	if _tiles.is_empty():
 		return
 	_tiles[&"studio_toggle_autokey"].lit = auto_key
@@ -364,6 +365,7 @@ func show_toggles(auto_key: bool, snap: bool, inspector: bool = false, timeline:
 	_tiles[&"studio_record"].lit = recording
 	_tiles[&"studio_arm_ride"].lit = ride
 	_tiles[&"studio_miniature"].lit = miniature
+	_tiles[&"studio_toggle_outliner"].lit = outliner
 
 
 ## The help line: what the tile under the pointer does, else the mode line.

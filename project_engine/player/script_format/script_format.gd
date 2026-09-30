@@ -308,6 +308,8 @@ static func _validate_event(e: Dictionary, loc: String, errors: Array) -> void:
 				errors.append("%s.prefab required for spawn" % loc)
 			if e.has("parent") and (typeof(e["parent"]) != TYPE_STRING or e["parent"] == e.get("id")):
 				errors.append("%s.parent must be another object's id" % loc)
+			if e.has("locked") and typeof(e["locked"]) != TYPE_BOOL:
+				errors.append("%s.locked must be true or false" % loc)
 			if e.has("config"):
 				_validate_config(e["config"], loc + ".config", errors)
 		"despawn":

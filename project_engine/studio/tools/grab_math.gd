@@ -64,6 +64,46 @@ static func two_handed(start_a: Vector3, start_b: Vector3, a: Vector3, b: Vector
 	return about * object
 
 
+## A ray this close to parallel with an axis (1 - cos² of the angle between
+## them, about 8°) doesn't move along it: the answer would run off to far away.
+const AXIS_PARALLEL := 0.02
+
+
+## Where the ray from `ray_origin` along `ray_dir` comes closest to the line
+## through `origin` along `dir` (both directions unit length): how far along
+## the line, in metres; NAN when the two are too close to parallel. What
+## dragging a move gizmo's arrow follows.
+static func along_axis(origin: Vector3, dir: Vector3, ray_origin: Vector3, ray_dir: Vector3) -> float:
+	var b := dir.dot(ray_dir)
+	var denom := 1.0 - b * b
+	if denom < AXIS_PARALLEL:
+		return NAN
+	var w := origin - ray_origin
+	return (b * ray_dir.dot(w) - dir.dot(w)) / denom
+
+
+## How far the ray from `ray_origin` along `ray_dir` (unit) passes from the
+## segment `a`–`b`, and how far along the ray that is: {miss, along} (miss
+## INF when the segment is behind the ray).
+static func ray_to_segment(ray_origin: Vector3, ray_dir: Vector3, a: Vector3, b: Vector3) -> Dictionary:
+	var length := a.distance_to(b)
+	if length <= 0.0:
+		return _ray_to_point(ray_origin, ray_dir, a)
+	var s := along_axis(a, (b - a) / length, ray_origin, ray_dir)
+	if is_nan(s):  # seen end on: the nearer end
+		var ea := _ray_to_point(ray_origin, ray_dir, a)
+		var eb := _ray_to_point(ray_origin, ray_dir, b)
+		return ea if ea.miss <= eb.miss else eb
+	return _ray_to_point(ray_origin, ray_dir, a.lerp(b, clampf(s / length, 0.0, 1.0)))
+
+
+static func _ray_to_point(ray_origin: Vector3, ray_dir: Vector3, p: Vector3) -> Dictionary:
+	var along := (p - ray_origin).dot(ray_dir)
+	if along <= 0.0:
+		return {"miss": INF, "along": -1.0}
+	return {"miss": (ray_origin + ray_dir * along).distance_to(p), "along": along}
+
+
 ## `global` in the space of a parent at `parent_global` (a node's transform).
 static func to_local(parent_global: Transform3D, global: Transform3D) -> Transform3D:
 	return parent_global.affine_inverse() * global

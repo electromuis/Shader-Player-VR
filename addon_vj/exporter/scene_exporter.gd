@@ -399,6 +399,8 @@ static func _make_spawn_event(obj: _Obj, t: float, out_dir: String, shaders: Dic
 	}
 	if obj.parent != null:
 		ev["parent"] = obj.parent.id
+	if obj.node.get_meta("_edit_lock_", false) == true:
+		ev["locked"] = true  # the editor's lock, Studio's too
 	var cfg := _config_for(obj.node, out_dir, shaders)
 	if not cfg.is_empty():
 		ev["config"] = cfg

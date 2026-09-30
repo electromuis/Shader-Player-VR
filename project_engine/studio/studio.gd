@@ -416,6 +416,7 @@ func _update_hover(delta: float) -> void:
 		return
 	_hover_clock = 0.0
 	var id := ""
+	var axis := -1
 	if mode == Mode.EDIT and model != null and not tools.is_grabbing() and not tools.is_grabbing_key() and held_asset.is_empty():
 		var xf := Transform3D()
 		var aiming := false
@@ -426,8 +427,11 @@ func _update_hover(delta: float) -> void:
 			aiming = not _mouse_over_ui()
 			xf = _mouse_hand()
 		if aiming:
-			id = tools.pick(xf.origin, -xf.basis.z)
+			axis = tools.pick_axis(xf.origin, -xf.basis.z)
+			if axis < 0:
+				id = tools.pick(xf.origin, -xf.basis.z)
 	tools.hovered = id
+	tools.hovered_axis = axis
 
 
 # ---------- keeping work safe ----------
@@ -818,6 +822,9 @@ func _side() -> float:
 
 func _select_pointed() -> void:
 	var xf := _hand_xf(_main_hand())
+	if tools.pick_axis(xf.origin, -xf.basis.z) >= 0:
+		_say("Hold the grip on an arrow to move along it.")  # not a click on empty space
+		return
 	tools.select(tools.pick(xf.origin, -xf.basis.z))
 
 
@@ -830,7 +837,9 @@ func _grab_with(hand: String) -> void:
 		tools.add_hand(hand, _hand_xf(hand))
 		return
 	var xf := _hand_xf(hand)
-	var k := tools.pick_key(xf.origin, -xf.basis.z)  # a key of the selection's path first
+	if tools.grab_axis(tools.pick_axis(xf.origin, -xf.basis.z), hand, xf):  # the gizmo's arrows first
+		return
+	var k := tools.pick_key(xf.origin, -xf.basis.z)  # then a key of the selection's path
 	if not k.is_empty():
 		tools.grab_key(k, hand, xf)
 		return
@@ -887,7 +896,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			if mb.pressed:
 				var xf := _mouse_hand()
 				var k := tools.pick_key(xf.origin, -xf.basis.z)
-				if not k.is_empty():
+				if tools.grab_axis(tools.pick_axis(xf.origin, -xf.basis.z), "M", xf):
+					pass  # an arrow of the gizmo: along that axis
+				elif not k.is_empty():
 					tools.grab_key(k, "M", xf)
 				else:
 					var id := tools.pick(xf.origin, -xf.basis.z)

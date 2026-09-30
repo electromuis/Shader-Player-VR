@@ -22,6 +22,9 @@ var _cli_live_sync_port: int = 0
 var _cli_start_in_vr: bool = false
 ## --desktop: don't auto-enter VR even when a headset is detected.
 var _cli_force_desktop: bool = false
+## --windowed: open the desktop window windowed even if the saved setting is
+## fullscreen (not saved; F11 still goes fullscreen).
+var _cli_windowed: bool = false
 ## --paused: open the --script file without starting playback.
 var _cli_paused: bool = false
 ## --preset <file>: start with this preset .json instead of the startup
@@ -122,7 +125,13 @@ func _on_command(id: StringName) -> void:
 			floating_panel.begin_drag(rig.left_controller if stage.router.last_input.begins_with("L.") else rig.right_controller)
 		&"reset_view": stage.reset_view()
 		&"toggle_vr": _on_vr_button()
-		&"fullscreen": _player_settings.fullscreen = not _player_settings.fullscreen
+		&"fullscreen":
+			if _cli_windowed:
+				_cli_windowed = false
+				_player_settings.fullscreen = true
+				_apply_window_settings()
+			else:
+				_player_settings.fullscreen = not _player_settings.fullscreen
 		&"toggle_play_bar": _player_settings.show_play_bar = not _player_settings.show_play_bar
 
 
@@ -269,6 +278,8 @@ func _parse_cli_args() -> void:
 			_cli_start_in_vr = true
 		elif a == "--desktop":
 			_cli_force_desktop = true
+		elif a == "--windowed":
+			_cli_windowed = true
 		elif a == "--paused":
 			_cli_paused = true
 		elif a == "--preset" and i + 1 < args.size():
@@ -363,10 +374,11 @@ func _apply_window_settings() -> void:
 		mc.visible = _player_settings.show_play_bar
 	if DisplayServer.get_name() == "headless":
 		return
-	var want := DisplayServer.WINDOW_MODE_FULLSCREEN if _player_settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+	var fullscreen := _player_settings.fullscreen and not _cli_windowed
+	var want := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
 	var mode := DisplayServer.window_get_mode()
 	var is_full := mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
-	if is_full != _player_settings.fullscreen:
+	if is_full != fullscreen:
 		DisplayServer.window_set_mode(want)
 
 

@@ -2,7 +2,7 @@
 
 A VR video player with sound-reactive shader layers and effects. It plays ordinary videos, including 180°/360° and 3D ones, and scripted videos, where a `.json` script moves the screen, spawns objects and animates shaders in time with the music.
 
-It works with or without a headset. If an OpenXR headset (SteamVR, Oculus/Meta, WMR, …) is connected when the player starts, it goes straight into VR. Otherwise it runs in a desktop window. Start it with `Player.exe -- --desktop` to stay on the desktop even with a headset connected. The player's own options always come after a lone `--`.
+It works with or without a headset. If an OpenXR headset (SteamVR, Oculus/Meta, WMR, …) is connected when the player starts, it goes straight into VR. Otherwise it runs in a desktop window. Start it with `Player.exe -- --desktop` to stay on the desktop even with a headset connected, and `-- --windowed` to open the window windowed even if you left it fullscreen (F11 still toggles). The player's own options always come after a lone `--`.
 
 ## What's in this folder
 

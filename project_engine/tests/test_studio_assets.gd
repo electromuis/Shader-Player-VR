@@ -239,6 +239,25 @@ static func test_dropping_cards_adds_and_bundles(tc: TestCase) -> void:
 	tc.assert_eq(m.document().shaders.get(m.effects_of("main_screen").back().shader), "shaders/second_fx.gdshader")
 
 
+## TODO 69: a drop spawns at or just before the playhead, never after it
+## (the paused view shows only what has spawned by then).
+static func test_a_drop_spawns_by_the_playhead(tc: TestCase) -> void:
+	for t in [0.0, 3.25, 3.2504, 3.2506, 3.2999, 59.9996, 123.4567891]:
+		var s := StudioAssetDrop.spawn_time(t)
+		tc.assert_true(s <= t and t - s < 0.001, "%f spawns at %f" % [t, s])
+		tc.assert_eq(s, snappedf(s, 0.001), "to the millisecond (%f)" % s)
+	var root := _setup()
+	var lib := _library(root)
+	var m := _new_model(tc, root)
+	var drop := StudioAssetDrop.new()
+	drop.model = m
+	drop.edits = StudioConfigEdits.new()
+	drop.edits.model = m
+	var r := drop.drop(_asset(lib, "layer", "My layer"), {"point": Vector3.ZERO, "on": "", "floor": true}, Vector3(0, 1.7, 4), 7.0008, false)
+	tc.assert_true(r.ok)
+	tc.assert_eq(m.tracks()[m.spawn_index(r.id)].t, 7.0, "not 7.001, after the playhead")
+
+
 static func test_lane_ends_retime_spawns_and_despawns(tc: TestCase) -> void:
 	var doc := {
 		"format_version": 2, "media": {"video": "clip.mp4"},
@@ -353,3 +372,99 @@ static func test_card_loops(tc: TestCase) -> void:
 	tc.assert_true(StudioThumbnailer.difference(a, b) > StudioThumbnailer.STILL_DIFFERENCE, "half the picture changed moves")
 	tc.assert_true(StudioThumbnailer.loop_path({"type": "layer", "path": "res://a.glsl"}) !=
 			StudioThumbnailer.cache_path({"type": "layer", "path": "res://a.glsl"}), "kept beside the still")
+
+
+## TODO 25: Save as in the piece's folder writes the new file and goes on
+## with it; the old file keeps what it had.
+static func test_save_as_beside_the_piece(tc: TestCase) -> void:
+	var root := _setup()
+	var m := _new_model(tc, root)
+	var first := m.path
+	var before := FileAccess.get_file_as_string(first)
+	tc.assert_true(m.set_beats({"bpm": 120.0, "offset": 0.0}))
+	tc.assert_true(m.is_dirty())
+	var r := m.save_as(root.path_join("piece/second"))
+	tc.assert_false(r.ok, "not a .json")
+	r = m.save_as(root.path_join("piece/second.json"))
+	tc.assert_ok(r)
+	tc.assert_eq([m.path, r.copied, m.is_dirty()], [root.path_join("piece/second.json"), [], false])
+	tc.assert_eq(FileAccess.get_file_as_string(first), before, "the old file as it was")
+	tc.assert_eq(m.document().media.video, "clip.mp4")
+	tc.assert_true(ScriptFormat.load_from_file(m.path).ok)
+	tc.assert_eq(m.undo() != "", true)
+	tc.assert_true(m.is_dirty(), "undone past the save")
+	tc.assert_ok(m.save())
+	tc.assert_eq(FileAccess.get_file_as_string(first), before, "saves go to the new file")
+
+
+## TODO 25: Save as in another folder brings the piece's own files along
+## (a shader with its include) and names the video from there, in the
+## undo history too; a different file already there stops it.
+static func test_save_as_elsewhere_carries_the_piece(tc: TestCase) -> void:
+	var root := _setup()
+	var lib := _library(root)
+	var m := _new_model(tc, root)
+	var drop := StudioAssetDrop.new()
+	drop.model = m
+	drop.edits = StudioConfigEdits.new()
+	drop.edits.model = m
+	var head := Vector3(0, 1.7, 4)
+	var floor := {"point": Vector3.ZERO, "on": "", "floor": true}
+	tc.assert_true(drop.drop(_asset(lib, "object", "Screen"), floor, head, 0.0, false).ok)
+	tc.assert_true(drop.drop(_asset(lib, "layer", "My layer"), floor, head, 0.0, false).ok)
+	tc.assert_true(drop.drop(_asset(lib, "effect", "My fx"), {"point": Vector3.ZERO, "on": "main_screen", "floor": false}, head, 0.0, false).ok)
+	tc.assert_true(drop.drop(_asset(lib, "object", "Thing"), floor, head, 0.0, false).ok)
+	tc.assert_true(m.set_beats({"bpm": 120.0, "offset": 0.0}), "media replaced in the history")
+	# A different file where one of them would go: nothing happens.
+	DirAccess.make_dir_recursive_absolute(root.path_join("taken/shaders"))
+	_write(root.path_join("taken/shaders/my_layer.glsl"), "// someone else's\n")
+	var r := m.save_as(root.path_join("taken/copy.json"))
+	tc.assert_false(r.ok)
+	tc.assert_true(String(r.get("error", "")).contains("my_layer.glsl"), "a different one there: %s" % r.get("error"))
+	tc.assert_false(FileAccess.file_exists(root.path_join("taken/copy.json")), "not written")
+	tc.assert_false(FileAccess.file_exists(root.path_join("taken/shaders/my_fx.gdshader")), "nothing copied")
+	tc.assert_eq(m.path, root.path_join("piece/clip.json"))
+	# Somewhere new.
+	r = m.save_as(root.path_join("out/sub/copy.json"))
+	tc.assert_ok(r)
+	var copied: Array = r.copied
+	copied.sort()
+	tc.assert_eq(copied, ["prefabs/thing.tscn", "shaders/my_fx.gdshader", "shaders/my_layer.glsl"])
+	tc.assert_true(FileAccess.file_exists(root.path_join("out/sub/shaders/tint_inc.gdshaderinc")), "the include came along")
+	tc.assert_eq(m.document().media.video, "../../piece/clip.mp4", "the video stays; named from the new folder")
+	tc.assert_eq(m.document().media.beats.bpm, 120.0)
+	var loaded := ScriptFormat.load_from_file(m.path)
+	tc.assert_ok(loaded)
+	tc.assert_true(FileAccess.file_exists(loaded.data.resolve(m.document().media.video)), "the video found from there")
+	tc.assert_eq(m.document().shaders.get(m.config_of("my_layer").shader), "shaders/my_layer.glsl", "same names")
+	# Undoing the beat grid doesn't bring back the old folder's name.
+	tc.assert_true(m.undo() != "")
+	tc.assert_eq(m.document().media.video, "../../piece/clip.mp4", "undo keeps the new name")
+	tc.assert_false(m.document().media.has("beats"))
+	tc.assert_true(m.redo() != "")
+	tc.assert_eq(m.document().media.video, "../../piece/clip.mp4", "and redo")
+	# Where the old folder's files are the same, they're used as they are.
+	r = m.save_as(root.path_join("out/sub/again.json"))
+	tc.assert_ok(r)
+	tc.assert_eq([r.copied, m.document().media.video], [[], "../../piece/clip.mp4"])
+
+
+static func test_paths_from_a_folder(tc: TestCase) -> void:
+	tc.assert_eq(StudioBundle.path_from("C:/a/b", "C:/a/b/c.mp4"), "c.mp4")
+	tc.assert_eq(StudioBundle.path_from("C:/a/b/", "C:/a/x/c.mp4"), "../x/c.mp4")
+	tc.assert_eq(StudioBundle.path_from("C:/a/b/c", "C:/v.mp4"), "../../../v.mp4")
+	tc.assert_eq(StudioBundle.path_from("c:/A/b", "C:/a/B/v.mp4"), "v.mp4", "drive letters and case as Windows has them")
+	tc.assert_eq(StudioBundle.path_from("C:/a", "D:/v.mp4"), "D:/v.mp4", "another drive: as it is")
+
+
+## The shelf's Save as line suggests a name that isn't taken.
+static func test_save_as_names(tc: TestCase) -> void:
+	var root := _setup()
+	var dir := root.path_join("piece")
+	tc.assert_eq(StudioAssetShelf.free_name(dir.path_join("song.json"), root.path_join("lib")), "song.json", "its own name elsewhere")
+	_write(dir.path_join("song.json"), "{}")
+	tc.assert_eq(StudioAssetShelf.free_name(dir.path_join("song.json"), dir), "song 2.json")
+	_write(dir.path_join("song 2.json"), "{}")
+	tc.assert_eq(StudioAssetShelf.free_name(dir.path_join("song.json"), dir), "song 3.json")
+	tc.assert_eq(StudioAssetShelf.free_name(dir.path_join("song 2.json"), dir), "song 3.json", "counts on")
+	tc.assert_eq(StudioAssetShelf.free_name("", dir), "piece.json")

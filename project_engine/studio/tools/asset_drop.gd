@@ -111,6 +111,14 @@ static func placement(asset: Dictionary, where: Dictionary, head: Vector3, bound
 	return {"position": pos, "rotation_deg": [0.0, float("%.2f" % yaw), 0.0], "scale": [s, s, s]}
 
 
+## When a drop at the playhead `t` spawns: `t` to the millisecond, rounded
+## down, since the paused view shows what spawns at or before the playhead
+## (rounded up, a drop was hidden until you played).
+static func spawn_time(t: float) -> float:
+	var s := snappedf(t, 0.001)
+	return snappedf(s - 0.001, 0.001) if s > t else s
+
+
 ## Drop `asset` at `where`, the playhead at `t`. {ok, id (the new or
 ## changed object), message}.
 func drop(asset: Dictionary, where: Dictionary, head: Vector3, t: float, snap: bool) -> Dictionary:
@@ -171,7 +179,7 @@ func _add_look(asset: Dictionary, look: Dictionary, where: Dictionary, head: Vec
 		var base := "layer" if look.kind == "layer" else String(look.prefab).get_file().get_basename().to_snake_case()
 		if look.kind == "screen":
 			base = "main_screen" if model.spawn_index("main_screen") < 0 else "screen"
-		var spawn := {"t": snappedf(t, 0.001), "prefab": model.name_prefab(prefab.path), "transform": xf,
+		var spawn := {"t": spawn_time(t), "prefab": model.name_prefab(prefab.path), "transform": xf,
 				"id": model.free_id(base.validate_node_name().replace(".", "_"))}
 		if not made.config.is_empty():
 			spawn["config"] = made.config
@@ -195,7 +203,7 @@ func _add(asset: Dictionary, where: Dictionary, head: Vector3, t: float, snap: b
 	var xf := placement(asset, where, head, bounds_of(prefab_src), snap)
 	var added := {"id": ""}  # a lambda can't assign the caller's locals
 	model.batch("Add %s" % asset.label, func():
-		var spawn := {"t": snappedf(t, 0.001), "prefab": model.name_prefab(prefab.path), "transform": xf}
+		var spawn := {"t": spawn_time(t), "prefab": model.name_prefab(prefab.path), "transform": xf}
 		if layer:
 			spawn["config"] = {"shader": model.name_shader(shader.path)}
 		spawn["id"] = model.free_id(_id_base(asset))

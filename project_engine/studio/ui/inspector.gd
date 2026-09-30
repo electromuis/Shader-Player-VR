@@ -1382,9 +1382,12 @@ func _pill(on: bool, on_toggle: Callable) -> Button:
 		if state.begins_with("hover"):
 			sb.bg_color = sb.bg_color.lightened(0.12)
 		b.add_theme_stylebox_override(state, sb)
-	b.add_theme_font_size_override("font_size", int(h * 0.8))
-	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
-		b.add_theme_color_override(c, Color.WHITE)
+	# The knob is drawn, not a "●" in the text: a glyph sits where the
+	# font's metrics put it, off the track's middle.
+	b.draw.connect(func():
+		var r := b.size.y / 2.0
+		var x := b.size.x - r if b.button_pressed else r
+		b.draw_circle(Vector2(x, r), r * 0.72, Color.WHITE if b.button_pressed else Color(0.85, 0.87, 0.9), true, -1.0, true))
 	_show_pill(b, on)
 	b.toggled.connect(func(v: bool):
 		_show_pill(b, v)
@@ -1394,8 +1397,7 @@ func _pill(on: bool, on_toggle: Callable) -> Button:
 
 static func _show_pill(b: Button, on: bool) -> void:
 	b.set_pressed_no_signal(on)
-	b.text = "●"
-	b.alignment = HORIZONTAL_ALIGNMENT_RIGHT if on else HORIZONTAL_ALIGNMENT_LEFT
+	b.queue_redraw()
 	b.tooltip_text = b.tooltip_text if b.tooltip_text != "" else "On / off"
 
 

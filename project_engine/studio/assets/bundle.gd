@@ -69,6 +69,94 @@ static func relative_to(path: String, dir: String) -> String:
 	return ""
 
 
+## `target` (absolute) named from `dir`: relative ("../clips/a.mp4"), or
+## as it is on another drive.
+static func path_from(dir: String, target: String) -> String:
+	var a := dir.simplify_path().trim_suffix("/").split("/")
+	var b := target.simplify_path().split("/")
+	if a[0].to_lower() != b[0].to_lower():
+		return target.simplify_path()
+	var i := 0
+	while i < a.size() and i < b.size() - 1 and a[i].to_lower() == b[i].to_lower():
+		i += 1
+	var parts: Array = []
+	for j in range(i, a.size()):
+		parts.append("..")
+	parts.append_array(b.slice(i))
+	return "/".join(parts)
+
+
+## A piece moving from `from_dir` to `to_dir` (Save as): the files its
+## document names inside its folder (prefabs, shaders with their includes,
+## images) are copied along to the same places, so the names stay; its
+## media, and files outside its folder ("../"), stay where they are and
+## are named from the new folder. `history`: the undo / redo changes
+## ({path, old, new}), named the same way so an undo doesn't bring back a
+## name from the old folder. Nothing is copied if a different file of the
+## same name is there already. {ok, doc, history, copied} or {ok: false,
+## error}.
+static func carry(doc: Dictionary, from_dir: String, to_dir: String, history: Array = []) -> Dictionary:
+	var files := {}  # relative path -> true: to copy
+	var moved := {}
+	for k in doc:
+		moved[k] = _carry(doc[k], k == "media", from_dir, to_dir, files)
+	var changes: Array = []
+	for c in history:
+		var in_media: bool = not c.path.is_empty() and c.path[0] == "media"
+		var d: Dictionary = c.duplicate()
+		d.old = _carry(c.old, in_media, from_dir, to_dir, files)
+		d.new = _carry(c.new, in_media, from_dir, to_dir, files)
+		changes.append(d)
+	for rel in files:
+		var dst := to_dir.path_join(rel)
+		if FileAccess.file_exists(dst) and FileAccess.get_file_as_bytes(dst) != FileAccess.get_file_as_bytes(from_dir.path_join(rel)):
+			return {"ok": false, "error": "Not saved: %s is in %s already, and isn't the piece's" % [rel, to_dir]}
+	var copied: Array = []
+	for rel in files:
+		var src := from_dir.path_join(rel)
+		var dst := to_dir.path_join(rel)
+		if FileAccess.file_exists(dst):
+			continue
+		DirAccess.make_dir_recursive_absolute(dst.get_base_dir())
+		var err := ""
+		if src.get_extension().to_lower() in PREFAB_EXTENSIONS:
+			if DirAccess.copy_absolute(src, dst) != OK:
+				err = "Could not copy %s" % rel
+		else:
+			err = _write_shader(src, dst)
+		if err != "":
+			return {"ok": false, "error": err}
+		copied.append(rel)
+	return {"ok": true, "doc": moved, "history": changes, "copied": copied}
+
+
+## `v` with the names of files to leave behind rewritten from `to_dir`;
+## the ones to copy go in `files`.
+static func _carry(v: Variant, in_media: bool, from_dir: String, to_dir: String, files: Dictionary) -> Variant:
+	match typeof(v):
+		TYPE_DICTIONARY:
+			var out := {}
+			for k in v:
+				out[k] = _carry(v[k], in_media, from_dir, to_dir, files)
+			return out
+		TYPE_ARRAY:
+			return v.map(func(x): return _carry(x, in_media, from_dir, to_dir, files))
+		TYPE_STRING:
+			var s: String = v
+			if s.get_extension() == "" or s.is_absolute_path() or s.contains("://") or s.begins_with("builtin:"):
+				return v
+			if in_media:  # named from the new folder, there or not
+				return path_from(to_dir, from_dir.path_join(s))
+			if not FileAccess.file_exists(from_dir.path_join(s)):
+				return v
+			var rel := relative_to(from_dir.path_join(s), from_dir)
+			if rel == "":
+				return path_from(to_dir, from_dir.path_join(s))
+			files[rel] = true
+			return rel
+	return v
+
+
 static func _same(src: String, dst: String, embed: bool) -> bool:
 	if embed:
 		return FileAccess.get_modified_time(dst) >= FileAccess.get_modified_time(src)

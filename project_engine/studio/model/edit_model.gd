@@ -215,7 +215,67 @@ func save(to_path: String = "") -> Dictionary:
 	if not valid.ok:
 		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % valid.error}
 	var text := _original_text if _undo.size() == _loaded_depth else to_text()
-	# Write next to it, then swap, so a failed write never leaves half a file.
+	var written := _write(target, text)
+	if written.ok and target == path:
+		_saved_depth = _undo.size()
+	return written
+
+
+## Save as `to_path` (a .json) and go on editing that file. In another
+## folder the piece's own files come along and its video is named from
+## there (StudioBundle.carry), so the copy plays as this one does; the
+## file it came from stays as it was last saved. {ok, copied (the files
+## copied along)} or {ok: false, error}.
+func save_as(to_path: String) -> Dictionary:
+	to_path = to_path.simplify_path()
+	if to_path.get_extension().to_lower() != "json":
+		return {"ok": false, "error": "A piece is saved as a .json file"}
+	if to_path.to_lower() == path.simplify_path().to_lower():
+		var r := save()
+		r["copied"] = []
+		return r
+	var now := check()  # before anything is copied
+	if not now.ok:
+		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % now.error}
+	var doc := _doc
+	var carried := {}
+	var from_dir := path.get_base_dir().simplify_path()
+	var to_dir := to_path.get_base_dir()
+	if from_dir != "" and from_dir.to_lower() != to_dir.to_lower():
+		var history: Array = []
+		for cmd in _undo + _redo:
+			history.append_array(cmd.changes)
+		carried = StudioBundle.carry(_doc, from_dir, to_dir, history)
+		if not carried.ok:
+			return carried
+		doc = carried.doc
+	var valid := ScriptFormat.load_from_dict(doc.duplicate(true), to_path)
+	if not valid.ok:
+		return {"ok": false, "error": "Not saved, the script would be invalid: %s" % valid.error}
+	var was := _doc
+	_doc = doc
+	DirAccess.make_dir_recursive_absolute(to_dir)
+	var text := to_text() if not carried.is_empty() or _undo.size() != _loaded_depth else _original_text
+	var written := _write(to_path, text)
+	if not written.ok:
+		_doc = was
+		return written
+	if not carried.is_empty():
+		var i := 0
+		for cmd in _undo + _redo:
+			for c in cmd.changes.size():
+				cmd.changes[c] = carried.history[i]
+				i += 1
+	path = to_path
+	_original_text = text
+	_loaded_depth = _undo.size()
+	_saved_depth = _undo.size()
+	return {"ok": true, "copied": carried.get("copied", [])}
+
+
+## Write `text` to `target`: next to it, then swapped in, so a failed
+## write never leaves half a file. {ok} or {ok: false, error}.
+static func _write(target: String, text: String) -> Dictionary:
 	var tmp := target + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
@@ -226,8 +286,6 @@ func save(to_path: String = "") -> Dictionary:
 	if err != OK:
 		DirAccess.remove_absolute(tmp)
 		return {"ok": false, "error": "Could not replace %s (error %d)" % [target, err]}
-	if target == path:
-		_saved_depth = _undo.size()
 	return {"ok": true}
 
 

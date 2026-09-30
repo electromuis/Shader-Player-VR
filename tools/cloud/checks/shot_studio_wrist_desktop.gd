@@ -177,11 +177,21 @@ func _initialize() -> void:
 	await key(KEY_TAB)
 	print("Tab back to Edit: ", state())
 
-	# The corner's tabs switch back and forth.
+	# The corner's tabs switch back and forth; the open one's tab closes it
+	# (TODO 74), and opens it again.
 	await click(studio.corner_tabs.get_child(0))
 	print("Status tab: ", state())
 	await click(studio.corner_tabs.get_child(0))
-	print("Status tab again (stays): ", state())
+	print("Status tab again (closes it): ", state())
+	await shot("3b_corner_closed")
+	await click(studio.corner_tabs.get_child(0))
+	print("Status tab again (opens it): ", state())
+	await click(studio.corner_tabs.get_child(1))
+	print("Wrist tab: ", state())
+	await click(studio.corner_tabs.get_child(1))
+	print("Wrist tab again (closes it): ", state())
+	await key(KEY_P)
+	print("P (opens the status): ", state())
 	await click(studio.corner_tabs.get_child(1))
 	print("Wrist tab: ", state())
 

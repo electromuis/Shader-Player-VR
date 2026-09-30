@@ -18,6 +18,7 @@ var _haptics: CheckButton
 var _autosave: CheckButton
 var _grid: CheckButton
 var _paths: CheckButton
+var _panels: Label  # which panels were moved or sized (↺ puts them back)
 var _resets: Dictionary = {}  # field -> ↺ button
 
 
@@ -45,6 +46,9 @@ func _ready() -> void:
 	_paths = _check("Faint paths for every animated object, not just the selection")
 	_paths.toggled.connect(func(on: bool): _apply(func(): _settings.all_paths = on))
 	_row("Motion paths", _paths, "all_paths")
+	_panels = Label.new()
+	_panels.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_row("Panel places", _panels, "panels")
 	var reload := Button.new()
 	reload.text = "Reload shaders"
 	reload.tooltip_text = "Read every shader and image file again, to see edits made while Studio runs"
@@ -82,6 +86,8 @@ func _refresh() -> void:
 	_autosave.button_pressed = _settings.autosave
 	_grid.button_pressed = _settings.floor_grid
 	_paths.button_pressed = _settings.all_paths
+	var moved: Array = _settings.panels.keys()
+	_panels.text = "Moved or sized: %s" % ", ".join(moved) if not moved.is_empty() else "Where Studio puts them (drag a title bar or an edge to change it)"
 	for field in _resets:
 		(_resets[field] as Button).disabled = _settings.is_default(field)
 	_refreshing = false

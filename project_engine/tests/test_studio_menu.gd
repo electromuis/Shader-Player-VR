@@ -12,7 +12,7 @@ static func test_settings_save_and_reset(tc: TestCase) -> void:
 	DirAccess.remove_absolute(PATH)
 	var s := StudioSettings.new(PATH)
 	s.load_from_disk()
-	tc.assert_eq(s.to_dict(), {"kind": "studio_settings", "key_mode": "off", "haptics": true, "autosave": true, "floor_grid": true, "all_paths": true}, "defaults with no file")
+	tc.assert_eq(s.to_dict(), {"kind": "studio_settings", "key_mode": "off", "haptics": true, "autosave": true, "floor_grid": true, "all_paths": true, "panels": {}}, "defaults with no file")
 	var changes := [0]
 	s.changed.connect(func(): changes[0] += 1)
 	s.key_mode = "animated"
@@ -32,6 +32,36 @@ static func test_settings_save_and_reset(tc: TestCase) -> void:
 	var again := StudioSettings.new(PATH)
 	again.load_from_disk()
 	tc.assert_true(again.haptics, "the reset is saved")
+	DirAccess.remove_absolute(PATH)
+
+
+## Where panels were put (TODO 75): saved one value at a time, read back,
+## forgotten one at a time, and all put back by ↺.
+static func test_panel_places(tc: TestCase) -> void:
+	DirAccess.remove_absolute(PATH)
+	var s := StudioSettings.new(PATH)
+	tc.assert_true(s.is_default("panels"), "none moved")
+	tc.assert_eq(s.panel_value("inspector", "rect"), null)
+	s.set_panel_value("inspector", "rect", [10.0, 20.0, 400.0, 600.0])
+	s.set_panel_value("inspector", "vr_at", [0.3, -0.1, -0.7])
+	s.set_panel_value("shelf", "vr_size", [1000.0, 700.0])
+	var back := StudioSettings.new(PATH)
+	back.load_from_disk()
+	tc.assert_eq(back.panel_value("inspector", "rect"), [10.0, 20.0, 400.0, 600.0], "read back")
+	tc.assert_eq(back.panel_value("shelf", "vr_size"), [1000.0, 700.0])
+	tc.assert_false(back.is_default("panels"))
+	back.set_panel_value("shelf", "vr_size", null)
+	tc.assert_eq(back.panels.keys(), ["inspector"], "a panel with nothing saved is dropped")
+	back.reset("panels")
+	tc.assert_true(back.is_default("panels"), "↺")
+	back.set_panel_value("timeline", "rect", [1.0, 2.0, 3.0, 4.0])
+	tc.assert_eq(StudioSettings.DEFAULTS.panels, {}, "the default isn't changed by a later save")
+	var junk := FileAccess.open(PATH, FileAccess.WRITE)
+	junk.store_string('{"kind": "studio_settings", "panels": [1, 2]}')
+	junk.close()
+	var bad := StudioSettings.new(PATH)
+	bad.load_from_disk()
+	tc.assert_eq(bad.panels, {}, "not an object: none")
 	DirAccess.remove_absolute(PATH)
 
 

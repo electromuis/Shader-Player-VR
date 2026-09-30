@@ -18,8 +18,9 @@ extends PanelContainer
 ## works out itself when it's inside a SubViewport).
 
 signal said(text: String)
+## ✕ : hide the panel, leaving its tab (the wrist's Inspector button).
 signal close_requested
-## – : fold the panel to its tab (the wrist's Inspector button).
+## – : fold the panel to its title bar in place (again: unfold it).
 signal minimize_requested
 ## A Studio command from a button here (the viewer's: key it, cut, arm the
 ## ride).
@@ -77,6 +78,8 @@ var _picker_open := ""  # field key whose colour wheel is open
 var _reveal := ""  # field key (or "add_effect") to scroll into view after the next build
 var _viewer_state: Label  # the viewer's panel: where it is and how fast it goes
 
+## Its title bar and edges (StudioPanelFrame): Studio moves and sizes it.
+var frame: StudioPanelFrame
 var _title: Label
 var _kind: Label
 var _legend: Label
@@ -120,28 +123,33 @@ func _ready() -> void:
 	_title.clip_text = true
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var fold := _button("—", func(): minimize_requested.emit())
-	fold.tooltip_text = "Fold to a tab (N brings it back)"
 	var close := _button("✕", func(): close_requested.emit())
-	close.tooltip_text = "Deselect"
+	close.tooltip_text = "Hide it (its tab, or N, brings it back)"
 	for b in [fold, close]:
 		if vr:
 			b.custom_minimum_size = Vector2(_target_h(), _target_h())
 		top.add_child(b)
+	# Under the title bar: what folds away.
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6 if vr else 3)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rows.add_child(body)
+	frame = StudioPanelFrame.new(self, top, body, fold, vr)
 	# Its kind, its group and when it's there; the key legend at the right.
 	var sub := HBoxContainer.new()
-	rows.add_child(sub)
+	body.add_child(sub)
 	_kind = _label(sub, int(_fs * 0.9), DIM)
 	_kind.clip_text = true
 	_kind.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_legend = _label(sub, int(_fs * 0.9), DIM)
 	_legend.text = "◆ key here  ◇ animated"
-	_hint = _label(rows, int(_fs * 0.9), DIM)
+	_hint = _label(body, int(_fs * 0.9), DIM)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	_scroll = ScrollContainer.new()
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	rows.add_child(_scroll)
+	body.add_child(_scroll)
 	# Room on the right for the scrollbar, which is drawn over the list.
 	var pad := MarginContainer.new()
 	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -8,6 +8,8 @@ extends PanelContainer
 ## player's Performance tab (its rows select the object).
 
 signal close_requested
+## – : fold the menu to its title bar in place (again: unfold it).
+signal minimize_requested
 
 const PLAYER_CONTENT := preload("res://player/ui/floating_panel_content.gd")
 const CONFIG_TAB := preload("res://player/ui/config_tab.gd")
@@ -26,6 +28,8 @@ const CONTROL_SECTIONS := [
 const ACCENT := Color(0.3, 0.79, 0.94)
 
 var tabs: TabContainer
+## Its title bar and edges (StudioPanelFrame): Studio moves and sizes it.
+var frame: StudioPanelFrame
 var config_tab: Node
 var controls_tab: Node
 var studio_tab: Node
@@ -57,14 +61,22 @@ func _ready() -> void:
 	how.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 	how.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(how)
+	var fold := Button.new()
+	fold.custom_minimum_size = Vector2(44, 36)
+	fold.focus_mode = Control.FOCUS_NONE
+	fold.pressed.connect(minimize_requested.emit)
+	head.add_child(fold)
 	var close := Button.new()
 	close.text = "✕"
 	close.custom_minimum_size = Vector2(44, 36)
+	close.focus_mode = Control.FOCUS_NONE
+	close.tooltip_text = "Close the menu (F2 opens it)"
 	close.pressed.connect(close_requested.emit)
 	head.add_child(close)
 	tabs = TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(tabs)
+	frame = StudioPanelFrame.new(self, margin, tabs, fold, get_viewport() != get_tree().root)
 	config_tab = _tab("Config", CONFIG_TAB)
 	config_tab.hide_rows(HIDDEN_CONFIG_ROWS)
 	controls_tab = _tab("Controls", CONTROLS_TAB)

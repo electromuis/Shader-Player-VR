@@ -165,14 +165,30 @@ func is_seeking() -> bool:
 
 
 ## The audio player's position, plus time since its last mix, minus the
-## output latency: the sound being heard now.
+## output latency: the sound being heard now. Only while it's within
+## CATCH_UP_SEEK of the picture, which _follow_sound keeps it to: after a
+## seek the sound sometimes starts from the wrong place (on some files
+## gde_gozen's audio seek lands near 0) until the resync moves it, and the
+## timeline, following this, jumped there and back (TODO 78).
 func audio_seconds() -> float:
 	if not _loaded or _seek_task != -1 or not _vp.is_playing:
 		return -1.0
 	var ap: AudioStreamPlayer = _vp.audio_player
 	if ap == null or ap.stream == null or not ap.playing or ap.stream_paused:
 		return -1.0
-	return ap.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency()
+	var fps: float = _vp.get_video_framerate()
+	if fps <= 0.0:
+		return -1.0
+	var sound := ap.get_playback_position() + AudioServer.get_time_since_last_mix()
+	if absf(sound - _picture_seconds(fps)) > CATCH_UP_SEEK:
+		return -1.0
+	return sound - AudioServer.get_output_latency()
+
+
+## The picture's own clock: the reckoning VideoPlayback.play() starts the
+## sound with, plus the time owed to the next frame.
+func _picture_seconds(fps: float) -> float:
+	return (_vp.current_frame + 1) / fps + _vp._time_elapsed
 
 
 func is_playing() -> bool:
@@ -348,9 +364,7 @@ func _follow_sound(delta: float) -> void:
 	var fps: float = _vp.get_video_framerate()
 	if fps <= 0.0:
 		return
-	# The same reckoning VideoPlayback.play() starts the sound with, plus
-	# the time owed to the next frame: the picture's own clock.
-	var picture: float = (_vp.current_frame + 1) / fps + _vp._time_elapsed + delta
+	var picture: float = _picture_seconds(fps) + delta
 	var sound := player.get_playback_position() + AudioServer.get_time_since_last_mix()
 	var behind := sound - picture
 	if behind > CATCH_UP_SEEK:

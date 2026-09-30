@@ -64,6 +64,10 @@ extends RefCounted
 ##                               the effect reads the last as `prepass_tex`
 ##                               (Glow (fast soften) blurs its halo there)
 ##   A pass count changing with the params rebuilds the Screen's passes.
+##   // @idle radius <= 0.0    — true where the effect gives the picture
+##                               back unchanged (is_idle): Screen then
+##                               leaves it out of the chain, as at mix 0,
+##                               so a slider at 0 costs nothing
 ##   uniform float x : hint_range(0.0, 1.0, 0.01) = 0.5;
 ##                             — a slider in the Camera tab (int too); a
 ##                               plain `uniform bool` gets a checkbox
@@ -126,7 +130,7 @@ const MAX_REACH := 4.0
 const MAX_PASSES := 16
 ## The hints whose value is an expression over the effect's params (see
 ## eval_hint).
-const EXPRESSION_HINTS := ["reach", "passes", "prepass_passes"]
+const EXPRESSION_HINTS := ["reach", "passes", "prepass_passes", "idle"]
 ## eval_hint results kept per shader before starting over.
 const MAX_CACHED_RESULTS := 256
 const GLOW := "res://player/visualizer/effects/glow.gdshader"
@@ -520,6 +524,12 @@ static func reach_of(key: String, params: Dictionary, aspect: float) -> Vector2:
 		_:
 			return Vector2.ZERO
 	return (v as Vector2).clamp(Vector2.ZERO, Vector2.ONE * MAX_REACH)
+
+
+## Whether the effect at `key` leaves the picture as it is with `params`
+## (missing ones at their defaults): its `@idle` holds. False without one.
+static func is_idle(key: String, params: Dictionary) -> bool:
+	return eval_hint(key, "idle", params) == true
 
 
 ## How many passes the effect at `key` runs with `params` (its `@passes`;

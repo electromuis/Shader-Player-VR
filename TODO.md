@@ -57,6 +57,9 @@ Open tasks carry a rough difficulty, **[D1]** (minutes to an hour) to **[D5]** (
 - [x] 68. The wrist menu in desktop mode (open it with a key or a button and click it with the mouse). Done 2026-09-29 in 48e53a7, moved in a1e3472: the desktop's top left corner shows the status or the wrist palette (`Studio.wrist_2d`), switched by *Status* / *▦ Wrist palette* tabs over it or P; clicked with the mouse (drag across it for page 2); the shelf moves under it; checked with `checks/shot_studio_wrist_desktop.gd`, render `docs/studio/wrist_desktop.png`.
 - [ ] 69. **[D2]** Bug: a shader dragged in from the shelf sometimes gets its spawn (its existence bar on the timeline) a little after the playhead, so it doesn't show until you press play. It should spawn at the playhead, or the paused view should show it.
 - [ ] 71. **[D1]** Performance tab: render `checks/shot_studio_perf.gd` (it wasn't, the user was in the headset), check the numbers against the FPS on a heavy piece, and in the headset that the view's time covers both eyes and the probe's blinking is acceptable.
+- [ ] 72. **[D1]** Groups / outliner (TODO 14, 15) follow-up before merging `groups-outliner`: re-run the Studio checks the change touches (`drive_studio_m2.gd`, `drive_studio_m8.gd` with its panel legibility, `shot_studio_wrist*.gd`, `shot_studio_panels.gd`: the wrist's Outliner tile replaced Key it, the status got an Outliner tab, picking resolves members to a selected group), then update README (Studio controls: O, Ctrl+G, Ctrl+Shift+G; the wrist tile), the plan (*Done* and group 6 of *To do*) and copy the renders to `docs/studio/outliner_*.png`.
+- [ ] 73. **[D2]** Grouping and the ScreenMount: top-level screens, layers and groups live in the mount (the viewer's screen size / distance), cubes and prefabs in World; grouping a cube with screens, or dragging it into a group, moves it by the mount's offset when that setting isn't at its default. Decide: convert with the live nodes' transforms, or keep groups out of the mount.
+- [ ] 74. **[D3]** Outliner extras from the design: rename a row (system keyboard), drop an object on a group in the world or from the shelf onto a group, an empty Group card on the shelf, and ungrouping an animated group that bakes its motion into the members instead of dropping it.
 
 ## Player
 
@@ -89,3 +92,4 @@ Open tasks carry a rough difficulty, **[D1]** (minutes to an hour) to **[D5]** (
 - [ ] 49. **[D3]** Camera effects per eye (multiview), and their frame-time cost.
 - [ ] 50. **[D2]** forest_tunnel comfort: the fades, and whether the columns' fly-by at 68–76 s is too close.
 - [ ] 51. **[D3]** M8's test: a first-time user places, keys and plays back a screen in 10 minutes unaided.
+- [ ] 75. **[D2]** The outliner in the headset: dragging rows with the laser, the pick boxes' size (the ☐ glyph draws small), and its place to the off-hand side (40°, 80° with the shelf open).

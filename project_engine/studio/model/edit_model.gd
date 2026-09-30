@@ -399,6 +399,24 @@ func set_spawn_transform(id: String, transform: Dictionary) -> bool:
 	return _do("Move %s" % id, true, changes)
 
 
+## Whether `id` is locked: hands and the move gizmo leave it where it is
+## (its first spawn's `"locked": true`; an editor flag, the player ignores it).
+func is_locked(id: String) -> bool:
+	var i := spawn_index(id)
+	return i >= 0 and tracks()[i].get("locked", false) == true
+
+
+## Lock or unlock `id` (every spawn of it). False if it has no spawn or
+## already is.
+func set_locked(id: String, on: bool) -> bool:
+	var changes: Array = []
+	for i in spawn_indices(id):
+		changes.append(_change(["tracks", i, "locked"], true) if on else _removal(["tracks", i, "locked"]))
+	if changes.is_empty():
+		return false
+	return _do(("Lock %s" if on else "Unlock %s") % id, false, changes)
+
+
 ## Replace track `ti`'s keys (e.g. a path shifted as a whole).
 func set_keyframes(ti: int, kfs: Array, label: String = "") -> bool:
 	if _keyframes(ti) == null or kfs.is_empty():

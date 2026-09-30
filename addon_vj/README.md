@@ -250,7 +250,9 @@ godot --headless --path <empty project> --script res://addons/vj_editor/importer
 ```
 
 Everything the exporter writes imports exactly, so exporting an imported
-script gives the same script. Hand-written scripts can say a few things a
+script gives the same script. An object Studio locked (`"locked": true`)
+imports with Godot's own lock on its node (the padlock in the Scene dock),
+and a locked node exports locked. Hand-written scripts can say a few things a
 scene can't; the importer converts them and lists each in the Output panel:
 
 - a track mixing interpolations, or using `ease`, becomes Bezier tracks with

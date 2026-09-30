@@ -495,7 +495,7 @@ static func _vec_of(r: Dictionary) -> Array:
 ## A row per channel: its name (click it for a slider per axis), x / y / z
 ## numbers to type in (or drag), its diamond; Uniform under scale.
 func _add_transform() -> void:
-	var body := _add_section("Transform", "Transform", [], Callable(), false, "position · rotation · scale")
+	var body := _add_section("Transform", "Transform", [], _add_lock, false, "position · rotation · scale")
 	if not body.visible:
 		return
 	for ch in StudioConfigEdits.CHANNELS:
@@ -574,6 +574,18 @@ func _add_transform() -> void:
 
 
 ## A number field for a transform axis (type, drag it sideways, or its arrows).
+## The Transform header's lock: "Locked" and a switch. Locked, hands and
+## the move gizmo leave the object where it is; the numbers here still move it.
+func _add_lock(head: HBoxContainer) -> void:
+	var locked := tools.is_locked(_id)
+	var name := _label(head, int(_fs * 0.9), ACCENT if locked else DIM)
+	name.text = "Locked" if locked else "Lock"
+	var sw := _pill(locked, func(on: bool): tools.set_locked(_id, on))
+	sw.tooltip_text = "Lock its place: hands and the move gizmo can't move it (the numbers below still can)"
+	sw.name = "LockSwitch"
+	head.add_child(sw)
+
+
 func _number(ch: String) -> SpinBox:
 	var s := SpinBox.new()
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL

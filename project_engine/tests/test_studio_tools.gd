@@ -149,6 +149,65 @@ static func test_runner_leaves_held_objects_alone(tc: TestCase) -> void:
 	runner.free()
 
 
+static func test_along_an_axis(tc: TestCase) -> void:
+	# The x axis through (0, 1, -3); looking from (0, 1, 0).
+	var o := Vector3(0, 1, -3)
+	var eye := Vector3(0, 1, 0)
+	var s := GrabMath.along_axis(o, Vector3.RIGHT, eye, (Vector3(2, 1, -3) - eye).normalized())
+	tc.assert_true(is_equal_approx(s, 2.0), "the ray through x = 2 crosses it there: %s" % s)
+	var above := Vector3(0, 2, 0)
+	s = GrabMath.along_axis(o, Vector3.RIGHT, above, (Vector3(-1.5, 2, -3) - above).normalized())
+	tc.assert_true(is_equal_approx(s, -1.5), "passing above it: the nearest point, %s" % s)
+	tc.assert_true(is_nan(GrabMath.along_axis(o, Vector3.BACK, eye, Vector3.FORWARD)), "looking along it: nothing")
+	tc.assert_true(is_nan(GrabMath.along_axis(o, Vector3.BACK, eye, Vector3(0.1, 0, -1).normalized())), "nearly along it: nothing")
+	# The shaft from x = 0.3 to 1: a ray 5 cm above its middle misses by 5 cm.
+	var r := GrabMath.ray_to_segment(eye, (Vector3(0.6, 1.05, -3) - eye).normalized(), o + Vector3(0.3, 0, 0), o + Vector3(1, 0, 0))
+	tc.assert_true(absf(r.miss - 0.05) < 0.002, "miss %s" % r.miss)
+	r = GrabMath.ray_to_segment(eye, (Vector3(2, 1, -3) - eye).normalized(), o + Vector3(0.3, 0, 0), o + Vector3(1, 0, 0))
+	tc.assert_true(absf(r.miss - 3.0 / sqrt(13.0)) < 1e-4, "past its tip: from the tip, %s" % r.miss)
+	r = GrabMath.ray_to_segment(eye, Vector3.BACK, o, o + Vector3.RIGHT)
+	tc.assert_eq(r.miss, INF, "behind the ray")
+	r = GrabMath.ray_to_segment(Vector3(0, 1, 5), Vector3.FORWARD, Vector3(0, 1, 1), Vector3(0, 1, 0))
+	tc.assert_true(r.miss < 1e-5 and is_equal_approx(r.along, 4.0), "end on: its nearer end, %s" % r)
+
+
+static func test_lock(tc: TestCase) -> void:
+	var path := "user://test_studio_lock.json"
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify({"format_version": 2, "media": {"video": "v.mp4", "duration": 30.0},
+			"prefabs": {"group": "res://player/prefabs/group.tscn"},
+			"tracks": [{"type": "event", "t": 0.0, "action": "spawn", "id": "rig", "prefab": "group"},
+				{"type": "event", "t": 5.0, "action": "despawn", "target": "rig"},
+				{"type": "event", "t": 8.0, "action": "spawn", "id": "rig", "prefab": "group"}]}))
+	f.close()
+	var m: EditModel = EditModel.open(path).model
+	tc.assert_false(m.is_locked("rig"))
+	tc.assert_true(m.set_locked("rig", true))
+	tc.assert_eq(m.undo_label(), "Lock rig")
+	tc.assert_true(m.is_locked("rig"))
+	tc.assert_eq(m.spawn_indices("rig").map(func(i): return m.tracks()[i].get("locked")), [true, true], "every spawn of it")
+	tc.assert_false(m.set_locked("rig", true), "already locked: no step")
+	tc.assert_false(m.set_locked("nobody", true))
+	tc.assert_true(m.check().ok, "valid: %s" % m.check())
+	var tools := StudioEditTools.new()
+	tools.model = m
+	tools.runner = ScriptRunner.new()
+	tools.selected = "rig"
+	tc.assert_eq(tools.gizmo(Vector3.ZERO), {}, "no gizmo on it")
+	tc.assert_eq(tools.pick_axis(Vector3(0, 0, 5), Vector3.FORWARD), -1)
+	tc.assert_eq(tools.pick_key(Vector3(0, 0, 5), Vector3.FORWARD), {}, "nor its path's keys")
+	tc.assert_eq(tools.set_locked("rig", false), "Unlock rig")
+	tc.assert_false(m.is_locked("rig"))
+	tc.assert_false(m.spawn_indices("rig").any(func(i): return m.tracks()[i].has("locked")), "the flag goes")
+	m.undo()
+	tc.assert_true(m.is_locked("rig"), "undo locks it again")
+	var d := m.document().duplicate(true)
+	d.tracks[m.spawn_index("rig")].locked = "yes"
+	tc.assert_false(ScriptFormat.load_from_dict(d).ok, "locked is true or false")
+	tools.runner.free()
+	tools.free()
+
+
 static func _box_node(pos: Vector3, size: Vector3) -> Node3D:
 	var root := Node3D.new()
 	root.position = pos

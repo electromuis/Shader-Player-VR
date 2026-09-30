@@ -8,7 +8,7 @@ rings = 1
 cap_top = false
 cap_bottom = false
 
-[sub_resource type="Shader" id="Shader_t4ofv"]
+[sub_resource type="Shader" id="Shader_1ttit"]
 code = "// Light tunnel: glowing rings that rush past plus streaks running along the
 // tube. Drawn from inside a long open cylinder (UV.x = around, UV.y = along).
 //
@@ -42,15 +42,15 @@ void fragment() {
 [sub_resource type="ShaderMaterial" id="ShaderMat_tunnel"]
 resource_local_to_scene = true
 render_priority = 0
-shader = SubResource("Shader_t4ofv")
-shader_parameter/color_a = null
-shader_parameter/color_b = null
-shader_parameter/scroll = null
-shader_parameter/ring_count = null
-shader_parameter/ring_width = null
-shader_parameter/streaks = null
-shader_parameter/intensity = null
-shader_parameter/far_fade = null
+shader = SubResource("Shader_1ttit")
+shader_parameter/color_a = Color(0.1, 0.55, 1, 1)
+shader_parameter/color_b = Color(1, 0.25, 0.85, 1)
+shader_parameter/scroll = 0.0
+shader_parameter/ring_count = 100.0
+shader_parameter/ring_width = 0.08
+shader_parameter/streaks = 18.0
+shader_parameter/intensity = 1.4
+shader_parameter/far_fade = 0.15
 
 [node name="Tunnel" type="MeshInstance3D"]
 cast_shadow = 0

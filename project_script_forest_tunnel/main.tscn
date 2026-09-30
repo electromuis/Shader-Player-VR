@@ -1,20 +1,20 @@
 [gd_scene format=3 uid="uid://b7em8fbpnknp4"]
 
-[ext_resource type="Script" uid="uid://cwyvo51e8onh3" path="res://addons/vj_editor/builtin_prefabs/vj_scene.gd" id="1_vjscene"]
+[ext_resource type="Script" uid="uid://cop0gxyoj12dg" path="res://addons/vj_editor/builtin_prefabs/vj_scene.gd" id="1_vjscene"]
 [ext_resource type="PackedScene" path="res://addons/vj_editor/builtin_prefabs/screen.tscn" id="2_screen"]
-[ext_resource type="Script" uid="uid://dnjr3e2yuv123" path="res://addons/vj_editor/builtin_prefabs/vj_viewer.gd" id="3_viewer"]
-[ext_resource type="Shader" path="res://addons/vj_editor/visualizer/effects/glow.gdshader" id="4_glow"]
-[ext_resource type="Shader" path="res://addons/vj_editor/visualizer/effects/crop.gdshader" id="4_crop"]
-[ext_resource type="Shader" uid="uid://b87gtdwampqow" path="res://prefabs/tunnel.gdshader" id="5_272bh"]
+[ext_resource type="Script" uid="uid://vggfj2j2mdby" path="res://addons/vj_editor/builtin_prefabs/vj_viewer.gd" id="3_viewer"]
+[ext_resource type="Shader" uid="uid://dm6te84nu4r8j" path="res://addons/vj_editor/visualizer/effects/crop.gdshader" id="4_crop"]
+[ext_resource type="Shader" uid="uid://cesuaa6vm1nmh" path="res://addons/vj_editor/visualizer/effects/glow.gdshader" id="4_glow"]
+[ext_resource type="Shader" uid="uid://dy7hpqolyedem" path="res://prefabs/tunnel.gdshader" id="5_272bh"]
 [ext_resource type="PackedScene" uid="uid://egs4wurlwf5k" path="res://prefabs/forest.tscn" id="5_forest"]
 [ext_resource type="PackedScene" path="res://prefabs/tunnel.tscn" id="6_tunnel"]
 [ext_resource type="PackedScene" path="res://addons/vj_editor/builtin_prefabs/layer.tscn" id="7_layer"]
-[ext_resource type="Shader" uid="uid://d3llbto74u7wv" path="res://addons/vj_editor/visualizer/effects/oval_mask.gdshader" id="9_oval"]
-[ext_resource type="Shader" uid="uid://3b6dm852iaru" path="res://addons/vj_editor/visualizer/effects/edge_blur.gdshader" id="10_edgeblur"]
-[ext_resource type="Shader" path="res://addons/vj_editor/visualizer/effects/blur.gdshader" id="11_blur"]
-[ext_resource type="Script" uid="uid://biwk046d6nrum" path="res://addons/vj_editor/builtin_prefabs/effect.gd" id="11_vivmo"]
-[ext_resource type="Shader" uid="uid://oq31qfgtv8g5" path="res://addons/vj_editor/visualizer/shaders/light_ring.gdshader" id="12_lightring"]
-[ext_resource type="Script" uid="uid://0fy4no8um8td" path="res://addons/vj_editor/modifiers/vj_object.gd" id="13_vjobject"]
+[ext_resource type="Shader" uid="uid://dd2skal036rn6" path="res://addons/vj_editor/visualizer/effects/oval_mask.gdshader" id="9_oval"]
+[ext_resource type="Shader" uid="uid://bbacvn0v4qabe" path="res://addons/vj_editor/visualizer/effects/edge_blur.gdshader" id="10_edgeblur"]
+[ext_resource type="Shader" uid="uid://djxoc8yu2nv1q" path="res://addons/vj_editor/visualizer/effects/blur.gdshader" id="11_blur"]
+[ext_resource type="Script" uid="uid://bvywmd73qc7vc" path="res://addons/vj_editor/builtin_prefabs/effect.gd" id="11_vivmo"]
+[ext_resource type="Shader" uid="uid://dikhdwfc6h6pi" path="res://addons/vj_editor/visualizer/shaders/light_ring.gdshader" id="12_lightring"]
+[ext_resource type="Script" uid="uid://buontjhesbmsh" path="res://addons/vj_editor/modifiers/vj_object.gd" id="13_vjobject"]
 
 [sub_resource type="Environment" id="Env_preview"]
 background_mode = 1
@@ -23,7 +23,7 @@ ambient_light_source = 2
 ambient_light_color = Color(0.25, 0.3, 0.4, 1)
 ambient_light_energy = 0.6
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_2cqfq"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_vivmo"]
 resource_local_to_scene = true
 render_priority = 0
 shader = ExtResource("5_272bh")
@@ -465,7 +465,7 @@ tracks/36/interp = 1
 tracks/36/loop_wrap = true
 tracks/36/keys = {
 "handle_modes": PackedInt32Array(2, 2, 2, 2),
-"points": PackedFloat32Array(0.16666667, -2, -8.278423e-05, 2, 8.278423e-05, 0.2777778, -2, -0.028497644, 6.6666665, 0.094992145, 0.2777778, -6.6666665, 0.066194275, 2.6666667, -0.0264777075, 0.16666667, -2.6666667, 8.8303185e-05, 2.6666667, -8.8303185e-05),
+"points": PackedFloat32Array(0.16666667, -2, -8.278423e-05, 2, 8.278423e-05, 0.2777778, -2, -0.028497644, 6.6666665, 0.094992146, 0.2777778, -6.6666665, 0.06619427, 2.6666667, -0.026477708, 0.16666667, -2.6666667, 8.830318e-05, 2.6666667, -8.830318e-05),
 "times": PackedFloat32Array(104, 110, 130, 138)
 }
 tracks/37/type = "bezier"
@@ -476,7 +476,7 @@ tracks/37/interp = 1
 tracks/37/loop_wrap = true
 tracks/37/keys = {
 "handle_modes": PackedInt32Array(2, 2, 2, 2),
-"points": PackedFloat32Array(0.5, -2, -0.00024283375, 2, 0.00024283375, 0.83333335, -2, -0.08549293, 6.6666665, 0.28497645, 0.83333335, -6.6666665, 0.1985497, 2.6666667, -0.07941988, 0.5, -2.6666667, 0.00025387165, 2.6666667, -0.00025387165),
+"points": PackedFloat32Array(0.5, -2, -0.00024283375, 2, 0.00024283375, 0.8333334, -2, -0.08549293, 6.6666665, 0.28497645, 0.8333334, -6.6666665, 0.1985497, 2.6666667, -0.07941988, 0.5, -2.6666667, 0.00025387164, 2.6666667, -0.00025387164),
 "times": PackedFloat32Array(104, 110, 130, 138)
 }
 tracks/38/type = "bezier"
@@ -487,7 +487,7 @@ tracks/38/interp = 1
 tracks/38/loop_wrap = true
 tracks/38/keys = {
 "handle_modes": PackedInt32Array(2, 2, 2, 2),
-"points": PackedFloat32Array(0.5, -2, -0.00024283375, 2, 0.00024283375, 0.83333335, -2, -0.08549293, 6.6666665, 0.28497645, 0.83333335, -6.6666665, 0.1985497, 2.6666667, -0.07941988, 0.5, -2.6666667, 0.00025387165, 2.6666667, -0.00025387165),
+"points": PackedFloat32Array(0.5, -2, -0.00024283375, 2, 0.00024283375, 0.8333334, -2, -0.08549293, 6.6666665, 0.28497645, 0.8333334, -6.6666665, 0.1985497, 2.6666667, -0.07941988, 0.5, -2.6666667, 0.00025387164, 2.6666667, -0.00025387164),
 "times": PackedFloat32Array(104, 110, 130, 138)
 }
 tracks/39/type = "bezier"
@@ -729,35 +729,63 @@ _data = {
 &"main": SubResource("Animation_main")
 }
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_yaehf"]
-resource_local_to_scene = true
-shader = ExtResource("4_glow")
-shader_parameter/intensity = 1.6
-shader_parameter/radius = 0.64
-shader_parameter/power = 2.0
-shader_parameter/tint = Color(1, 1, 1, 1)
-shader_parameter/inner_strength = 0.55
-shader_parameter/inner_width = 0.18
-
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_074og"]
 resource_local_to_scene = true
 shader = ExtResource("11_blur")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/radius = 0.065
+shader_parameter/pass_scale = 0.5
+shader_parameter/pass_index = 0
+shader_parameter/pass_count = 1
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_82xsv"]
 resource_local_to_scene = true
 shader = ExtResource("9_oval")
 shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/outside = true
 shader_parameter/size = 0.44
 shader_parameter/ratio = 1.7
 shader_parameter/blur = 0.23
 shader_parameter/level = 0.0
 
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_yaehf"]
+resource_local_to_scene = true
+shader = ExtResource("4_glow")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
+shader_parameter/prepass_scale = 0.35
+shader_parameter/prepass = false
+shader_parameter/pass_index = 0
+shader_parameter/pass_count = 1
+shader_parameter/intensity = 1.6
+shader_parameter/tint = Color(1, 1, 1, 1)
+shader_parameter/radius = 0.64
+shader_parameter/mirror = 0.5
+shader_parameter/diffuse = 0.0
+shader_parameter/repeat = 0.0
+shader_parameter/smear = 0.1
+shader_parameter/bloom = 2.0
+shader_parameter/saturation = 1.0
+shader_parameter/blur = 0.25
+shader_parameter/border_blur = 1.0
+shader_parameter/soften = 0.0
+shader_parameter/samples = 24
+shader_parameter/edge_width = 0.08
+shader_parameter/edge_brighten = 0.3
+shader_parameter/edge_fade = 1.0
+shader_parameter/fade_width = 0.05
+
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_ryguw"]
 resource_local_to_scene = true
 shader = ExtResource("9_oval")
 shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/outside = true
 shader_parameter/size = 0.56
 shader_parameter/ratio = 1.85
@@ -768,12 +796,20 @@ shader_parameter/level = 0.0
 resource_local_to_scene = true
 shader = ExtResource("10_edgeblur")
 shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/inward = false
 shader_parameter/radius = 0.08
+shader_parameter/pass_scale = 0.5
+shader_parameter/pass_index = 0
+shader_parameter/pass_count = 1
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_crop_left"]
 resource_local_to_scene = true
 shader = ExtResource("4_crop")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/left = 0.0
 shader_parameter/top = 0.0
 shader_parameter/width = 0.33333334
@@ -782,16 +818,37 @@ shader_parameter/height = 1.0
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_1u8w0"]
 resource_local_to_scene = true
 shader = ExtResource("4_glow")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
+shader_parameter/prepass_scale = 0.35
+shader_parameter/prepass = false
+shader_parameter/pass_index = 0
+shader_parameter/pass_count = 1
 shader_parameter/intensity = 0.0
-shader_parameter/radius = 0.64
-shader_parameter/power = 2.0
 shader_parameter/tint = Color(1, 1, 1, 1)
-shader_parameter/inner_strength = 0.0
-shader_parameter/inner_width = 0.18
+shader_parameter/radius = 0.64
+shader_parameter/mirror = 0.5
+shader_parameter/diffuse = 0.0
+shader_parameter/repeat = 0.0
+shader_parameter/smear = 0.1
+shader_parameter/bloom = 2.0
+shader_parameter/saturation = 1.0
+shader_parameter/blur = 0.25
+shader_parameter/border_blur = 1.0
+shader_parameter/soften = 0.0
+shader_parameter/samples = 24
+shader_parameter/edge_width = 0.08
+shader_parameter/edge_brighten = 0.3
+shader_parameter/edge_fade = 1.0
+shader_parameter/fade_width = 0.05
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_crop_center"]
 resource_local_to_scene = true
 shader = ExtResource("4_crop")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/left = 0.33333334
 shader_parameter/top = 0.0
 shader_parameter/width = 0.33333334
@@ -800,16 +857,37 @@ shader_parameter/height = 1.0
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0odxb"]
 resource_local_to_scene = true
 shader = ExtResource("4_glow")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
+shader_parameter/prepass_scale = 0.35
+shader_parameter/prepass = false
+shader_parameter/pass_index = 0
+shader_parameter/pass_count = 1
 shader_parameter/intensity = 0.0
-shader_parameter/radius = 0.64
-shader_parameter/power = 2.0
 shader_parameter/tint = Color(1, 1, 1, 1)
-shader_parameter/inner_strength = 0.0
-shader_parameter/inner_width = 0.18
+shader_parameter/radius = 0.64
+shader_parameter/mirror = 0.5
+shader_parameter/diffuse = 0.0
+shader_parameter/repeat = 0.0
+shader_parameter/smear = 0.1
+shader_parameter/bloom = 2.0
+shader_parameter/saturation = 1.0
+shader_parameter/blur = 0.25
+shader_parameter/border_blur = 1.0
+shader_parameter/soften = 0.0
+shader_parameter/samples = 24
+shader_parameter/edge_width = 0.08
+shader_parameter/edge_brighten = 0.3
+shader_parameter/edge_fade = 1.0
+shader_parameter/fade_width = 0.05
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_crop_right"]
 resource_local_to_scene = true
 shader = ExtResource("4_crop")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/left = 0.6666667
 shader_parameter/top = 0.0
 shader_parameter/width = 0.33333334
@@ -818,14 +896,32 @@ shader_parameter/height = 1.0
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_lswn8"]
 resource_local_to_scene = true
 shader = ExtResource("4_glow")
+shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
+shader_parameter/prepass_scale = 0.35
+shader_parameter/prepass = false
+shader_parameter/pass_index = 0
+shader_parameter/pass_count = 1
 shader_parameter/intensity = 0.0
-shader_parameter/radius = 0.64
-shader_parameter/power = 2.0
 shader_parameter/tint = Color(1, 1, 1, 1)
-shader_parameter/inner_strength = 0.0
-shader_parameter/inner_width = 0.18
+shader_parameter/radius = 0.64
+shader_parameter/mirror = 0.5
+shader_parameter/diffuse = 0.0
+shader_parameter/repeat = 0.0
+shader_parameter/smear = 0.1
+shader_parameter/bloom = 2.0
+shader_parameter/saturation = 1.0
+shader_parameter/blur = 0.25
+shader_parameter/border_blur = 1.0
+shader_parameter/soften = 0.0
+shader_parameter/samples = 24
+shader_parameter/edge_width = 0.08
+shader_parameter/edge_brighten = 0.3
+shader_parameter/edge_fade = 1.0
+shader_parameter/fade_width = 0.05
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_a6jrf"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_2cqfq"]
 resource_local_to_scene = true
 shader = ExtResource("12_lightring")
 shader_parameter/iChannelResolution = PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -838,11 +934,21 @@ shader_parameter/audio_level = 0.0
 shader_parameter/audio_bass = 0.0
 shader_parameter/audio_mid = 0.0
 shader_parameter/audio_high = 0.0
+shader_parameter/beat_bpm = 0.0
+shader_parameter/beat_time = 0.0
+shader_parameter/beat_phase = 0.0
+shader_parameter/bar_time = 0.0
+shader_parameter/bar_phase = 0.0
+shader_parameter/beat_in_bar = 0
+shader_parameter/beats_per_bar = 4
+shader_parameter/beat_confidence = 0.0
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_xuqvo"]
 resource_local_to_scene = true
 shader = ExtResource("9_oval")
 shader_parameter/display_aspect = 1.7777778
+shader_parameter/picture_rect = Vector4(0, 0, 1, 1)
+shader_parameter/picture_shape = Vector2(0, 0)
 shader_parameter/outside = false
 shader_parameter/size = 0.41
 shader_parameter/ratio = 1.78
@@ -874,7 +980,7 @@ sort_offset = -30.0
 [node name="tunnel" parent="." unique_id=376089686 instance=ExtResource("6_tunnel")]
 transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 3, -80)
 visible = false
-material_override = SubResource("ShaderMaterial_2cqfq")
+material_override = SubResource("ShaderMaterial_vivmo")
 script = ExtResource("13_vjobject")
 opacity = 0.0
 flash = Color(0.03529412, 1, 1, 0)
@@ -895,8 +1001,8 @@ metadata/vj_prefab = "screen"
 
 [node name="backdrop" parent="screen_master/main_screen" unique_id=341074747 instance=ExtResource("7_layer")]
 transform = Transform3D(6, 0, 0, 0, 6, 0, 0, 0, 6, 0, 0, -24)
-render_scale = 0.25
 video_source = true
+render_scale = 0.25
 metadata/vj_prefab = "layer"
 
 [node name="blur" type="Node" parent="screen_master/main_screen/backdrop" unique_id=1873402215]
@@ -966,7 +1072,7 @@ material = SubResource("ShaderMaterial_lswn8")
 [node name="rings" parent="screen_master/screens" unique_id=1618570306 instance=ExtResource("7_layer")]
 transform = Transform3D(2.6666667, 0, 0, 0, 2.6666667, 0, 0, 0, 2.6666667, 0, 0, -8.888889)
 visible = false
-shader_material = SubResource("ShaderMaterial_a6jrf")
+shader_material = SubResource("ShaderMaterial_2cqfq")
 arc_x = 97.2
 arc_y = 104.4
 opacity = 0.0

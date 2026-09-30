@@ -35,13 +35,16 @@ extends PanelContainer
 ## plays), and back to the detected grid; they write the piece's
 ## `media.beats`, so the player uses the same grid. While recording, the
 ## take's span shows red, and armed properties' rows are red. – at the bar's
-## right end folds it to a tab. The same scene is the desktop's bottom strip and the
+## right end folds it to the bar, ✕ hides it (to a tab); the bar's gaps
+## move it and its edges size it (StudioPanelFrame). The same scene is the desktop's bottom strip and the
 ## headset's band at waist height (bigger there: `vr`, worked out when it's
 ## inside a SubViewport).
 
 signal said(text: String)
-## – : fold the timeline to its tab (the wrist's Timeline button).
+## – : fold the timeline to its title bar in place (again: unfold it).
 signal minimize_requested
+## ✕ : hide the timeline, leaving its tab (the wrist's Timeline button).
+signal close_requested
 
 const ACCENT := Color(0.3, 0.79, 0.94)
 const RECORD := Color(1.0, 0.36, 0.36)
@@ -87,6 +90,9 @@ var _fitted := false
 var _canvas: Control
 var _time: Label
 var _loop_button: Button
+## Its title bar (the tool bar) and edges (StudioPanelFrame): Studio moves
+## and sizes it.
+var frame: StudioPanelFrame
 var _key_bar: HBoxContainer
 var _interp_buttons: Dictionary = {}
 var _fade_buttons: Dictionary = {}  # seconds -> Button
@@ -226,10 +232,13 @@ func _ready() -> void:
 		_mode_buttons[m[0]] = b
 	var fill := Control.new()
 	fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fill.mouse_filter = Control.MOUSE_FILTER_PASS
 	bar.add_child(fill)
 	var fold := _button("—", func(): minimize_requested.emit())
-	fold.tooltip_text = "Fold to a tab (T brings it back)"
 	bar.add_child(fold)
+	var close := _button("✕", func(): close_requested.emit())
+	close.tooltip_text = "Hide it (its tab, or T, brings it back)"
+	bar.add_child(close)
 	_canvas = Control.new()
 	_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_canvas.clip_contents = true
@@ -237,6 +246,7 @@ func _ready() -> void:
 	_canvas.draw.connect(_draw_canvas)
 	_canvas.gui_input.connect(_canvas_input)
 	rows.add_child(_canvas)
+	frame = StudioPanelFrame.new(self, bar, _canvas, fold, vr)
 
 
 ## The piece or the selection changed: gather the lanes and keys again.

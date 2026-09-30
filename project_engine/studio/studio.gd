@@ -166,6 +166,18 @@ const OUTLINER_ANGLE_BY_SHELF := 80.0
 const OUTLINER_DROP := 0.08
 ## How often the shelf's folders are checked for new or changed files.
 const WATCH_SECONDS := 2.0
+## The panels that fold, move and size (TODO 75 / 76): their headset
+## pixels and metres (sizing keeps that ratio). The menu folds and moves
+## too, on the desktop (its headset panel has the grip).
+const PANELS := {
+	"inspector": {"pixels": INSPECTOR_PIXELS, "size": INSPECTOR_SIZE},
+	"timeline": {"pixels": RIBBON_PIXELS, "size": RIBBON_SIZE},
+	"shelf": {"pixels": SHELF_PIXELS, "size": SHELF_SIZE},
+}
+## A desktop panel can't be made smaller than this (or than its contents).
+const DESK_PANEL_MIN := Vector2(200, 80)
+## Nor a headset panel (pixels).
+const VR_PANEL_MIN := Vector2(300, 150)
 
 enum Mode { PLAY, EDIT }
 
@@ -204,6 +216,8 @@ var _wrist: StudioWristPalette
 var wrist_2d: StudioWristPalette
 var corner_tabs: HBoxContainer
 var wrist_on := false
+## Neither shows: the open one's tab was clicked again (the tabs stay).
+var corner_closed := false
 var tools: StudioEditTools
 var flight: StudioFlight
 var edits: StudioConfigEdits
@@ -270,6 +284,25 @@ var _before_miniature: Dictionary = {}
 const MINIATURE_SIZE := 1.2
 const MINIATURE_TABLE := 0.8
 var _mouse_down := false
+## Panels folded to their title bars (–), by name (PANELS, "menu").
+var collapsed := {}
+## A desktop panel being moved or sized by the mouse: {name, edges (0 =
+## moving), rect (where it was), by (how far the mouse went)}; where it is
+## meanwhile (by name), before it's saved.
+var _desk_drag := {}
+var _desk_live := {}
+## Each desktop panel's width unfolded (folded, it stays as wide).
+var _desk_widths := {}
+## A headset panel being moved or sized by the laser: {name, node, edges,
+## hand, grab (the point held, on the panel), dist (along the laser),
+## start (its transform), size (metres)}.
+var _vr_drag := {}
+## The panel places last applied (StudioSettings.panels), and whether
+## Studio is saving one itself (no need to apply it again).
+var _panels_applied := {}
+var _saving_panel := false
+## Where the desktop shelf starts: under the status or the wrist palette.
+var _shelf_top := 150.0
 
 
 func _ready() -> void:
@@ -351,9 +384,11 @@ func _ready() -> void:
 	_settings.changed.connect(_apply_player_settings)
 	_apply_studio_settings()
 	_size_window()
+	_layout_desk_panels()
 	_apply_player_settings()
 	get_window().files_dropped.connect(_on_files_dropped)
 	status_view.resized.connect(_fit_shelf)
+	get_viewport().size_changed.connect(_layout_desk_panels)
 	status_view.tab_pressed.connect(_on_command)
 	set_mode(Mode.EDIT)
 
@@ -381,6 +416,7 @@ func _process(delta: float) -> void:
 	_keep_shelf_near()
 	_keep_outliner_near()
 	_carry(delta)
+	_drag_vr_panel()
 	_watch_library(delta)
 	_record_tick()
 	_loop_playback()
@@ -786,6 +822,7 @@ func _on_command(id: StringName) -> void:
 			status_view.show_hints(not status_view.hints_on)
 		&"studio_toggle_wrist":
 			wrist_on = not wrist_on
+			corner_closed = false
 			_show_wrist()
 			if stage.xr_mode.is_in_vr():
 				_say("The wrist palette is on your %s wrist; P shows it on the desktop." % ("right" if _main_hand() == "L" else "left"))
@@ -976,8 +1013,8 @@ func _bind_inspector(view: StudioInspector) -> void:
 	view.tools = tools
 	view.said.connect(_say)
 	view.action.connect(_on_command)
-	view.close_requested.connect(func(): tools.select(""))
-	view.minimize_requested.connect(_fold.bind(&"studio_toggle_inspector"), CONNECT_DEFERRED)
+	view.close_requested.connect(_hide_panel.bind(&"studio_toggle_inspector"), CONNECT_DEFERRED)
+	_bind_frame("inspector", view, view.vr)
 	view.show_object(tools.selected)
 
 
@@ -1052,6 +1089,11 @@ func _show_inspector() -> void:
 func _place_inspector_panel() -> void:
 	if inspector_panel == null:
 		return
+	if _place_saved("inspector", inspector_panel):
+		var v := _vr_inspector()
+		if v != null:
+			v.show_object(tools.selected)
+		return
 	var head := stage.viewer_transform()
 	var toward := -head.basis.z
 	var angle := INSPECTOR_ANGLE
@@ -1091,18 +1133,18 @@ func _keep_inspector_near() -> void:
 		_place_inspector_panel()
 
 
-# ---------- folding panels ----------
+# ---------- panels: hiding, folding, moving, sizing ----------
 
-## – on a panel: switch it off, leaving its tab (the wrist's button for it,
+## ✕ on a panel: switch it off, leaving its tab (the wrist's button for it,
 ## on the desktop a tab in the status). The tab or its key brings it back.
-func _fold(id: StringName) -> void:
+func _hide_panel(id: StringName) -> void:
 	if not id in folded_panels():
 		_on_command(id)
 	var t: Array = StudioStatus.TABS.filter(func(t): return t[0] == id)[0]
 	if stage.xr_mode.is_in_vr():
-		_say("%s folded: its button on the wrist brings it back." % t[1])
+		_say("%s hidden: its button on the wrist brings it back." % t[1])
 	else:
-		_say("%s folded: its tab up top (or %s) brings it back." % [t[1], t[2]])
+		_say("%s hidden: its tab up top (or %s) brings it back." % [t[1], t[2]])
 
 
 ## The panels that are switched off (their commands, as in StudioStatus.TABS).
@@ -1116,6 +1158,368 @@ func folded_panels() -> Array:
 	return out
 
 
+## – on a panel: fold it to its title bar, or unfold it.
+func _collapse(name: String) -> void:
+	set_collapsed(name, not collapsed.get(name, false))
+
+
+## Fold a panel (PANELS, or "menu") to its title bar in place, on the
+## desktop and in the headset, or unfold it.
+func set_collapsed(name: String, on: bool) -> void:
+	collapsed[name] = on
+	for view in [_desk_view(name), _vr_view(name)]:
+		if view != null:
+			view.frame.set_collapsed(on)
+	_layout_desk_panels()
+	_size_vr_panel(name)
+	_say("%s folded to its title bar: the square at its right unfolds it." % name.capitalize() if on else "%s unfolded." % name.capitalize())
+
+
+func _desk_view(name: String) -> Control:
+	match name:
+		"inspector": return inspector
+		"timeline": return ribbon
+		"shelf": return shelf
+		"menu": return menu_2d
+	return null
+
+
+## The headset panel's view (once its panel has made it).
+func _vr_view(name: String) -> Control:
+	match name:
+		"inspector": return _vr_inspector()
+		"timeline": return _vr_ribbon()
+		"shelf": return _vr_shelf()
+		"menu": return menu
+	return null
+
+
+func _vr_node(name: String) -> XRToolsViewport2DIn3D:
+	match name:
+		"inspector": return inspector_panel
+		"timeline": return ribbon_panel
+		"shelf": return shelf_panel
+	return null
+
+
+## A panel's title bar and edges move and size it (StudioPanelFrame): the
+## mouse on the desktop, the laser in the headset.
+func _bind_frame(name: String, view: Control, vr: bool) -> void:
+	var frame: StudioPanelFrame = view.frame
+	if not vr:
+		# Its contents grew or shrank: lay it out again (never smaller).
+		view.minimum_size_changed.connect(_layout_desk_panels, CONNECT_DEFERRED)
+	frame.move_started.connect(_grab_panel.bind(0, name, vr))
+	frame.resize_started.connect(_grab_panel.bind(name, vr))
+	frame.dragged.connect(_drag_panel.bind(name))
+	frame.drag_ended.connect(_let_go_panel.bind(name))
+	view.minimize_requested.connect(_collapse.bind(name), CONNECT_DEFERRED)
+	frame.set_collapsed(collapsed.get(name, false))
+	if vr:
+		_size_vr_panel.call_deferred(name)
+
+
+## Where the panels were put (StudioSettings.panels) changed: the menu's
+## ↺, or loading them. Lay them out again.
+func _apply_panel_places() -> void:
+	_layout_desk_panels()
+	for name in PANELS:
+		_size_vr_panel(name)
+		var node := _vr_node(name)
+		if node != null and node.visible:
+			match name:
+				"inspector": _place_inspector_panel()
+				"timeline": _place_ribbon_panel()
+				"shelf": _place_shelf_panel()
+
+
+func _save_panel(name: String, key: String, value) -> void:
+	_saving_panel = true
+	studio_settings.set_panel_value(name, key, value)
+	_saving_panel = false
+
+
+## A press on a panel's title bar (`edges` 0) or edge.
+func _grab_panel(edges: int, name: String, vr: bool) -> void:
+	if not vr:
+		_desk_drag = {"name": name, "edges": edges, "rect": _desk_full_rect(name, get_viewport().get_visible_rect().size), "by": Vector2.ZERO}
+		# In front of the other panels (under the menu).
+		_desk_view(name).move_to_front()
+		if menu_2d != null and name != "menu":
+			menu_2d.move_to_front()
+		return
+	var node := _vr_node(name)
+	if node == null:
+		return  # the headset's menu: its panel moves with the grip
+	var hand := _main_hand()
+	var xf := _hand_xf(hand)
+	var hit = Plane(node.global_basis.z.normalized(), node.global_position).intersects_ray(xf.origin, -xf.basis.z)
+	if hit == null:
+		return
+	_vr_drag = {"name": name, "node": node, "edges": edges, "hand": hand, "grab": node.global_transform.affine_inverse() * hit,
+			"dist": xf.origin.distance_to(hit), "start": node.global_transform, "size": node.screen_size}
+
+
+## Desktop: the mouse moved `by` with the button down on a panel's frame.
+func _drag_panel(by: Vector2, name: String) -> void:
+	if _desk_drag.get("name", "") != name:
+		return
+	_desk_drag.by += by
+	var r: Rect2 = _desk_drag.rect
+	var d: Vector2 = _desk_drag.by
+	var e: int = _desk_drag.edges
+	if e == 0:
+		r.position += d
+	else:
+		var m := _desk_min_size(name)
+		var lo := r.position
+		var hi := r.end
+		if e & StudioPanelFrame.LEFT:
+			lo.x = minf(lo.x + d.x, hi.x - m.x)
+		if e & StudioPanelFrame.RIGHT:
+			hi.x = maxf(hi.x + d.x, lo.x + m.x)
+		if e & StudioPanelFrame.TOP:
+			lo.y = minf(lo.y + d.y, hi.y - m.y)
+		if e & StudioPanelFrame.BOTTOM:
+			hi.y = maxf(hi.y + d.y, lo.y + m.y)
+		r = Rect2(lo, hi - lo)
+	_desk_live[name] = r
+	_layout_desk_panels()
+
+
+## The button came up (or the trigger, in the headset): keep it there.
+func _let_go_panel(name: String) -> void:
+	if _desk_drag.get("name", "") == name:
+		var moved: bool = _desk_drag.by != Vector2.ZERO
+		_desk_drag = {}
+		if moved and _desk_live.has(name):
+			# Saved as laid out (inside the window, no smaller than its
+			# contents), at its unfolded height.
+			var view := _desk_view(name)
+			var r := Rect2(view.position, view.size)
+			if view.frame.collapsed:
+				r.size.y = (_desk_live[name] as Rect2).size.y
+			_desk_live.erase(name)
+			_save_panel(name, "rect", [roundf(r.position.x), roundf(r.position.y), roundf(r.size.x), roundf(r.size.y)])
+		_desk_live.erase(name)
+		_layout_desk_panels()
+	if _vr_drag.get("name", "") == name:
+		var node: XRToolsViewport2DIn3D = _vr_drag.node
+		var sized: bool = _vr_drag.edges != 0
+		_vr_drag = {}
+		if is_instance_valid(node):
+			_save_vr_place(name, node)
+			if sized:
+				_save_panel(name, "vr_size", [node.viewport_size.x, node.viewport_size.y])
+
+
+## Where a headset panel is, relative to your eyes and the way you face: the
+## middle of its top edge (so it's the same folded or not).
+func _save_vr_place(name: String, node: XRToolsViewport2DIn3D) -> void:
+	var head := stage.viewer_transform()
+	var top := node.global_transform * Vector3(0, node.screen_size.y * 0.5, 0)
+	var at := _yaw(head).inverse() * (top - head.origin)
+	_save_panel(name, "vr_at", [snappedf(at.x, 0.001), snappedf(at.y, 0.001), snappedf(at.z, 0.001)])
+
+
+## A headset panel that was moved goes back where it was put, relative to
+## your eyes and the way you face; false when it never was.
+func _place_saved(name: String, node: XRToolsViewport2DIn3D) -> bool:
+	var at = studio_settings.panel_value(name, "vr_at")
+	if not (at is Array and at.size() == 3):
+		return false
+	var head := stage.viewer_transform()
+	var top: Vector3 = head.origin + _yaw(head) * Vector3(at[0], at[1], at[2])
+	# Facing you from its middle (found in two goes).
+	var mid := top
+	var basis := Basis()
+	for i in 2:
+		basis = _facing(mid, head.origin)
+		mid = top - basis.y * node.screen_size.y * 0.5
+	node.global_transform = Transform3D(basis, mid)
+	return true
+
+
+## The way the head faces, level (its turn without its tilt).
+static func _yaw(head: Transform3D) -> Basis:
+	var fwd := -head.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(0, 0, -1)
+	return Basis.looking_at(fwd, Vector3.UP)
+
+
+## A panel at `at` turned to face `eye` (the quad's front is +Z: it looks
+## away from the eye).
+static func _facing(at: Vector3, eye: Vector3) -> Basis:
+	var d := at - eye
+	if d.length() < 0.01:
+		d = Vector3(0, 0, -1)
+	return Basis.looking_at(d, Vector3.UP if absf(d.normalized().y) < 0.99 else Vector3.FORWARD)
+
+
+## In the headset, while the trigger holds a panel's title bar or edge: it
+## follows the laser (turned to face you), or its edge does.
+func _drag_vr_panel() -> void:
+	if _vr_drag.is_empty():
+		return
+	var d := _vr_drag
+	var node: XRToolsViewport2DIn3D = d.node
+	if not is_instance_valid(node) or not node.visible or not stage.xr_mode.is_in_vr() \
+			or not stage.router.is_down(String(d.hand) + ".trigger"):
+		_let_go_panel(d.name)
+		return
+	drag_vr_panel_to(_hand_xf(d.hand))
+
+
+## The held panel (or its edge) follows a laser along `xf`'s -Z.
+func drag_vr_panel_to(xf: Transform3D) -> void:
+	var d := _vr_drag
+	if d.is_empty():
+		return
+	var node: XRToolsViewport2DIn3D = d.node
+	var dir := -xf.basis.z
+	if d.edges == 0:
+		var hit: Vector3 = xf.origin + dir * float(d.dist)
+		var eye := stage.viewer_transform().origin
+		# The held point on the laser, the panel facing you from its middle
+		# (found in two goes).
+		var mid := hit
+		var basis := Basis()
+		for i in 2:
+			basis = _facing(mid, eye)
+			mid = hit - basis * Vector3(d.grab.x, d.grab.y, 0.0)
+		node.global_transform = Transform3D(basis, mid)
+		return
+	var start: Transform3D = d.start
+	var hit = Plane(start.basis.z.normalized(), start.origin).intersects_ray(xf.origin, dir)
+	if hit == null:
+		return
+	var l: Vector3 = start.affine_inverse() * hit
+	var half: Vector2 = d.size * 0.5
+	var lo := -half  # x: left, y: bottom
+	var hi := half  # x: right, y: top
+	var ppm := _ppm(d.name)
+	var m := _vr_min_size(d.name) / ppm
+	var e: int = d.edges
+	if e & StudioPanelFrame.LEFT:
+		lo.x = minf(l.x, hi.x - m.x)
+	if e & StudioPanelFrame.RIGHT:
+		hi.x = maxf(l.x, lo.x + m.x)
+	if e & StudioPanelFrame.TOP:
+		hi.y = maxf(l.y, lo.y + m.y)
+	if e & StudioPanelFrame.BOTTOM:
+		lo.y = minf(l.y, hi.y - m.y)
+	var px := ((hi - lo) * ppm).round()
+	if px == node.viewport_size:
+		return
+	node.viewport_size = px
+	node.screen_size = px / ppm
+	node.global_transform = Transform3D(start.basis, start * Vector3((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, 0.0))
+
+
+## A headset panel's pixels per metre (sizing keeps it: the text stays the
+## same size).
+func _ppm(name: String) -> float:
+	return PANELS[name].pixels.x / PANELS[name].size.x
+
+
+func _vr_min_size(name: String) -> Vector2:
+	var view := _vr_view(name)
+	var m := view.get_combined_minimum_size() if view != null else Vector2.ZERO
+	return m.max(VR_PANEL_MIN)
+
+
+func _desk_min_size(name: String) -> Vector2:
+	var view := _desk_view(name)
+	return view.get_combined_minimum_size().max(DESK_PANEL_MIN) if view != null else DESK_PANEL_MIN
+
+
+## The headset panel's size: as it was made (or Studio's), only its title
+## bar while folded; its top edge stays where it is.
+func _size_vr_panel(name: String) -> void:
+	if name == "menu":
+		# The menu's panel keeps its size: folded, the menu draws only its
+		# title bar in it (the rest is see-through).
+		if menu != null:
+			menu.anchor_bottom = 0.0 if menu.frame.collapsed else 1.0
+			menu.offset_bottom = menu.frame.title_height() if menu.frame.collapsed else 0.0
+		return
+	var node := _vr_node(name)
+	if node == null:
+		return
+	var px: Vector2 = PANELS[name].pixels
+	var saved = studio_settings.panel_value(name, "vr_size")
+	if saved is Array and saved.size() == 2:
+		px = Vector2(saved[0], saved[1])
+	var view := _vr_view(name)
+	if collapsed.get(name, false) and view != null:
+		px.y = ceilf(view.frame.title_height())
+	if px == node.viewport_size:
+		return
+	var old_h := node.screen_size.y
+	node.viewport_size = px
+	node.screen_size = px / _ppm(name)
+	node.global_position += node.global_basis.y.normalized() * (old_h - node.screen_size.y) * 0.5
+
+
+## Desktop: every panel where it was put (the Studio tab's Panel places),
+## or where Studio puts it; folded, only its title bar; inside the window.
+func _layout_desk_panels() -> void:
+	if inspector == null or ribbon == null or shelf == null:
+		return
+	var vs := get_viewport().get_visible_rect().size
+	for name in ["timeline", "inspector", "shelf", "menu"]:
+		var view := _desk_view(name)
+		if view == null:
+			continue
+		var r := _desk_full_rect(name, vs)
+		var least := view.get_combined_minimum_size()
+		if view.frame.collapsed:
+			r.size.y = view.frame.title_height()
+			least.x = maxf(least.x, _desk_widths.get(name, 0.0))  # as wide as unfolded
+		var wider := least.x > r.size.x
+		r.size = r.size.max(least).min(vs)
+		if not view.frame.collapsed:
+			_desk_widths[name] = r.size.x
+		if wider and name == "inspector" and not _is_placed(name):
+			r.position.x = vs.x - 12.0 - r.size.x  # Studio's keeps to the right
+		r.position = r.position.clamp(Vector2.ZERO, (vs - r.size).max(Vector2.ZERO))
+		view.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		view.position = r.position
+		view.size = r.size
+	_fit_outliner()
+
+
+## A desktop panel's place unfolded: being dragged, saved, or Studio's own
+## (the shelf under the status and down to the timeline strip, the
+## inspector down the right, the timeline along the bottom, the menu in the
+## middle).
+func _desk_full_rect(name: String, vs: Vector2) -> Rect2:
+	if _desk_live.has(name):
+		return _desk_live[name]
+	var saved = studio_settings.panel_value(name, "rect")
+	if saved is Array and saved.size() == 4:
+		return Rect2(saved[0], saved[1], saved[2], saved[3])
+	match name:
+		"inspector":
+			return Rect2(vs.x - 452.0, 12.0, 440.0, vs.y - 268.0)
+		"timeline":
+			return Rect2(12.0, vs.y - 244.0, vs.x - 24.0, 232.0)
+		"menu":
+			return Rect2((vs - MENU_SIZE) * 0.5, MENU_SIZE)
+	# Down to the timeline strip when it's under the shelf (laid out first).
+	var bottom := vs.y - 12.0
+	var strip := ribbon.get_global_rect()
+	if ribbon.visible and strip.position.x < 452.0 and strip.end.x > 12.0 and strip.position.y > _shelf_top + 100.0:
+		bottom = minf(bottom, strip.position.y - 12.0)
+	return Rect2(12.0, _shelf_top, 440.0, bottom - _shelf_top)
+
+
+## Whether a desktop panel was moved or sized (or is being).
+func _is_placed(name: String) -> bool:
+	return _desk_live.has(name) or studio_settings.panel_value(name, "rect") != null
+
+
 # ---------- the timeline ----------
 
 func _bind_ribbon(view: StudioTimelineRibbon) -> void:
@@ -1125,7 +1529,8 @@ func _bind_ribbon(view: StudioTimelineRibbon) -> void:
 	view.loop = loop
 	view.recorder = recorder
 	view.said.connect(_say)
-	view.minimize_requested.connect(_fold.bind(&"studio_toggle_timeline"), CONNECT_DEFERRED)
+	view.close_requested.connect(_hide_panel.bind(&"studio_toggle_timeline"), CONNECT_DEFERRED)
+	_bind_frame("timeline", view, view.vr)
 
 
 func _ribbons() -> Array:
@@ -1169,8 +1574,7 @@ func _show_ribbon() -> void:
 	var in_vr := stage.xr_mode.is_in_vr()
 	ribbon.visible = show and not in_vr
 	# The desktop shelf reaches down to the strip, or the bottom without it.
-	shelf.offset_bottom = ribbon.offset_top - 12.0 if ribbon.visible else -12.0
-	_fit_outliner()
+	_layout_desk_panels()
 	if ribbon_panel != null:
 		if show and in_vr and not ribbon_panel.visible:
 			_place_ribbon_panel()
@@ -1180,6 +1584,9 @@ func _show_ribbon() -> void:
 ## In front of you at waist height, level, tilted back to face your eyes.
 func _place_ribbon_panel() -> void:
 	if ribbon_panel == null:
+		return
+	if _place_saved("timeline", ribbon_panel):
+		_vr_ribbon()
 		return
 	var head := stage.viewer_transform()
 	var fwd := -head.basis.z
@@ -1210,7 +1617,7 @@ func _bind_outliner(view: StudioOutliner) -> void:
 	view.picked = outliner_picked
 	view.playhead = func(): return runner.playhead
 	view.said.connect(_say)
-	view.minimize_requested.connect(_fold.bind(&"studio_toggle_outliner"), CONNECT_DEFERRED)
+	view.minimize_requested.connect(_hide_panel.bind(&"studio_toggle_outliner"), CONNECT_DEFERRED)
 	view.group_requested.connect(group_objects, CONNECT_DEFERRED)
 	view.ungroup_requested.connect(ungroup, CONNECT_DEFERRED)
 	view.parent_requested.connect(set_parent_of, CONNECT_DEFERRED)
@@ -1276,7 +1683,8 @@ func _fit_outliner() -> void:
 		right = inspector.position.x - get_viewport().get_visible_rect().size.x - 12.0
 	outliner.offset_right = right
 	outliner.offset_left = right - OUTLINER_WIDTH
-	outliner.offset_bottom = ribbon.offset_top - 12.0 if ribbon.visible else -12.0
+	var vs_y := get_viewport().get_visible_rect().size.y
+	outliner.offset_bottom = ribbon.position.y - vs_y - 12.0 if ribbon.visible else -12.0
 
 
 ## To the side of the hand that doesn't point (left; right when
@@ -1512,7 +1920,8 @@ func _bind_shelf(view: StudioAssetShelf) -> void:
 	view.open_requested.connect(func(path: String): open_piece(path))
 	view.save_as_requested.connect(func(path: String): save_as(path))
 	view.piece_path = func(): return model.path if model != null else ""
-	view.close_requested.connect(_fold.bind(&"studio_toggle_shelf"), CONNECT_DEFERRED)
+	view.close_requested.connect(_hide_panel.bind(&"studio_toggle_shelf"), CONNECT_DEFERRED)
+	_bind_frame("shelf", view, view.vr)
 	thumbnailer.thumbnail_ready.connect(view.on_thumbnail)
 	thumbnailer.loop_ready.connect(view.on_loop)
 
@@ -1534,9 +1943,12 @@ func _refresh_shelf() -> void:
 ## the timeline strip: _show_ribbon).
 func _fit_shelf() -> void:
 	if wrist_2d != null and wrist_2d.visible:
-		shelf.offset_top = wrist_2d.position.y + WRIST_PIXELS.y * wrist_2d.scale.y + 10.0
+		_shelf_top = wrist_2d.position.y + WRIST_PIXELS.y * wrist_2d.scale.y + 10.0
+	elif status_view.visible:
+		_shelf_top = status_view.position.y + status_view.size.y + 10.0
 	else:
-		shelf.offset_top = status_view.position.y + status_view.size.y + 10.0
+		_shelf_top = CORNER_TOP
+	_layout_desk_panels()
 
 
 func _make_shelf_panel() -> void:
@@ -1582,6 +1994,9 @@ func _show_shelf() -> void:
 ## facing you.
 func _place_shelf_panel() -> void:
 	if shelf_panel == null:
+		return
+	if _place_saved("shelf", shelf_panel):
+		_vr_shelf()
 		return
 	var head := stage.viewer_transform()
 	var fwd := -head.basis.z
@@ -1999,13 +2414,17 @@ func _make_wrist_2d() -> void:
 	for t in [[false, "Status"], [true, "▦ Wrist palette"]]:
 		var b := Button.new()
 		b.text = t[1]
-		b.tooltip_text = "P switches between the status and the wrist palette"
+		b.tooltip_text = "P switches between the status and the wrist palette; the open one's tab closes it"
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(0, CORNER_TABS_HEIGHT)
 		b.add_theme_font_size_override("font_size", 14)
 		b.pressed.connect(func():
 			if wrist_on != t[0]:
-				_on_command(&"studio_toggle_wrist"))
+				_on_command(&"studio_toggle_wrist")
+			else:
+				# The open one again closes it; clicked while closed, it opens.
+				corner_closed = not corner_closed
+				_show_wrist())
 		corner_tabs.add_child(b)
 	status_view.offset_top = CORNER_TOP
 	status_view.offset_bottom = CORNER_TOP + 48.0
@@ -2020,14 +2439,15 @@ func _make_wrist_2d() -> void:
 	_style_corner_tabs()
 
 
-## The top left corner shows the status or the wrist palette (in Edit, off
-## the headset, which has the palette on the wrist).
+## The top left corner shows the status or the wrist palette, or neither
+## once the open one's tab is clicked again (in Edit, off the headset, which
+## has the palette on the wrist).
 func _show_wrist() -> void:
 	if wrist_2d == null:
 		return
 	var desk := mode == Mode.EDIT and not stage.xr_mode.is_in_vr()
-	wrist_2d.visible = wrist_on and desk
-	status_view.visible = mode == Mode.EDIT and not wrist_2d.visible
+	wrist_2d.visible = wrist_on and desk and not corner_closed
+	status_view.visible = mode == Mode.EDIT and not wrist_2d.visible and not (desk and corner_closed)
 	corner_tabs.visible = desk
 	_style_corner_tabs()
 	if wrist_2d.visible:
@@ -2035,11 +2455,12 @@ func _show_wrist() -> void:
 	_fit_shelf()
 
 
-## The open one filled, the other outlined (as the status's tabs).
+## The open one filled, the other outlined (as the status's tabs); both
+## outlined while the corner is closed.
 func _style_corner_tabs() -> void:
 	for i in corner_tabs.get_child_count():
 		var b := corner_tabs.get_child(i) as Button
-		var on := (i == 1) == wrist_on
+		var on := (i == 1) == wrist_on and not corner_closed
 		for state in ["normal", "hover", "pressed"]:
 			var sb := StyleBoxFlat.new()
 			sb.bg_color = Color(StudioStatus.ACCENT, 0.85 if on else (0.25 if state == "hover" else 0.1))
@@ -2073,8 +2494,6 @@ func _make_menu() -> void:
 	menu_2d.name = "Menu"
 	menu_2d.visible = false
 	$UI.add_child(menu_2d)
-	menu_2d.custom_minimum_size = MENU_SIZE
-	menu_2d.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 	_bind_menu_view(menu_2d)
 	menu_panel = FloatingPanel.new()
 	menu_panel.name = "MenuPanel"
@@ -2102,6 +2521,7 @@ func _bind_menu_panel() -> void:
 func _bind_menu_view(view: StudioMenu) -> void:
 	view.bind(_settings, stage.router, studio_settings, stage, tools.select)
 	view.close_requested.connect(func(): _set_menu.call_deferred(false))
+	_bind_frame("menu", view, view != menu_2d)
 	view.studio_tab.shaders_reloaded.connect(func():
 		for inspector in _inspectors():
 			inspector.request_rebuild()
@@ -2141,6 +2561,10 @@ func _apply_studio_settings() -> void:
 	haptics.enabled = studio_settings.haptics
 	tools.all_paths = studio_settings.all_paths
 	_show_floor_grid()
+	if studio_settings.panels != _panels_applied:
+		_panels_applied = studio_settings.panels.duplicate(true)
+		if not _saving_panel:
+			_apply_panel_places()
 
 
 ## The floor grid shows while editing, when the setting is on.

@@ -26,8 +26,10 @@ signal taken(asset: Dictionary)
 signal open_requested(path: String)
 ## Save as: the piece to `path` (the Open tab's Save as line).
 signal save_as_requested(path: String)
-## – : fold the shelf to its tab (the wrist's Shelf button).
+## ✕ : hide the shelf, leaving its tab (the wrist's Shelf button).
 signal close_requested
+## – : fold the shelf to its title bar in place (again: unfold it).
+signal minimize_requested
 
 const ACCENT := Color(0.3, 0.79, 0.94)
 const DIM := Color(0.72, 0.75, 0.8)
@@ -74,6 +76,8 @@ var piece_path: Callable = func(): return ""
 static var _placeholders := {}  # kind -> Texture2D
 static var _st_notes := {}  # "<json path>|<modified>" -> [layer notes, effect notes] (ShadertoyShader.analyze)
 
+## Its title bar and edges (StudioPanelFrame): Studio moves and sizes it.
+var frame: StudioPanelFrame
 var _needs_build := true
 var _cards := {}  # asset id -> {panel, image, asset}
 var _playing := {}  # asset id -> the AtlasTexture showing its loop
@@ -124,6 +128,7 @@ func _ready() -> void:
 	top.add_child(title)
 	var gap := Control.new()
 	gap.custom_minimum_size.x = 8
+	gap.mouse_filter = Control.MOUSE_FILTER_PASS
 	top.add_child(gap)
 	# The tabs wrap onto a second row when the shelf is narrow (the desktop's).
 	var tabs := HFlowContainer.new()
@@ -141,27 +146,38 @@ func _ready() -> void:
 			b.custom_minimum_size.y = _fs * 1.7  # about 3 cm in the headset
 		tabs.add_child(b)
 		_tab_buttons[t] = b
-	var close := Button.new()
-	close.text = "—"
-	close.focus_mode = Control.FOCUS_NONE
-	close.tooltip_text = "Fold to a tab (B brings it back)"
-	close.pressed.connect(func(): close_requested.emit())
-	if vr:
-		close.custom_minimum_size = Vector2(_fs * 1.7, _fs * 1.7)
-	close.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	top.add_child(close)
+	var fold: Button
+	for b in [["—", minimize_requested], ["✕", close_requested]]:
+		var button := Button.new()
+		button.text = b[0]
+		button.focus_mode = Control.FOCUS_NONE
+		button.pressed.connect((b[1] as Signal).emit)
+		if vr:
+			button.custom_minimum_size = Vector2(_fs * 1.7, _fs * 1.7)
+		button.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		top.add_child(button)
+		if b[0] == "—":
+			fold = button
+		else:
+			button.tooltip_text = "Hide it (its tab, or B, brings it back)"
+	# Under the title bar: what folds away.
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 10 if vr else 6)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rows.add_child(body)
+	frame = StudioPanelFrame.new(self, top, body, fold, vr)
 
 	_hint = Label.new()
 	_hint.add_theme_font_size_override("font_size", ceili(_fs * 0.9))
 	_hint.add_theme_color_override("font_color", DIM)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rows.add_child(_hint)
+	body.add_child(_hint)
 	_st_bar = _make_shadertoy_bar()
-	rows.add_child(_st_bar)
+	body.add_child(_st_bar)
 	_scroll = ScrollContainer.new()
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	rows.add_child(_scroll)
+	body.add_child(_scroll)
 	_grid = GridContainer.new()
 	_grid.add_theme_constant_override("h_separation", 12 if vr else 8)
 	_grid.add_theme_constant_override("v_separation", 12 if vr else 8)
@@ -169,10 +185,10 @@ func _ready() -> void:
 	_files = _make_files_browser()
 	_files.visible = false
 	_files.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	rows.add_child(_files)
+	body.add_child(_files)
 	_save_bar = _make_save_bar()
 	_save_bar.visible = false
-	rows.add_child(_save_bar)
+	body.add_child(_save_bar)
 	resized.connect(func(): _needs_build = true)
 
 

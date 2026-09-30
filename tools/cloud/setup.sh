@@ -20,31 +20,9 @@ if [ ! -x godot/Godot_v4.7.1-stable_linux.x86_64 ]; then
 	(cd godot && unzip -oq g.zip)
 fi
 
-# XR Tools into the real project (gitignored), patched for Godot 4.7.
-XRT="$REPO/project_engine/addons/godot-xr-tools"
-if [ ! -d "$XRT" ]; then
-	curl -sSL -o xrt.zip https://github.com/GodotVR/godot-xr-tools/releases/download/4.5.1/godot-xr-tools.zip
-	unzip -oq xrt.zip -d xrt
-	cp -r xrt/godot-xr-tools/addons/godot-xr-tools "$REPO/project_engine/addons/"
-fi
-python3 - "$XRT/objects/viewport_2d_in_3d.gd" <<'PY'
-import sys
-p = sys.argv[1]
-s = open(p).read()
-old = '''		"filter":
-			return true
-
-
-# When the scene_node changes'''
-if old in s:
-	s = s.replace(old, '''		"filter":
-			return true
-	return null
-
-
-# When the scene_node changes''')
-	open(p, "w").write(s)
-PY
+# XR Tools into the real project (gitignored), patched for Godot 4.7
+# (and native_video).
+bash "$REPO/ci/fetch_addons.sh"
 
 # Software Vulkan (lavapipe), unpacked locally.
 if [ ! -f vk/lvp.json ]; then

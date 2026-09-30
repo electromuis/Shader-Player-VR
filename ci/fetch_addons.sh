@@ -21,6 +21,22 @@ if [ ! -d "$ADDONS/godot-xr-tools" ]; then
   cp -r "$TMP/xrt/godot-xr-tools/addons/godot-xr-tools" "$ADDONS/"
 fi
 
+# Patch XR Tools for Godot 4.7, which refuses a function that returns a
+# value on some paths only: _property_get_revert gets a final
+# `return null`. Safe to run again on a patched copy.
+for f in functions/function_teleport.gd objects/viewport_2d_in_3d.gd; do
+  f="$ADDONS/godot-xr-tools/$f"
+  awk '
+    /^func _property_get_revert/ { inside = 1 }
+    inside && /^[ \t]*$/ {
+      if (last != "\treturn null") print "\treturn null"
+      inside = 0
+    }
+    { print; if (!/^[ \t]*$/) last = $0 }
+  ' "$f" > "$TMP/patched.gd"
+  cp "$TMP/patched.gd" "$f"
+done
+
 if [ ! -d "$ADDONS/native_video" ]; then
   curl -fsSL --retry 4 -o "$TMP/nv.zip" \
     "https://github.com/claytercek/godot-native-video/releases/download/${NATIVE_VIDEO_VERSION}/native_video-${NATIVE_VIDEO_VERSION}.zip"

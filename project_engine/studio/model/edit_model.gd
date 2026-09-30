@@ -1008,6 +1008,12 @@ func add_object(spawn: Dictionary, despawn_at = null) -> bool:
 	return _do("Add %s" % id, true, [_change(["tracks"], list)])
 
 
+## Replace the whole track list (StudioGrouping's regrouping, which changes
+## spawn events, their order and tracks together).
+func set_tracks(list: Array, label: String) -> bool:
+	return _do(label, true, [_change(["tracks"], list)])
+
+
 ## Remove an object: its spawn / despawn events and tracks, and the same
 ## for the objects inside it.
 func remove_object(id: String) -> bool:

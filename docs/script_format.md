@@ -74,14 +74,15 @@ Two kinds. **Continuous tracks** (`transform`, `shader_param`) are sampled every
 | `layer` | a layer's shader |
 | `display` | a screen's or layer's `opacity` (and earlier scripts' `curvature` / `vertical_curvature`) |
 | `shape` | the surface's params (`arc_x`, `arc_y`, ...) |
-| `effect<N>` | the Nth enabled effect, from 0: its params, and its `mix`, `blend` and `enabled` (below) |
+| `effect<N>` | the Nth enabled effect, from 0: its params, and its `mix`, `blend` and `enabled` (below); a generator's: its layer shader's params |
+| `effect<N>.effect<M>` | a generator effect's own Mth enabled effect: its params, `mix`, `blend` and `enabled` |
 | `vertex<N>` | the Nth enabled vertex effect, from 0: its params, `mix` and `enabled` |
 | `modifiers` | `opacity`, `tint`, `flash`, `speed`, `sort_offset` (below) |
 | `reactive` | `spin`, `pulse` (below) |
 
 `$camera.effect<N>` animates a camera effect's params, its `strength`, `blend` and `enabled`.
 
-**Switching an effect on and off over time:** a `shader_param` track with param `enabled` on `<id>.effect<N>`, `<id>.vertex<N>` or `$camera.effect<N>`. Its keys are `true` / `false`; each holds until the next (write them as `step`). A key may carry `"transition": {"type": "fade", "duration": s}`: from the key on, the effect fades over `s` seconds from where it was to on or off (its mix, or a camera effect's strength, going to or from 0). Before the first key the effect is as that key says. The effect keeps its place while it's off, so its `effect<N>` stays the same and the numbers after it don't move; only `"enabled": false` in the config (below) takes an effect out of the count, for the whole piece.
+**Switching an effect on and off over time:** a `shader_param` track with param `enabled` on `<id>.effect<N>`, `<id>.effect<N>.effect<M>`, `<id>.vertex<N>` or `$camera.effect<N>`. Its keys are `true` / `false`; each holds until the next (write them as `step`). A key may carry `"transition": {"type": "fade", "duration": s}`: from the key on, the effect fades over `s` seconds from where it was to on or off (its mix, or a camera effect's strength, going to or from 0). Before the first key the effect is as that key says. The effect keeps its place while it's off, so its `effect<N>` stays the same and the numbers after it don't move; only `"enabled": false` in the config (below) takes an effect out of the count, for the whole piece.
 
 ```json
 { "type": "shader_param", "target": "main_screen.effect1", "param": "enabled", "keyframes": [
@@ -112,9 +113,16 @@ A key may carry `"transition": {"type": "fade_to_black", "duration": 1}` for its
 **Screens:**
 - `opacity`, `blend` (`normal`, `add`: adds its light; `black`: black is see-through), `render_scale`, `fit_aspect` (the picture keeps the video's shape inside the 16:9 quad, letterboxed or pillarboxed).
 - `surface`: `{"shader": "pillow" | "dome" | <shaders name>, "params": {...}, "placement": "fixed" | "around" | "infinity"}`. Pillow bends by `arc_x` / `arc_y` degrees; Dome is part of a sphere; `around` centres it on the home eye (the Dome's `radius`, in metres, sets the sphere's size; 0 or missing: the screen's distance from the eye); `infinity` (Dome only) follows the head and is drawn behind everything, however far, for 180° / 360° video and skyboxes. Earlier scripts' `curvature` / `vertical_curvature` (0..1) read as a Pillow's arcs × 180°.
-- `effects`: `[{"shader": <shaders name>, "params": {...}, "enabled": true, "mix": 1, "blend": "normal"}]`, run in order over the picture. A switched-off entry (`"enabled": false`) is skipped, doesn't count towards `effect<N>`, and may keep its own tracks for when it's switched back on (`"tracks": [{"param", "keyframes"}]`, as Studio does). `"shader": ""` is an empty slot. Effects that draw past the picture (a `// @reach` hint: Blur, outward Edge blur, Glow) get a transparent margin automatically, and earlier versions' `padding` entries are ignored.
+- `effects`: `[{"shader": <shaders name>, "params": {...}, "enabled": true, "mix": 1, "blend": "normal"}]`, run in order over the picture. A switched-off entry (`"enabled": false`) is skipped, doesn't count towards `effect<N>`, and may keep its own tracks for when it's switched back on (`"tracks": [{"param", "keyframes"}]`, as Studio does; a generator's also keeps its own effects' tracks, each with its `"sub": "effect<M>"`). `"shader": ""` is an empty slot. Effects that draw past the picture (a `// @reach` hint: Blur, outward Edge blur, Glow) get a transparent margin automatically, and earlier versions' `padding` entries are ignored.
   - `mix` (0–1, default 1): how much of the effect shows; at 0 it does nothing (and costs nothing). Keyable, to fade an effect in and out.
   - `blend` (default `normal`): how its output goes over its input. `normal` replaces it (below mix 1 the two crossfade); `add`, `subtract`, `multiply`, `screen`, `overlay`, `difference`, `lighten` and `darken` blend the output's colour onto the input like an image editor's layer modes, keeping the input's shape (a mask under `multiply` only darkens), then crossfade by `mix`. A `blend` track holds from key to key.
+  - **Generators** mix a layer shader into the picture, shaped first by effects of their own: `{"shader": "generator", "generator": {"shader": <shaders name of a layer shader, or "video">, "params": {...}, "resolution": 1, "effects": [...]}, "mix": 1, "blend": "normal", "enabled": true}`. The layer renders at the picture's render size times `resolution`, its `effects` (plain effects, not generators; a mask, Key black, a blur) run on it, and the result goes over the picture: `normal` lays it on top (where it's see-through, the picture shows), the other modes blend its colour as above, then `mix` crossfades. Its layer shader's params are keyed on `effect<N>`, its own effects on `effect<N>.effect<M>`. At mix 0, or switched off by an `enabled` track, it doesn't render at all. 3D layer shaders (`mainVR`) can't be generators. Older players skip a generator (they find no shader called `generator`).
+
+    ```json
+    { "shader": "generator", "blend": "add", "mix": 0.8,
+      "generator": { "shader": "hex_pulse", "params": { "cells": 6 },
+                     "effects": [ { "shader": "oval_mask", "params": { "size": 0.6, "level": 1 } } ] } }
+    ```
 - `vertex_effects`: the same shape, moving the surface. Built-ins go by name (`ripple`, `twist`, `bulge`, `spin`, `pulse`), others by `shaders` name. `mix` (0–1) is how far each moves the surface; there's no `blend`.
 
 **Layers** take `shader` (a `shaders` name for a layer shader or Shadertoy `.glsl`, or `"video"` for the playing video laid out like the main screen), `params` (its hinted uniforms), `resolution` (a multiplier on the shader's `@resolution`), and `effects`, `vertex_effects`, `surface`, `opacity` and `blend` as screens do.

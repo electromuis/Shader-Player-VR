@@ -110,6 +110,16 @@ project, and its export writes back to that JSON (see *Import* below).
   `effect_1..4` slots, which no longer preview or export: run **Tools > VJ:
   Convert effect slots to nodes** once (undoable). It moves them into nodes
   named after their shaders and rewrites the tracks.
+  A **generator** effect mixes a layer shader into the picture: give a
+  `VJEffect` a `generator` (a ShaderMaterial with a layer shader, such as
+  `visualizer/shaders/hex_pulse.gdshader`) instead of a `material`, and its
+  own `VJEffect` children (an Oval mask, Key black, ...) shape the
+  generator's picture before its `mix` / `blend` put it over the picture
+  (Normal lays it on top). `generator_resolution` is its render size as a
+  share of the picture's. The preview renders it at 960×540 times that, at
+  silence. It exports as the player's generator effect (see
+  docs/script_format.md); a generator inside a generator is skipped, and
+  the importer drops a generator of the video itself.
 - Layers (`layer.tscn`): `shader_material` holds a layer shader, one of
   `visualizer/shaders/` (Light ring, Spectrum bars, ...) or your own
   canvas_item shader written the same way. Or turn on `video_source` for the
@@ -171,7 +181,11 @@ project, and its export writes back to that JSON (see *Import* below).
     `material_override:…`) → `shader_param` track, target `<node>.surface`
     (`<node>.layer` on layers)
   - `<node>/<effect>:material:shader_parameter/<p>` → target `<node>.effect<N>`,
-    N being the effect's place among the node's enabled effects (from 0)
+    N being the effect's place among the node's enabled effects (from 0); a
+    generator's `<node>/<effect>:generator:shader_parameter/<p>` too
+  - `<node>/<generator>/<effect>:material:shader_parameter/<p>` (and `:mix`,
+    `:blend`, `:on`) → target `<node>.effect<N>.effect<M>`, a generator's
+    own effects
   - `<node>/<effect>:mix` / `:blend` → target `<node>.effect<N>`, params
     `mix` / `blend`; `<node>/<effect>:on` → param `enabled` (step keys, each
     with the effect's `fade` as its transition); `:mix` and `:on` on a

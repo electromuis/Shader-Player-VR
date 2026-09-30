@@ -253,18 +253,37 @@ static func property_rows(model: EditModel, id: String) -> Array:
 	return rows
 
 
-## "effect1" → "Glow" (the effect in that slot), "display" → "Display".
+## "effect1" → "Glow" (the effect in that slot), "display" → "Display",
+## a generator's own "effect1.effect0" → "Generator › Oval mask".
 static func _slot_label(slot: String, effects: Array, model: EditModel, camera := false) -> String:
+	var dot := slot.find(".")
+	if dot > 0:
+		var top := slot.left(dot)
+		var i := _effect_in_slot(top, effects)
+		var own = effects[i].get("generator", {}).get("effects", []) if i >= 0 and VisualizerShaders.is_generator(effects[i]) else []
+		return "%s › %s" % [_slot_label(top, effects, model), _slot_label(slot.substr(dot + 1), own if typeof(own) == TYPE_ARRAY else [], model)]
+	var i := _effect_in_slot(slot, effects)
+	if i >= 0:
+		var key := String(effects[i].get("shader", ""))
+		if not camera and VisualizerShaders.is_generator(effects[i]):
+			return "Generator"
+		var shaders = model.document().get("shaders", {})
+		var path := String(shaders.get(key, "")) if typeof(shaders) == TYPE_DICTIONARY else ""
+		return StudioConfigEdits.camera_label(key, path) if camera else StudioConfigEdits.effect_label(key, path)
 	if slot.begins_with("effect") and slot.substr(6).is_valid_int():
-		var n := int(slot.substr(6))
-		for i in effects.size():
-			if EditModel.effect_slot(effects, i) == n:
-				var key := String(effects[i].get("shader", ""))
-				var shaders = model.document().get("shaders", {})
-				var path := String(shaders.get(key, "")) if typeof(shaders) == TYPE_DICTIONARY else ""
-				return StudioConfigEdits.camera_label(key, path) if camera else StudioConfigEdits.effect_label(key, path)
-		return "Effect %d" % (n + 1)
+		return "Effect %d" % (int(slot.substr(6)) + 1)
 	return slot.capitalize()
+
+
+## The index in `effects` of the one in slot "effect<N>", -1 if none.
+static func _effect_in_slot(slot: String, effects: Array) -> int:
+	if not (slot.begins_with("effect") and slot.substr(6).is_valid_int()):
+		return -1
+	var n := int(slot.substr(6))
+	for i in effects.size():
+		if EditModel.effect_slot(effects, i) == n:
+			return i
+	return -1
 
 
 ## Times of the viewer's cuts.

@@ -366,10 +366,10 @@ func gpu_passes() -> Array[Dictionary]:
 
 
 ## What the layer shows, its effects included (see Screen.output_texture):
-## an offscreen layer's picture. Null without a shader (or for a 3D shader,
+## an offscreen layer's picture. Null without a source (or for a 3D shader,
 ## which draws on its mesh).
 func output_texture() -> Texture2D:
-	if _screen == null or _material == null or _vr:
+	if _screen == null or (_material == null and not _video_source) or _vr:
 		return null
 	return _screen.output_texture()
 

@@ -9,7 +9,9 @@ extends PanelContainer
 ## ↺ back to its default. The transform is typed numbers (a row folds out a
 ## slider per axis). Each effect list is compact: a row per effect (≡ drag
 ## to reorder, on / off, its key state, ✕), the chosen one unfolded for its
-## settings, and a master switch for the whole list.
+## settings, and a master switch for the whole list. A generator effect
+## (TODO 79) unfolds to its layer source's picker, its settings, and its own
+## effect list (the same rows, shaping the generator before it's mixed in).
 ##
 ## It's a view of StudioConfigEdits: dragging a control shows the value live
 ## (preview), letting go writes it as one undoable step (commit), the way
@@ -64,12 +66,13 @@ var _rows: Array = []  # [{field, kind, controls, diamond, value, reset}]
 var _t_rows: Array = []  # transform: [{channel, spins, sliders, diamond}]
 var _fx_rows: Array = []  # effect list rows: [{list, index, fields, glyph, switch}]
 var _open := {}  # section key -> bool
-var _open_fx := {EditModel.EFFECTS: -1, EditModel.VERTEX_EFFECTS: -1}  # the unfolded effect of each list
+var _open_fx := {EditModel.EFFECTS: -1, EditModel.VERTEX_EFFECTS: -1}  # the unfolded effect of each list (generators' own lists too)
+var _sections: Array = []  # the last build's sections (a generator's row finds its own effects there)
 var _open_channel := ""  # the transform row whose sliders are out
 var _pending := {}  # field key -> {field, value, since, dragging}
 var _t_pending := {}  # channel -> {value, since, dragging}
 var _needs_build := true
-var _menu := ""  # the inline choice list that's open ("add_effect" / "add_vertex" / "layer_shader" / "surface", or "field:<key>" for a choice or image field), "" none
+var _menu := ""  # the inline choice list that's open ("add_effect" / "add_vertex" / "layer_shader" / "surface", "gen_layer:<i>" / "add_effect/<i>" for generator i's source and own effects, or "field:<key>" for a choice or image field), "" none
 var _since_refresh := 0.0
 var _clock := 0.0
 var _keep_scroll := -1
@@ -255,6 +258,7 @@ func _build() -> void:
 		return
 	var kind := edits.kind_for(_id, node)
 	var sections := edits.sections(_id, node, kind)
+	_sections = sections
 	if kind == "camera":
 		_build_camera(sections)
 		return
@@ -808,7 +812,7 @@ func _add_effect_list(list: String, effects: Array) -> void:
 	var body := _add_section(info.title, info.title, [], master, false, summary)
 	if not body.visible:
 		return
-	var open: int = _open_fx[list]
+	var open: int = _open_fx.get(list, -1)
 	for s in effects:
 		_add_effect_row(body, list, s, s.index == open, effects.size())
 	var add := _button(info.add, func():
@@ -837,7 +841,9 @@ func _add_effect_list(list: String, effects: Array) -> void:
 		var grid := _add_choices(edits.effect_options(list, _id), func(key: String):
 			var n := edits.model.effects_of(_id, list).size()
 			if _effect_op(func(): return edits.add_effect(_id, key, list)):
-				_open_fx[list] = n)
+				_open_fx[list] = n
+				if key == VisualizerShaders.GENERATOR:
+					_menu = "gen_layer:%d" % n)  # pick what it mixes in
 		grid.name = "AddEffectChoices" if list == EditModel.EFFECTS else "AddVertexChoices"
 		_list.remove_child(grid)
 		body.add_child(grid)
@@ -877,7 +883,7 @@ func _add_effect_row(body: VBoxContainer, list: String, s: Dictionary, open: boo
 		drop_effect(list, int(data.from), i)
 	frame.set_drag_forwarding(Callable(), can_drop, drop)
 	var name := _button(String(s.title), func():
-		_open_fx[list] = -1 if _open_fx[list] == i else i
+		_open_fx[list] = -1 if _open_fx.get(list, -1) == i else i
 		_needs_build = true)
 	name.flat = true
 	name.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -898,19 +904,79 @@ func _add_effect_row(body: VBoxContainer, list: String, s: Dictionary, open: boo
 	row.add_child(remove)
 	_fx_rows.append({"list": list, "index": i, "fields": s.fields, "glyph": glyph, "switch": on})
 	if open:
+		if s.get("generator", false):
+			_add_generator_source(box, i, String(s.get("layer", "")))
 		if s.fields.is_empty():
 			var none := _label(box, int(_fs * 0.9), DIM)
 			none.text = "No settings."
 		_add_fields(box, s.fields)
+		if s.get("generator", false):
+			_add_generator_effects(box, i, s.enabled)
 		if not s.enabled:
 			box.modulate = Color(1, 1, 1, 0.55)
+
+
+## A generator's layer source: a button naming it that opens the layer
+## shaders to pick from.
+func _add_generator_source(box: VBoxContainer, i: int, layer: String) -> void:
+	var menu := "gen_layer:%d" % i
+	var pick := _button("Mixes in: %s ▾" % edits.layer_label(layer), func():
+		_menu = "" if _menu == menu else menu
+		_needs_build = true)
+	pick.name = "GeneratorSource"
+	pick.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	pick.custom_minimum_size.y = _target_h()
+	pick.tooltip_text = "The layer shader it renders and mixes into the picture (or the video itself)"
+	box.add_child(pick)
+	if _menu == menu:
+		var grid := _add_choices(edits.layer_shader_options(), func(key: String):
+			_effect_op(func(): return edits.set_generator_shader(_id, i, key)), box)
+		grid.name = "GeneratorSourceChoices"
+
+
+## A generator's own effects: a row each (as the lists have), then "+ Add".
+## They shape its picture before it's mixed in (a mask, a blur, key black).
+func _add_generator_effects(box: VBoxContainer, i: int, enabled: bool) -> void:
+	var list := EditModel.generator_list(i)
+	var own: Array = _sections.filter(func(s): return s.kind == "effect" and s.get("list") == list)
+	var head := _label(box, int(_fs * 0.9), DIM)
+	head.text = "Its own effects (they shape it before it's mixed in)" if enabled \
+			else "Its own effects (switch it on to change them)"
+	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var body := VBoxContainer.new()
+	body.name = "GeneratorEffects"
+	body.add_theme_constant_override("separation", 4 if vr else 2)
+	var indent := MarginContainer.new()
+	indent.add_theme_constant_override("margin_left", 16 if vr else 10)
+	indent.add_child(body)
+	box.add_child(indent)
+	var open: int = _open_fx.get(list, -1)
+	for s in own:
+		_add_effect_row(body, list, s, s.index == open, own.size())
+	if not enabled:
+		return
+	var menu := "add_effect/%d" % i
+	var add := _button("+ Add effect to it", func():
+		_menu = "" if _menu == menu else menu
+		_needs_build = true)
+	add.name = "AddGeneratorEffect"
+	add.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	add.custom_minimum_size.y = _target_h()
+	add.add_theme_color_override("font_color", ACCENT)
+	body.add_child(add)
+	if _menu == menu:
+		var grid := _add_choices(edits.effect_options(list, _id), func(key: String):
+			var n := edits.model.effects_of(_id, list).size()
+			if _effect_op(func(): return edits.add_effect(_id, key, list)):
+				_open_fx[list] = n, body)
+		grid.name = "AddGeneratorEffectChoices"
 
 
 ## Move effect `from` of `list` to where effect `to` is (a drop on its row).
 func drop_effect(list: String, from: int, to: int) -> bool:
 	var moved := _effect_op(func(): return edits.model.move_effect(_id, from, to, list))
 	# The unfolded one stays unfolded, wherever the move put it.
-	var open: int = _open_fx[list]
+	var open: int = _open_fx.get(list, -1)
 	if moved and open >= 0:
 		if open == from:
 			_open_fx[list] = to

@@ -176,3 +176,119 @@ static func test_runner_resolves_and_animates(tc: TestCase) -> void:
 	runner._evaluate_continuous_tracks()
 	tc.assert_false(gen._screen._suspended)
 	runner.free()
+
+
+# ---------- Studio ----------
+
+static func _edits(tc: TestCase, doc: Dictionary = _doc()) -> StudioConfigEdits:
+	var r := EditModel.from_text(JSON.stringify(doc), "")
+	tc.assert_ok(r, "document loads")
+	var e := StudioConfigEdits.new()
+	e.model = r.get("model")
+	return e
+
+
+static func _field(sections: Array, key: String) -> Dictionary:
+	for s in sections:
+		for f in s.fields:
+			if f.key == key:
+				return f
+	return {}
+
+
+static func _valid(tc: TestCase, m: EditModel, msg: String) -> void:
+	tc.assert_ok(ScriptFormat.load_from_dict(JSON.parse_string(m.to_text()), "<test>"), msg)
+
+
+static func _targets(m: EditModel) -> Array:
+	var out: Array = []
+	for t in m.tracks():
+		if t.get("type") == "shader_param":
+			out.append("%s:%s" % [t.target, t.param])
+	return out
+
+
+static func test_studio_sections(tc: TestCase) -> void:
+	var e := _edits(tc)
+	var s := e.sections("scr", null, "screen")
+	var gen: Array = s.filter(func(x): return x.get("generator", false))
+	tc.assert_eq(gen.size(), 1, "one generator section")
+	tc.assert_eq(gen[0].title, "Generator · Hex pulse")
+	tc.assert_eq(gen[0].layer, "hex")
+	tc.assert_eq(gen[0].fields.slice(0, 3).map(func(f): return f.key), ["effect1/mix", "effect1/blend", "effect1/resolution"])
+	var cells := _field(s, "effect1/cells")
+	tc.assert_eq(cells.slot, "effect1", "its layer shader's params key on its slot")
+	tc.assert_eq(cells.config, ["effects", 1, "generator", "params", "cells"])
+	tc.assert_eq(e.value_of("scr", cells, 0.0), 2.0)
+	tc.assert_eq(_field(s, "effect1/resolution").slot, "", "resolution is config-only")
+	var own: Array = s.filter(func(x): return x.kind == "effect" and x.list == EditModel.generator_list(1))
+	tc.assert_eq(own.size(), 1, "its own effect's section, right after it")
+	tc.assert_eq(s.find(own[0]), s.find(gen[0]) + 1)
+	var size := _field(s, "effect1.0/size")
+	tc.assert_eq(size.slot, "effect1.effect0")
+	tc.assert_eq(size.config, ["effects", 1, "generator", "effects", 0, "params", "size"])
+	_near(tc, e.value_of("scr", size, 10.0), 0.7, "from its track")
+	# Writing: the config, and keys on the nested slot.
+	tc.assert_eq(e.commit("scr", cells, 7.0, 3.0, false), "Set scr cells")
+	tc.assert_eq(e.model.effects_of("scr")[1].generator.params.cells, 7.0)
+	tc.assert_eq(e.commit("scr", _field(s, "effect1.0/blur"), 0.4, 3.0, true), "Key scr blur at 0:03.00")
+	tc.assert_true(e.model.find_track("shader_param", "scr.effect1.effect0", "blur") >= 0)
+	tc.assert_eq(e.commit("scr", _field(s, "effect1/resolution"), 0.75, 3.0, true), "Set scr resolution",
+			"config-only even with auto-key")
+	# Its own effect's switch keys on its nested target.
+	tc.assert_eq(e.set_switch("scr", 0, false, 5.0, true, EditModel.generator_list(1)), "Key scr's oval_mask off at 0:05.00")
+	tc.assert_true(e.switch_track("scr", 0, EditModel.generator_list(1)) >= 0)
+	tc.assert_false(e.switch_on("scr", 0, 6.0, EditModel.generator_list(1)))
+	_valid(tc, e.model, "valid after editing")
+	# The add menus: a generator for the pixel effects, not inside one.
+	tc.assert_eq(e.effect_options()[0].key, VisualizerShaders.GENERATOR)
+	tc.assert_false(e.effect_options(EditModel.generator_list(1)).any(func(o): return o.key == VisualizerShaders.GENERATOR))
+	tc.assert_false(e.effect_options(EditModel.VERTEX_EFFECTS).any(func(o): return o.key == VisualizerShaders.GENERATOR))
+	# The timeline names the rows.
+	var labels := StudioTimeline.property_rows(e.model, "scr").map(func(r): return r.label)
+	tc.assert_true(labels.has("Generator mix"), str(labels))
+	tc.assert_true(labels.has("Generator › Oval mask size"), str(labels))
+
+
+static func test_studio_model(tc: TestCase) -> void:
+	var e := _edits(tc)
+	var m := e.model
+	var own := EditModel.generator_list(1)
+	tc.assert_eq(EditModel.list_owner(own), 1)
+	tc.assert_eq(EditModel.list_path(own), ["effects", 1, "generator", "effects"])
+	tc.assert_eq(m.effect_target("scr", 0, own), "scr.effect1.effect0")
+	tc.assert_eq(m.effects_of("scr", own).size(), 1)
+	# Its own list: add, move; tracks on it follow.
+	tc.assert_true(e.add_effect("scr", GLOW, own))
+	tc.assert_eq(m.effects_of("scr", own).map(func(x): return x.shader), ["oval_mask", "glow"])
+	tc.assert_true(m.move_effect("scr", 1, 0, own))
+	tc.assert_true(_targets(m).has("scr.effect1.effect1:size"), "the oval's track moved with it: %s" % [_targets(m)])
+	m.undo()
+	m.undo()
+	tc.assert_eq(m.effects_of("scr", own).size(), 1, "undone")
+	# The top list: moving the generator carries its own effects' tracks.
+	tc.assert_true(m.move_effect("scr", 1, 0))
+	tc.assert_eq(_targets(m), ["scr.effect0:mix", "scr.effect0.effect0:size"])
+	# Off in the config: its tracks, its own effects' too, park in its entry.
+	tc.assert_true(m.set_effect_enabled("scr", 0, false))
+	tc.assert_eq(_targets(m), [])
+	var parked: Array = m.effects_of("scr")[0].tracks
+	tc.assert_eq(parked.map(func(p): return [p.get("sub", ""), p.param]), [["", "mix"], ["effect0", "size"]])
+	_valid(tc, m, "valid with parked tracks")
+	tc.assert_eq(m.slot_prefix("scr", EditModel.generator_list(0)), "", "no slot while it's off")
+	tc.assert_false(e.add_effect("scr", GLOW, EditModel.generator_list(0)), "its list can't change while it's off")
+	tc.assert_true(m.set_effect_enabled("scr", 0, true))
+	tc.assert_eq(_targets(m), ["scr.effect0:mix", "scr.effect0.effect0:size"], "back")
+	# A new generator, its source picked; then removing it takes its tracks.
+	tc.assert_true(e.add_effect("scr", VisualizerShaders.GENERATOR))
+	var added: Dictionary = m.effects_of("scr")[2]
+	tc.assert_eq(added, {"shader": "generator", "generator": {"shader": ""}})
+	tc.assert_true(e.set_generator_shader("scr", 2, VisualizerShaders.VIDEO))
+	tc.assert_eq(m.effects_of("scr")[2].generator.shader, "video")
+	tc.assert_eq(e.layer_label("video"), "Video")
+	tc.assert_true(m.set_generator_shader("scr", 2, HEX))
+	tc.assert_eq(m.effects_of("scr")[2].generator.shader, "hex", "named by its shaders key")
+	tc.assert_false(m.set_generator_shader("scr", 1, HEX), "not a generator")
+	tc.assert_true(m.remove_effect("scr", 0))
+	tc.assert_eq(_targets(m), [], "gone with it")
+	_valid(tc, m, "valid after the stack changes")

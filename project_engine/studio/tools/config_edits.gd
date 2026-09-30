@@ -16,8 +16,11 @@ extends RefCounted
 ##   target is "<id>.<slot>"; "" = it can't be keyed), param}.
 ## A section: {title, kind ("fields" / "effect" / "transform" / "surface" /
 ##   "layer_shader"), fields}; effects also have list (EditModel.EFFECTS or
-##   VERTEX_EFFECTS), index (in the list), shader (key), enabled; the
-##   surface has shader (a path), placement, placements, options, hint.
+##   VERTEX_EFFECTS, or a generator's own: EditModel.generator_list), index
+##   (in the list), shader (key), enabled, and a generator (TODO 79) has
+##   generator: true and layer (its layer shader's key); its own effects'
+##   sections come right after it. The surface has shader (a path),
+##   placement, placements, options, hint.
 ##
 ## What a change writes (commit):
 ##   auto-key on  — a key at the playhead on the field's track (made if
@@ -113,7 +116,7 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 		kind = kind_for(id, node)
 	if kind == "camera":
 		var cam := model.effects_of(id)
-		return range(cam.size()).map(func(i): return _effect_section(cam, i, EditModel.EFFECTS, true))
+		return range(cam.size()).map(func(i): return _effect_section(id, cam, i, EditModel.EFFECTS, true))
 	var cfg := model.config_of(id)
 	var out: Array = [{"title": "Transform", "kind": "transform", "fields": []}]
 	match kind:
@@ -155,7 +158,12 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 		for list in [EditModel.EFFECTS, EditModel.VERTEX_EFFECTS]:
 			var effects := model.effects_of(id, list)
 			for i in effects.size():
-				out.append(_effect_section(effects, i, list))
+				out.append(_effect_section(id, effects, i, list))
+				if list == EditModel.EFFECTS and VisualizerShaders.is_generator(effects[i]):
+					var own := EditModel.generator_list(i)
+					var own_effects := model.effects_of(id, own)
+					for j in own_effects.size():
+						out.append(_effect_section(id, own_effects, j, own))
 	var mods: Array = []
 	if kind == "object":  # a screen's or layer's fade is its display opacity
 		mods.append(_float("mod_opacity", "Opacity", 0.0, 1.0, 0.01, 1.0, ["modifiers", "opacity"], "modifiers", "opacity"))
@@ -176,40 +184,69 @@ func sections(id: String, node: Node = null, kind: String = "") -> Array:
 
 
 ## Effect `i` of `list`'s section: its hinted params, keyed on its slot
-## (`effect<N>` / `vertex<N>`) while it's on. `camera`: a camera effect
-## (CameraFxShaders: its sliders, then its strength).
-func _effect_section(effects: Array, i: int, list: String = EditModel.EFFECTS, camera := false) -> Dictionary:
+## (`effect<N>` / `vertex<N>`, a generator's own `effect<N>.effect<M>`)
+## while it's on. `camera`: a camera effect (CameraFxShaders: its sliders,
+## then its strength). A generator's: its mix, blend and resolution, then
+## its layer shader's params (keyed on its `effect<N>`).
+func _effect_section(id: String, effects: Array, i: int, list: String = EditModel.EFFECTS, camera := false) -> Dictionary:
 	var e: Dictionary = effects[i] if typeof(effects[i]) == TYPE_DICTIONARY else {}
 	var key := String(e.get("shader", ""))
 	var vertex := list == EditModel.VERTEX_EFFECTS
-	var path := _resolve_geometry(key) if vertex else _resolve(key)
+	var generator := not camera and list == EditModel.EFFECTS and VisualizerShaders.is_generator(e)
+	var layer := String(e.generator.get("shader", "")) if generator else ""
+	var path := _resolve_geometry(key) if vertex else _resolve(layer if generator else key)
+	if generator and layer == VisualizerShaders.VIDEO:
+		path = ""
+	var base: Array = EditModel.list_path(list) + [i]
 	var slot := EditModel.effect_slot(effects, i)
-	var name := "vertex" if vertex else "effect"
+	var owner := EditModel.list_owner(list)
+	var name := "vertex" if vertex else "effect%d." % owner if owner >= 0 else "effect"
 	var hints := {}
 	if path != "" and camera:
 		hints = {"params": CameraFxShaders.params_of(CameraFxShaders.code_for(path))}
 	elif path != "":
 		hints = {"params": ScreenGeometry.hints_for(path).params} if vertex else VisualizerShaders.hints_for(path)
-	var title := camera_label(key, path) if camera else geometry_label(path, key) if vertex else effect_label(key, path)
-	var slot_name := "%s%d" % [name, slot] if slot >= 0 else ""
-	var section := _hint_section(title, hints, [list, i, "params"], slot_name)
+	var title := camera_label(key, path) if camera else geometry_label(path, key) if vertex \
+			else "Generator · %s" % layer_label(layer) if generator else effect_label(key, path)
+	var slot_name := model.effect_target(id, i, list).trim_prefix(id + ".")
+	var section := _hint_section(title, hints, base + (["generator", "params"] if generator else ["params"]), slot_name)
 	# How it combines with what's under it (EffectBlend): a camera effect's
 	# strength is its mix; a vertex effect has no colour to blend.
 	var blend := {"key": "blend", "label": "Blend", "type": "choice", "default": "normal",
 		"options": EffectBlend.MODES.map(func(b): return EffectBlend.LABELS[b]), "values": EffectBlend.MODES.duplicate(),
-		"config": [list, i, "blend"], "slot": slot_name, "param": "blend",
+		"config": base + ["blend"], "slot": slot_name, "param": "blend",
 		"tip": "How its picture goes over what it works on: Normal replaces it, the others blend like an image editor's layers"}
+	if generator:
+		blend["tip"] = "How the generator's picture goes over the picture: Normal lays it on top (where it's see-through, the picture shows), the others blend like an image editor's layers"
 	if camera:
-		section.fields.append(_float("strength", "Strength", 0.0, 1.0, 0.01, 1.0, [list, i, "strength"], slot_name))
+		section.fields.append(_float("strength", "Strength", 0.0, 1.0, 0.01, 1.0, base + ["strength"], slot_name))
 		section.fields.append(blend)
 	else:
-		var mix := _float("mix", "Mix", 0.0, 1.0, 0.01, 1.0, [list, i, "mix"], slot_name)
+		var mix := _float("mix", "Mix", 0.0, 1.0, 0.01, 1.0, base + ["mix"], slot_name)
 		mix["tip"] = "How much of it shows: 0 none, 1 all (key it to fade it in and out)"
-		section.fields = ([mix] if vertex else [mix, blend]) + section.fields
+		var head: Array = [mix] if vertex else [mix, blend]
+		if generator:
+			var res := _float("resolution", "Resolution", 0.1, 2.0, 0.05, 1.0, base + ["generator", "resolution"], "")
+			res["tip"] = "Its render size, as a share of the picture's"
+			head.append(res)
+		section.fields = head + section.fields
 	section.merge({"kind": "effect", "list": list, "index": i, "shader": key, "enabled": slot >= 0}, true)
+	if generator:
+		section.merge({"generator": true, "layer": layer}, true)
 	for f in section.fields:
 		f.key = "%s%d/%s" % [name, i, f.param]
 	return section
+
+
+## A generator's layer source for people: "none", "Video", or the shader's
+## name.
+func layer_label(key: String) -> String:
+	if key == "":
+		return "none"
+	if key == VisualizerShaders.VIDEO and not model.document().get("shaders", {}).has(key):
+		return "Video"
+	var path := _resolve(key)
+	return VisualizerShaders.source_label(path) if path != "" else key.capitalize()
 
 
 ## A camera effect's name for people: the built-in's, else its file's.
@@ -745,13 +782,10 @@ func switch_track(id: String, i: int, list: String = EditModel.EFFECTS) -> int:
 	return model.find_track(ScriptFormat.TRACK_SHADER_PARAM, target, EffectSwitch.PARAM) if target != "" else -1
 
 
-## `<id>.effect<N>` (or `vertex<N>`) for effect `i`, "" while it's off in
-## the config.
+## `<id>.effect<N>` (or `vertex<N>`, or a generator's `effect<N>.effect<M>`)
+## for effect `i`, "" while it's off in the config.
 func _switch_target(id: String, i: int, list: String) -> String:
-	var slot := EditModel.effect_slot(model.effects_of(id, list), i)
-	if slot < 0:
-		return ""
-	return "%s.%s%d" % [id, "vertex" if list == EditModel.VERTEX_EFFECTS else "effect", slot]
+	return model.effect_target(id, i, list)
 
 
 ## Whether effect `i` is on at `t` (a fade counts as on until it's out).
@@ -809,8 +843,10 @@ func set_switch(id: String, i: int, on: bool, t: float, auto_key: bool, list: St
 
 # ---------- the effects stack ----------
 
-## Effects that can be added: [{key (a shader path), label}]: the built-ins,
-## the piece's own effect shaders, and the user's (from the library).
+## Effects that can be added: [{key (a shader path), label}]: a generator
+## (VisualizerShaders.GENERATOR: pixel effects, not a generator's own), the
+## built-ins, the piece's own effect shaders, and the user's (from the
+## library).
 ## `list` VERTEX_EFFECTS: the vertex effects (built-ins and the user's
 ## `shaders/vertex/` snippets). For EditModel.CAMERA (`id`), camera
 ## effects: the built-ins, the piece's and the user's `// @camera` files.
@@ -833,7 +869,9 @@ func effect_options(list: String = EditModel.EFFECTS, id: String = "") -> Array:
 	if list == EditModel.VERTEX_EFFECTS:
 		var dirs := library.vertex_dirs() if library != null else ScreenGeometry.search_dirs(ScreenGeometry.VERTEX_DIR)
 		return ScreenGeometry.list_options(ScreenGeometry.VERTEX_DIR, dirs).map(func(o): return {"key": o.key, "label": o.label})
-	return _shader_options(VisualizerShaders.builtins(true), true)
+	var gen: Array = [{"key": VisualizerShaders.GENERATOR, "label": "✦ Generator (a layer)"}] \
+			if list == EditModel.EFFECTS else []
+	return gen + _shader_options(VisualizerShaders.builtins(true), true)
 
 
 ## Layer shaders that can be picked: [{key (path), label}], the same way,
@@ -913,12 +951,21 @@ func _shader_options(builtins: Array, effects: bool) -> Array:
 ## user shader into the piece first (built-in vertex effects go by name).
 ## One undo step.
 func add_effect(id: String, path: String, list: String = EditModel.EFFECTS) -> bool:
-	if EditModel.geometry_name(path) != "":
+	if EditModel.geometry_name(path) != "" or path == VisualizerShaders.GENERATOR:
 		return model.add_effect(id, path, {}, -1, list)
 	var vertex_dir := "shaders/" + ScreenGeometry.VERTEX_DIR if list == EditModel.VERTEX_EFFECTS else ""
 	var b := StudioBundle.bundle(model.path.get_base_dir(), path, vertex_dir)
 	return b.ok and model.add_effect(id, b.path, {}, -1, list)
 
+
+
+## Give generator effect `i` of `id` the layer shader at `path` (a
+## layer_shader_options key), bundling a user shader first.
+func set_generator_shader(id: String, i: int, path: String) -> bool:
+	if path == VisualizerShaders.VIDEO or path == "":
+		return model.set_generator_shader(id, i, path)
+	var b := StudioBundle.bundle(model.path.get_base_dir(), path)
+	return b.ok and model.set_generator_shader(id, i, b.path)
 
 
 ## Give layer `id` the shader at `path`, bundling a user shader first.

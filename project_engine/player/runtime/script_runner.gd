@@ -580,8 +580,10 @@ func _resolve_effects(effects: Array, generators: bool) -> Array:
 			var g: Dictionary = e.generator
 			var gp = g.get("params", {})
 			var gfx = g.get("effects", [])
+			var source := String(g.get("shader", ""))
 			entry["generator"] = {
-				"shader": _shader_path(String(g.get("shader", ""))),
+				# The video itself stays, as a layer's source does.
+				"shader": source if source == VisualizerShaders.VIDEO and not timeline.shaders.has(source) else _shader_path(source),
 				"params": _param_values(gp) if typeof(gp) == TYPE_DICTIONARY else {},
 				"resolution": float(g.get("resolution", 1.0)),
 				"effects": _resolve_effects(gfx, false) if typeof(gfx) == TYPE_ARRAY else [],

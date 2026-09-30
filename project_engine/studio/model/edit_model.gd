@@ -29,6 +29,9 @@ const SAME_TIME := 0.0005
 const EFFECTS := "effects"
 const VERTEX_EFFECTS := "vertex_effects"
 const SLOT_PREFIX := {EFFECTS: ".effect", VERTEX_EFFECTS: ".vertex"}
+## A generator effect's own effects are a list too: "effects/<i>" for
+## pixel effect i's (generator_list; tracks on `<id>.effect<N>.effect<M>`).
+const GENERATOR_LIST := EFFECTS + "/"
 
 
 ## The file this came from and saves to.
@@ -341,10 +344,62 @@ func config_of(id: String) -> Dictionary:
 
 
 ## `id`'s effect list (switched-off effects included), to read: its pixel
-## effects, or `list` VERTEX_EFFECTS for its vertex effects.
+## effects, `list` VERTEX_EFFECTS for its vertex effects, or a generator's
+## own (generator_list).
 func effects_of(id: String, list: String = EFFECTS) -> Array:
-	var effects = config_of(id).get(list)
+	var effects = _value_in(config_of(id), list_path(list))
 	return effects if typeof(effects) == TYPE_ARRAY else []
+
+
+## The list of generator effect `i`'s own effects ("effects/<i>").
+static func generator_list(i: int) -> String:
+	return GENERATOR_LIST + str(i)
+
+
+## The pixel effect whose generator `list` is (generator_list), -1 for the
+## top lists.
+static func list_owner(list: String) -> int:
+	if list.begins_with(GENERATOR_LIST) and list.substr(GENERATOR_LIST.length()).is_valid_int():
+		return int(list.substr(GENERATOR_LIST.length()))
+	return -1
+
+
+## Where `list` sits in a config: ["effects"], or ["effects", i,
+## "generator", "effects"] for a generator's.
+static func list_path(list: String) -> Array:
+	var owner := list_owner(list)
+	return [EFFECTS, owner, "generator", EFFECTS] if owner >= 0 else [list]
+
+
+## The start of `list`'s effect track targets ("<id>.effect", "<id>.vertex",
+## a generator's "<id>.effect<N>.effect"); "" while a generator is off in the
+## config (it has no slot).
+func slot_prefix(id: String, list: String = EFFECTS) -> String:
+	var owner := list_owner(list)
+	if owner < 0:
+		return id + SLOT_PREFIX[list]
+	var n := effect_slot(effects_of(id), owner)
+	return "%s.effect%d.effect" % [id, n] if n >= 0 else ""
+
+
+## Effect `i` of `list`'s track target ("<id>.effect2", "<id>.effect2.effect0"),
+## "" while it (or its generator) is off in the config.
+func effect_target(id: String, i: int, list: String = EFFECTS) -> String:
+	var prefix := slot_prefix(id, list)
+	var n := effect_slot(effects_of(id, list), i)
+	return prefix + str(n) if prefix != "" and n >= 0 else ""
+
+
+static func _value_in(root, keys: Array):
+	var at = root
+	for k in keys:
+		if typeof(at) == TYPE_DICTIONARY and at.has(k):
+			at = at[k]
+		elif typeof(at) == TYPE_ARRAY and typeof(k) == TYPE_INT and k >= 0 and k < at.size():
+			at = at[k]
+		else:
+			return null
+	return at
 
 
 ## Effect `i`'s `effect<N>` slot: its place among the switched-on effects
@@ -503,10 +558,13 @@ func _config_change_at(root: Array, keys: Array, value):
 
 ## Add the effect at `shader_path` to `id`'s list (at `at`, else the end),
 ## naming it in `shaders` if nothing does yet (a built-in vertex effect goes
-## by its name, "ripple", and needs none).
+## by its name, "ripple", and needs none). VisualizerShaders.GENERATOR adds
+## a generator with no layer shader yet (add_generator).
 func add_effect(id: String, shader_path: String, params: Dictionary = {}, at: int = -1, list: String = EFFECTS) -> bool:
 	if shader_path == "" or not has_config(id) or (id == CAMERA and list != EFFECTS):
 		return false
+	if shader_path == VisualizerShaders.GENERATOR:
+		return add_generator(id, "", at) if list == EFFECTS and id != CAMERA else false
 	var extra: Array = []
 	var key := geometry_name(shader_path)
 	if key == "":
@@ -516,6 +574,43 @@ func add_effect(id: String, shader_path: String, params: Dictionary = {}, at: in
 		at = entries.size()
 	entries.insert(at, [-1, {"shader": key, "params": params}])
 	return _rework_effects(id, "Add %s to %s" % [key, who(id)], entries, extra, list)
+
+
+## Add a generator effect (VisualizerShaders.GENERATOR) mixing in the layer
+## shader at `layer_path` ("" for none yet; VisualizerShaders.VIDEO the
+## video itself), at `at` (else the end) of `id`'s pixel effects.
+func add_generator(id: String, layer_path: String = "", at: int = -1) -> bool:
+	if not has_config(id) or id == CAMERA:
+		return false
+	var extra: Array = []
+	var key := _layer_key_for(layer_path, extra)
+	var entries := _effect_entries(id)
+	if at < 0 or at > entries.size():
+		at = entries.size()
+	entries.insert(at, [-1, {"shader": VisualizerShaders.GENERATOR, "generator": {"shader": key}}])
+	return _rework_effects(id, "Add a generator%s to %s" % [" of " + key if key != "" else "", who(id)], entries, extra)
+
+
+## Generator effect `i`'s layer shader (the file at `layer_path`, named in
+## `shaders` if nothing does yet; VisualizerShaders.VIDEO the video). Its
+## params stay (a shader that doesn't have them ignores them).
+func set_generator_shader(id: String, i: int, layer_path: String) -> bool:
+	if i < 0 or i >= effects_of(id).size() or not VisualizerShaders.is_generator(effects_of(id)[i]):
+		return false
+	var changes: Array = []
+	var key := _layer_key_for(layer_path, changes)
+	var config = _config_changes(id, [EFFECTS, i, "generator", "shader"], key)
+	if config == null:
+		return false
+	return _do("Set %s's generator to %s" % [who(id), key if key != "" else "nothing"], true, changes + config)
+
+
+## A layer source's `shaders` key (see _shader_key_for); the video and ""
+## stay as they are.
+func _layer_key_for(layer_path: String, changes: Array) -> String:
+	if layer_path == "" or layer_path == VisualizerShaders.VIDEO:
+		return layer_path
+	return _shader_key_for(layer_path, changes)
 
 
 ## Move effect `from` to place `to` in the list.
@@ -583,13 +678,19 @@ func _effect_entries(id: String, list: String = EFFECTS) -> Array:
 
 ## One command: `id`'s effect list becomes `entries` ([[old index or -1
 ## for a new effect, entry]]), its effect tracks renumbered, parked or
-## unparked to match, plus `extra` changes.
+## unparked to match, plus `extra` changes. A generator's tracks on its own
+## effects (`effect<N>.effect<M>`) go with it (parked with their `sub`
+## slot). A generator's list (generator_list) can't change while the
+## generator is off in the config.
 func _rework_effects(id: String, label: String, entries: Array, extra: Array = [], list: String = EFFECTS) -> bool:
 	var spawns := spawn_indices(id)
 	if spawns.is_empty() and id != CAMERA:
 		return false
+	var owner := list_owner(list)
+	var prefix := slot_prefix(id, list)
+	if prefix == "":
+		return false
 	var old := effects_of(id, list)
-	var old_json := JSON.stringify(old)
 	var new_list: Array = entries.map(func(e): return e[1])
 	var index_of_slot := {}  # old slot N -> old index
 	for i in old.size():
@@ -600,37 +701,53 @@ func _rework_effects(id: String, label: String, entries: Array, extra: Array = [
 	for j in entries.size():
 		if entries[j][0] >= 0:
 			new_of_old[entries[j][0]] = j
-	var prefix: String = id + SLOT_PREFIX[list]
 	var out: Array = []
 	for t in tracks():
-		var target := String(t.get("target", ""))
-		if t.get("type") == ScriptFormat.TRACK_SHADER_PARAM and target.begins_with(prefix) \
-				and target.substr(prefix.length()).is_valid_int() and index_of_slot.has(int(target.substr(prefix.length()))):
-			var i: int = index_of_slot[int(target.substr(prefix.length()))]
-			if not new_of_old.has(i):
-				continue  # its effect is gone
-			var j: int = new_of_old[i]
-			var slot := effect_slot(new_list, j)
-			var moved: Dictionary = t.duplicate(true)
-			if slot < 0:  # switched off: the effect keeps it
-				moved.erase("type")
-				moved.erase("target")
-				var parked: Array = new_list[j].get("tracks", [])
-				parked.append(moved)
-				new_list[j]["tracks"] = parked
-				continue
-			moved["target"] = prefix + str(slot)
-			out.append(moved)
-		else:
+		var at := _slot_in_target(String(t.get("target", "")), prefix) \
+				if t.get("type") == ScriptFormat.TRACK_SHADER_PARAM else [-1, ""]
+		if at[0] < 0 or not index_of_slot.has(at[0]):
 			out.append(t)  # spawn events get the new list below, once it's final
+			continue
+		var i: int = index_of_slot[at[0]]
+		if not new_of_old.has(i):
+			continue  # its effect is gone
+		var j: int = new_of_old[i]
+		var slot := effect_slot(new_list, j)
+		var moved: Dictionary = t.duplicate(true)
+		if slot < 0:  # switched off: the effect keeps it
+			moved.erase("type")
+			moved.erase("target")
+			if at[1] != "":
+				moved["sub"] = String(at[1]).trim_prefix(".")
+			var parked: Array = new_list[j].get("tracks", [])
+			parked.append(moved)
+			new_list[j]["tracks"] = parked
+			continue
+		moved["target"] = prefix + str(slot) + at[1]
+		out.append(moved)
 	for j in new_list.size():
 		var slot := effect_slot(new_list, j)
 		if slot >= 0 and new_list[j].has("tracks"):
 			for parked in new_list[j]["tracks"]:
 				var back := {"type": ScriptFormat.TRACK_SHADER_PARAM, "target": prefix + str(slot)}
 				back.merge(parked)
+				if back.has("sub"):
+					back.target += "." + String(back.sub)
+					back.erase("sub")
 				out.append(back)
 			new_list[j].erase("tracks")
+	if owner >= 0:
+		# A generator's own list: the pixel effects change with it.
+		var top: Array = effects_of(id).duplicate(true)
+		var gen: Dictionary = top[owner].generator
+		if new_list.is_empty():
+			gen.erase(EFFECTS)
+		else:
+			gen[EFFECTS] = new_list
+		new_list = top
+		list = EFFECTS
+		old = effects_of(id)
+	var old_json := JSON.stringify(old)
 	if id == CAMERA:
 		var cam := config_of(CAMERA).duplicate(true)
 		if new_list.is_empty():
@@ -653,6 +770,20 @@ func _rework_effects(id: String, label: String, entries: Array, extra: Array = [
 			ev["config"] = cfg
 			out[k] = ev
 	return _do(label, true, extra + [_change(["tracks"], out)])
+
+
+## [slot, rest] of a shader_param target under `prefix` ("<id>.effect"):
+## "<id>.effect2" → [2, ""], "<id>.effect2.effect0" → [2, ".effect0"];
+## [-1, ""] if it isn't one.
+static func _slot_in_target(target: String, prefix: String) -> Array:
+	if not target.begins_with(prefix):
+		return [-1, ""]
+	var rest := target.substr(prefix.length())
+	var dot := rest.find(".")
+	var num := rest if dot < 0 else rest.left(dot)
+	if not num.is_valid_int() or num.begins_with("-") or num.begins_with("+"):
+		return [-1, ""]
+	return [int(num), "" if dot < 0 else rest.substr(dot)]
 
 
 static func _effects_in(spawn: Dictionary, list: String = EFFECTS) -> Array:

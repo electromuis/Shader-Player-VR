@@ -163,7 +163,61 @@ func _initialize() -> void:
 	quit()
 
 
-## The inspector on gen_key: its generator unfolded (overridden once
-## Studio's inspector knows generators).
+## The inspector on gen_key: its generator unfolded (its source, settings
+## and own effects, the oval open), then the add menu with the generator
+## first. Then adds a generator through the inspector's own menus.
 func inspector_shots() -> void:
-	pass
+	await seek(1.0)
+	studio.tools.select("gen_key")
+	var ins: StudioInspector = studio.inspector
+	var edits: StudioConfigEdits = studio.edits
+	for title in ["Transform", "Surface", "Display", "Vertex effects", "Modifiers"]:
+		ins.set_section_open(title, false)
+	ins._open_fx["effects"] = 0
+	ins._open_fx[EditModel.generator_list(0)] = 1
+	ins._needs_build = true
+	await frames(8)
+	var own := ins._fx_rows.filter(func(r): return r.list == EditModel.generator_list(0))
+	print("generator rows: top %d, its own %d; fields: %s" % [ins._fx_rows.size() - own.size(), own.size(),
+			ins._rows.map(func(r): return String(r.field.key)).filter(func(k): return k.begins_with("effect0"))])
+	await shot_panel("inspector", ins)
+	ins._open_fx["effects"] = -1
+	ins._menu = "add_effect"
+	ins._needs_build = true
+	await frames(8)
+	await shot_panel("add_menu", ins)
+	# Add one through the menus: the generator, its source, an own effect.
+	var m: EditModel = studio.model
+	studio.tools.select("plain")
+	await frames(4)
+	var before := m.effects_of("plain").size()
+	ins._menu = "add_effect"
+	ins._needs_build = true
+	await frames(6)
+	_press(ins, "AddEffectChoices", "✦ Generator")
+	await frames(6)
+	print("added: %s, source menu open: %s" % [m.effects_of("plain").slice(before), ins._menu])
+	_press(ins, "GeneratorSourceChoices", "Hex pulse")
+	await frames(6)
+	ins._menu = "add_effect/%d" % before
+	ins._needs_build = true
+	await frames(6)
+	_press(ins, "AddGeneratorEffectChoices", "Oval mask")
+	await frames(6)
+	print("after the menus: %s" % [m.effects_of("plain")[before]])
+	var plain: Screen = studio.runner.registry().get_node_by_id("plain")
+	print("plain's generator runs: %s" % [plain._passes.any(func(p): return p.effect == before and p.blend)])
+	await shot_view("added")
+
+
+## Press the button labelled `text` (its start) in the inspector's `grid`.
+func _press(ins: StudioInspector, grid: String, text: String) -> void:
+	var g := ins.find_child(grid, true, false)
+	if g == null:
+		print("no %s" % grid)
+		return
+	for b in g.get_children():
+		if b is Button and String(b.text).begins_with(text):
+			b.pressed.emit()
+			return
+	print("no %s in %s" % [text, grid])

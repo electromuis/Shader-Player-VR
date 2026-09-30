@@ -1,0 +1,39 @@
+{
+  "format_version": 2,
+  "meta": {"title": "Generator effects: a layer shader mixed in, shaped by its own effects", "author": "", "created": ""},
+  "media": {"video": "video.mp4"},
+  "prefabs": {
+    "screen": "res://player/prefabs/screen.tscn"
+  },
+  "shaders": {
+    "glow": "res://player/visualizer/effects/glow.gdshader",
+    "hex_pulse": "res://player/visualizer/shaders/hex_pulse.gdshader",
+    "key_black": "res://player/visualizer/effects/key_black.gdshader",
+    "oval_mask": "res://player/visualizer/effects/oval_mask.gdshader"
+  },
+  "tracks": [
+    {"type": "event", "t": 0.0, "action": "spawn", "id": "main_screen", "prefab": "screen",
+      "transform": {"position": [0.0, 2.0, -4.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.3, 0.3, 0.3]},
+      "config": {
+        "effects": [
+          {"shader": "glow", "params": {"intensity": 2.0}},
+          {"shader": "generator", "mix": 0.8, "blend": "add", "generator": {
+            "shader": "hex_pulse", "params": {"cells": 6.0}, "resolution": 0.5,
+            "effects": [
+              {"shader": "key_black"},
+              {"shader": "oval_mask", "params": {"size": 0.6, "level": 1.0}, "blend": "multiply"}
+            ]}}
+        ]
+      }},
+    {"type": "shader_param", "target": "main_screen.effect1", "param": "cells",
+      "keyframes": [{"t": 0.0, "value": 6.0}, {"t": 4.0, "value": 12.0}]},
+    {"type": "shader_param", "target": "main_screen.effect1", "param": "mix",
+      "keyframes": [{"t": 0.0, "value": 0.8}, {"t": 3.0, "value": 0.2}]},
+    {"type": "shader_param", "target": "main_screen.effect1.effect1", "param": "size",
+      "keyframes": [{"t": 1.0, "value": 0.6}, {"t": 5.0, "value": 1.2}]},
+    {"type": "shader_param", "target": "main_screen.effect1.effect0", "param": "enabled",
+      "keyframes": [
+        {"t": 0.0, "value": true, "interp": "step", "transition": {"type": "fade", "duration": 1.0}},
+        {"t": 2.0, "value": false, "interp": "step", "transition": {"type": "fade", "duration": 1.0}}]}
+  ]
+}

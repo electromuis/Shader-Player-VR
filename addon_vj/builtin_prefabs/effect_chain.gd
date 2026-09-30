@@ -22,7 +22,10 @@ extends Node
 ## screen before each call) gives each material's blend mode and how much
 ## of it shows (VJEffect's blend, and mix while it's on): one that shows
 ## none is skipped, and one that mixes or blends gets an EffectBlend pass
-## after it, as in the player.
+## after it, as in the player. A generator (a VJEffect with a `generator`)
+## comes as its layer shader's material, and its mixing as [mode, amount,
+## its picture]: one pass lays that picture over the chain's (EffectBlend's
+## generator pass), as in the player; a new picture rebuilds.
 
 const COPY_SHADER := preload("res://addons/vj_editor/builtin_prefabs/chain_copy.gdshader")
 const EffectBlend := preload("res://addons/vj_editor/builtin_prefabs/effect_blend.gd")
@@ -67,7 +70,7 @@ func build(src: Texture2D, materials: Array[ShaderMaterial], px: Vector2i, aspec
 		var m := materials[i]
 		var mx := _mixing(i)
 		_built.append([m, m.shader if m != null else null, pass_counts(m), _mix_flags(mx)])
-		if m != null and m.shader != null and mx[1] > 0.0:
+		if m != null and m.shader != null and _mix_flags(mx)[0]:
 			_sources.append(m)
 			_mix_of[m] = mx
 	_margin_from = -1
@@ -80,6 +83,10 @@ func build(src: Texture2D, materials: Array[ShaderMaterial], px: Vector2i, aspec
 		var m := _sources[i]
 		if i == _margin_from:
 			tex = _add_pass(null, tex, false)
+		if _mix_of[m].size() > 2:
+			tex = _add_blend_pass(m, tex, _mix_of[m][2], EffectBlend.generator_shader())
+			_passes[-1]["generator"] = true
+			continue
 		var counts := pass_counts(m)
 		var before := tex
 		if counts[0] > 1:
@@ -130,8 +137,9 @@ func _add_pass(source: ShaderMaterial, input: Texture2D, prepass: bool, step: in
 
 
 ## The EffectBlend pass after `source`'s: `input` its input, `output` its
-## result.
-func _add_blend_pass(source: ShaderMaterial, input: Texture2D, output: Texture2D) -> Texture2D:
+## result (a generator's pass, `shader` its generator_shader: `output` is
+## its picture).
+func _add_blend_pass(source: ShaderMaterial, input: Texture2D, output: Texture2D, shader: Shader = null) -> Texture2D:
 	var vp := SubViewport.new()
 	vp.transparent_bg = true
 	vp.disable_3d = true
@@ -140,7 +148,7 @@ func _add_blend_pass(source: ShaderMaterial, input: Texture2D, output: Texture2D
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := ShaderMaterial.new()
-	mat.shader = EffectBlend.pass_shader()
+	mat.shader = shader if shader != null else EffectBlend.pass_shader()
 	mat.set_shader_parameter("input_tex", input)
 	mat.set_shader_parameter("effect_tex", output)
 	rect.material = mat
@@ -151,14 +159,22 @@ func _add_blend_pass(source: ShaderMaterial, input: Texture2D, output: Texture2D
 	return vp.get_texture()
 
 
-## mixing[i], or [0, 1] (normal, all of it).
+## mixing[i], or [0, 1] (normal, all of it); a generator's with its picture.
 func _mixing(i: int) -> Array:
 	var mx = mixing[i] if i < mixing.size() else null
-	return [int(mx[0]), clampf(float(mx[1]), 0.0, 1.0)] if typeof(mx) == TYPE_ARRAY and mx.size() >= 2 else [0, 1.0]
+	if typeof(mx) != TYPE_ARRAY or mx.size() < 2:
+		return [0, 1.0]
+	var out := [int(mx[0]), clampf(float(mx[1]), 0.0, 1.0)]
+	if mx.size() > 2:
+		out.append(mx[2])
+	return out
 
 
-## [shows at all, needs a blend pass] for a [mode, amount].
+## [shows at all, needs a blend pass] for a [mode, amount]; a generator's
+## [shows (it has a picture), false, its picture].
 static func _mix_flags(mx: Array) -> Array:
+	if mx.size() > 2:
+		return [mx[1] > 0.0 and mx[2] != null, false, mx[2]]
 	return [mx[1] > 0.0, mx[1] > 0.0 and (mx[0] != 0 or mx[1] < 1.0)]
 
 
@@ -197,6 +213,8 @@ func sync(px: Vector2i, aspect: float) -> void:
 			var mx := _mixing(int(index_of.get(src, -1)))
 			mat.set_shader_parameter("blend_mode", mx[0])
 			mat.set_shader_parameter("mix_amount", mx[1])
+			if p.get("generator", false):
+				mat.set_shader_parameter("picture_rect", Vector4(0.5 - 0.5 * aspect / w, 0.5 - 0.5 / h, aspect / w, 1.0 / h))
 			vp.size = _fit(size)
 			continue
 		if src == null:

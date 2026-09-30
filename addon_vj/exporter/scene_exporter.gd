@@ -26,6 +26,11 @@ extends RefCounted
 ##                                                      ("<id>.layer" on layers)
 ##       <path>/<effect>:material:shader_parameter/<name>
 ##                                                    → shader_param "<id>.effect<N>"
+##       <path>/<effect>:generator:shader_parameter/<name> → the same, a
+##         generator's layer shader's param
+##       <path>/<effect>/<own effect>:material:shader_parameter/<name>
+##                                                    → shader_param "<id>.effect<N>.effect<M>"
+##         (a generator's own effects, M its place among them)
 ##         (<effect> a VJEffect child of a screen or layer, N its place
 ##         among the enabled ones)
 ##       <path>/<vertex effect>:params/<name>         → shader_param "<id>.vertex<N>"
@@ -431,10 +436,21 @@ static func _tracks_from_animation(scene: Node, animation: Animation, objects: A
 			# params go to the parent's `effect<N>` / `vertex<N>` slot.
 			obj = by_path.get("/".join(names.slice(0, -1)))
 			node = scene.get_node_or_null(NodePath("/".join(names)))
+			var generator: Node = null
+			if obj == null and names.size() > 2 and node != null:
+				# A generator's own effect: <screen>/<generator>/<effect>.
+				obj = by_path.get("/".join(names.slice(0, -2)))
+				generator = node.get_parent()
 			if obj == null or node == null:
 				continue
 			var index := -1
-			if node.get_script() == VJEffectScript and obj.node.has_method("effect_nodes"):
+			if generator != null:
+				if generator.get_script() == VJEffectScript and node.get_script() == VJEffectScript \
+						and obj.node.has_method("effect_nodes"):
+					var n: int = obj.node.call("effect_nodes").find(generator)
+					index = generator.effect_nodes().find(node) if n >= 0 else -1
+					slot = "effect%d.effect%d" % [n, index]
+			elif node.get_script() == VJEffectScript and obj.node.has_method("effect_nodes"):
 				index = obj.node.call("effect_nodes").find(node)
 				slot = "effect%d" % index
 			elif node.get_script() == VJVertexEffectScript and obj.node.has_method("vertex_effect_nodes"):
@@ -480,9 +496,15 @@ static func _add_still_switches(out: Array, objects: Array) -> void:
 			var nodes: Array = obj.node.call(kind[0])
 			for n in nodes.size():
 				var target := "%s.%s%d" % [obj.id, kind[1], n]
-				if not nodes[n].on and not keyed.has(target):
-					out.append({"type": "shader_param", "target": target, "param": "enabled",
-							"keyframes": [{"t": 0.0, "value": false, "interp": "step"}]})
+				var still: Array = [[nodes[n], target]]
+				if kind[1] == "effect" and nodes[n].is_generator():
+					var own: Array = nodes[n].effect_nodes()
+					for m in own.size():
+						still.append([own[m], "%s.effect%d" % [target, m]])
+				for s in still:
+					if not s[0].on and not keyed.has(s[1]):
+						out.append({"type": "shader_param", "target": s[1], "param": "enabled",
+								"keyframes": [{"t": 0.0, "value": false, "interp": "step"}]})
 
 
 ## `slot` "effect<N>" / "vertex<N>": the track animates that effect (a
@@ -521,8 +543,10 @@ static func _route_track(out: Array, obj: _Obj, slot: String, path: NodePath, ke
 		out.append(_shader_param_track(keys, "%s.%s" % [obj.id, slot], first.substr("params/".length())))
 		return
 	var last := String(path.get_subname(path.get_subname_count() - 1))
-	if first != "material" or not last.begins_with(_SHADER_PARAM_PREFIX):
-		push_warning("VJ export: only an effect's material:shader_parameter/<name> animates ('%s') — skipped." % path)
+	# A generator's params are its layer shader's (`generator`).
+	if not (first == "material" or (first == "generator" and not slot.contains("."))) \
+			or not last.begins_with(_SHADER_PARAM_PREFIX):
+		push_warning("VJ export: only an effect's material:shader_parameter/<name> (a generator's generator:shader_parameter/<name>) animates ('%s') — skipped." % path)
 		return
 	out.append(_shader_param_track(keys, "%s.%s" % [obj.id, slot], last.substr(_SHADER_PARAM_PREFIX.length())))
 
@@ -1015,15 +1039,41 @@ static func _vertex_effects_config(node: Node3D, out_dir: String, shaders: Dicti
 static func _effects_config(node: Node3D, out_dir: String, shaders: Dictionary) -> Array:
 	if not node.call("legacy_effects").is_empty():
 		push_warning("VJ export: '%s' still has effect_1..4 slots, which no longer export. Run Tools > VJ: Convert effect slots to nodes." % node.name)
+	return _effect_entries(node, out_dir, shaders, true)
+
+
+## `parent`'s VJEffect children as effect entries (see _effects_config). A
+## generator (with `generators`: not inside another) exports as the
+## player's: {"shader": "generator", "generator": {shader, params,
+## resolution, effects: its own VJEffect children}}.
+static func _effect_entries(parent: Node, out_dir: String, shaders: Dictionary, generators: bool) -> Array:
 	var out: Array = []
-	for child in node.get_children():
-		if child.get_script() != VJEffectScript or child.material == null or child.material.shader == null:
+	for child in parent.get_children():
+		if child.get_script() != VJEffectScript:
 			continue
-		var mat: ShaderMaterial = child.material
-		var e := {"shader": _register_shader(mat.shader, out_dir, shaders)}
-		var params := _authored_params(mat, ["input_tex", "display_aspect", "picture_rect", "picture_shape", "prepass_tex", "prepass"])
-		if not params.is_empty():
-			e["params"] = params
+		var e := {}
+		if child.is_generator():
+			if not generators:
+				push_warning("VJ export: '%s' is a generator inside a generator, which the player doesn't run — skipped." % child.name)
+				continue
+			var gen := {"shader": _register_shader(child.generator.shader, out_dir, shaders)}
+			var gparams := _authored_params(child.generator, _LAYER_INPUTS)
+			if not gparams.is_empty():
+				gen["params"] = gparams
+			if child.generator_resolution != 1.0:
+				gen["resolution"] = snappedf(child.generator_resolution, 0.0001)
+			var own := _effect_entries(child, out_dir, shaders, false)
+			if not own.is_empty():
+				gen["effects"] = own
+			e = {"shader": "generator", "generator": gen}
+		elif child.material != null and child.material.shader != null:
+			var mat: ShaderMaterial = child.material
+			e = {"shader": _register_shader(mat.shader, out_dir, shaders)}
+			var params := _authored_params(mat, ["input_tex", "display_aspect", "picture_rect", "picture_shape", "prepass_tex", "prepass"])
+			if not params.is_empty():
+				e["params"] = params
+		else:
+			continue
 		if not child.enabled:
 			e["enabled"] = false
 		if child.mix < 1.0:

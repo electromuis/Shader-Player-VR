@@ -267,19 +267,23 @@ func surface_config() -> Dictionary:
 	return {"shader": surface, "params": params, "placement": _placement()}
 
 
-## effect_nodes()' materials.
+## effect_nodes()' materials (a generator's: its layer shader's).
 func effect_materials() -> Array[ShaderMaterial]:
 	var out: Array[ShaderMaterial] = []
 	for e in effect_nodes():
-		out.append(e.material)
+		out.append(e.generator if e.is_generator() else e.material)
 	return out
 
 
-## effect_nodes()' [blend mode index, amount] (effect_chain.gd's mixing).
+## effect_nodes()' [blend mode index, amount] (effect_chain.gd's mixing),
+## and a generator's picture.
 func effect_mixing() -> Array:
 	var out: Array = []
 	for e in effect_nodes():
-		out.append([maxi(_EffectBlend.MODES.find(e.blend), 0), e.amount()])
+		var mx := [maxi(_EffectBlend.MODES.find(e.blend), 0), e.amount()]
+		if e.is_generator():
+			mx.append(e.generator_texture())
+		out.append(mx)
 	return out
 
 

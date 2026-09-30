@@ -192,7 +192,8 @@ class _Ctx:
 	var parents: Dictionary = {}   # id -> parent id ("" at the root)
 	var shaders: Dictionary = {}   # key -> Shader (null: unresolvable)
 	var packed: Dictionary = {}    # prefab key -> PackedScene (null: unresolvable)
-	## id -> {script's effect<N>: the scene's N, or -1 (not imported)}
+	## id -> {script's effect<N>: the scene's N, or -1 (not imported)}; a
+	## generator's own effects under "<id>.effect<N>" (the script's N).
 	var effect_places: Dictionary = {}
 	var warnings: Array = []
 
@@ -371,7 +372,7 @@ static func _apply_config(ctx: _Ctx, node: Node3D, cfg, id: String) -> void:
 		var n_script := 0
 		for e in cfg.get("effects", []):
 			var on: bool = typeof(e) == TYPE_DICTIONARY and e.get("enabled", true) != false
-			var added := _add_effect(ctx, node, e, names)
+			var added := _add_effect(ctx, node, e, names, "%s.effect%d" % [id, n_script] if on else "")
 			if on:
 				places[n_script] = node.call("effect_nodes").size() - 1 if added else -1
 				n_script += 1
@@ -444,16 +445,30 @@ static func _add_vertex_effect(ctx: _Ctx, node: Node3D, v, id: String) -> void:
 	effect.owner = ctx.root
 
 
-## Adds effect `e` (a config.effects entry) as a VJEffect child; false if it
-## can't be (no shader, or earlier versions' Padding).
-static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> bool:
+## Adds effect `e` (a config.effects entry) as a VJEffect child of `node` (a
+## screen or layer, or a generator effect for its own); false if it can't
+## be (no shader, or earlier versions' Padding). A generator gets its layer
+## shader as `generator` and its own effects as children; `slot` is its
+## "<id>.effect<N>", for their places (ctx.effect_places).
+static func _add_effect(ctx: _Ctx, node: Node, e, names: Dictionary, slot: String = "") -> bool:
 	if typeof(e) != TYPE_DICTIONARY:
 		return false
 	var key := String(e.get("shader", ""))
 	if String(ctx.shader_keys.get(key, "")) == _LEGACY_PADDING:
 		ctx.warn("'%s': the Padding effect is dropped (margins are automatic now); the effects after it move up" % node.name)
 		return false
-	var shader := _shader(ctx, key)
+	var gen = e.get("generator") if key == "generator" else null
+	if typeof(gen) == TYPE_DICTIONARY and node.get_script() == VJEffectScript:
+		ctx.warn("'%s': a generator inside a generator is dropped" % node.name)
+		return false
+	var shader: Shader = null
+	if typeof(gen) == TYPE_DICTIONARY:
+		if String(gen.get("shader", "")) == "video":
+			ctx.warn("'%s': a generator of the video itself isn't something the addon has; dropped" % node.name)
+			return false
+		shader = _shader(ctx, String(gen.get("shader", "")))
+	else:
+		shader = _shader(ctx, key)
 	if shader == null:
 		return false
 	var effect := Node.new()
@@ -462,8 +477,14 @@ static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> bool:
 	effect.name = key if names[key] == 1 else "%s_%d" % [key, names[key]]
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
-	_set_params(mat, e.get("params", {}))
-	effect.material = mat
+	if typeof(gen) == TYPE_DICTIONARY:
+		_set_params(mat, gen.get("params", {}))
+		effect.generator = mat
+		if typeof(gen.get("resolution")) in [TYPE_INT, TYPE_FLOAT]:
+			effect.generator_resolution = float(gen.resolution)
+	else:
+		_set_params(mat, e.get("params", {}))
+		effect.material = mat
 	effect.enabled = e.get("enabled", true) != false
 	if typeof(e.get("mix")) in [TYPE_INT, TYPE_FLOAT]:
 		effect.mix = clampf(float(e.mix), 0.0, 1.0)
@@ -473,6 +494,19 @@ static func _add_effect(ctx: _Ctx, node: Node3D, e, names: Dictionary) -> bool:
 		ctx.warn("'%s': the switched-off %s effect's kept animation is dropped (switch it on in Studio first to keep it)" % [node.name, key])
 	node.add_child(effect)
 	effect.owner = ctx.root
+	if typeof(gen) == TYPE_DICTIONARY:
+		var own_names := {}
+		var places := {}
+		var n_script := 0
+		var own = gen.get("effects", [])
+		for o in own if typeof(own) == TYPE_ARRAY else []:
+			var on: bool = typeof(o) == TYPE_DICTIONARY and o.get("enabled", true) != false
+			var added := _add_effect(ctx, effect, o, own_names)
+			if on:
+				places[n_script] = effect.effect_nodes().size() - 1 if added else -1
+				n_script += 1
+		if slot != "":
+			ctx.effect_places[slot] = places
 	return true
 
 
@@ -614,7 +648,8 @@ static func _build_track(ctx: _Ctx, t: Dictionary) -> void:
 			"scale": prop = "scale"
 		template = Vector3()
 	else:
-		var slot := target.get_slice(".", 1) if target.contains(".") else ""
+		# Everything after the id: a generator's own effects are "effect<N>.effect<M>".
+		var slot := target.substr(target.find(".") + 1) if target.contains(".") else ""
 		var param := String(t.get("param", ""))
 		var resolved := _param_path(ctx, node, slot, param, target)
 		if resolved.is_empty():
@@ -662,22 +697,28 @@ static func _param_path(ctx: _Ctx, node: Node3D, slot: String, param: String, ta
 					if param in ["mix", "enabled"]:
 						return ["%s/%s" % [path, vertex[n].name], "on" if param == "enabled" else "mix", true if param == "enabled" else 1.0]
 					return ["%s/%s" % [path, vertex[n].name], "params/" + param, vertex[n].get("params/" + param)]
-			elif slot.begins_with("effect") and slot.substr(6).is_valid_int():
-				var effects: Array = node.call("effect_nodes") if node.has_method("effect_nodes") else []
-				var n := slot.substr(6).to_int()
-				var places: Dictionary = ctx.effect_places.get(target.split(".")[0], {})
-				if places.has(n):
-					n = int(places[n])
-					if n < 0:
-						return []  # its effect wasn't imported (Padding; warned)
-				if n >= 0 and n < effects.size():
-					var effect: Node = effects[n]
+			elif slot.begins_with("effect") and slot.get_slice(".", 0).substr(6).is_valid_int():
+				var id := target.split(".")[0]
+				var effect: Node = _placed_effect(ctx, node, id, slot.get_slice(".", 0))
+				var effect_path := "%s/%s" % [path, effect.name] if effect != null else ""
+				if effect != null and slot.contains("."):
+					# A generator's own effect.
+					var sub := slot.get_slice(".", 1)
+					effect = _placed_effect(ctx, effect, "%s.%s" % [id, slot.get_slice(".", 0)], sub) \
+							if effect.is_generator() and sub.begins_with("effect") and sub.substr(6).is_valid_int() else null
+					effect_path = "%s/%s" % [effect_path, effect.name] if effect != null else ""
+				if effect != null:
 					match param:
-						"enabled": return ["%s/%s" % [path, effect.name], "on", true]
-						"mix": return ["%s/%s" % [path, effect.name], "mix", 1.0]
-						"blend": return ["%s/%s" % [path, effect.name], "blend", "normal"]
-					return ["%s/%s" % [path, effect.name], "material:shader_parameter/" + param,
+						"enabled": return [effect_path, "on", true]
+						"mix": return [effect_path, "mix", 1.0]
+						"blend": return [effect_path, "blend", "normal"]
+					if effect.is_generator():
+						return [effect_path, "generator:shader_parameter/" + param,
+								_uniform_default(effect.generator.shader, param)]
+					return [effect_path, "material:shader_parameter/" + param,
 							_uniform_default(effect.material.shader, param)]
+				if ctx.effect_places.has(id) and ctx.effect_places[id].get(slot.get_slice(".", 0).substr(6).to_int(), 0) == -1:
+					return []  # its effect wasn't imported (Padding; warned)
 			elif is_screen:
 				var mat: ShaderMaterial = node.shader_material
 				if mat != null:
@@ -689,6 +730,18 @@ static func _param_path(ctx: _Ctx, node: Node3D, slot: String, param: String, ta
 					return [path, mat_prop + ":shader_parameter/" + param, _uniform_default(mat.shader, param)]
 	ctx.warn("shader_param track '%s' / '%s' has no matching property in the scene; dropped" % [target, param])
 	return []
+
+
+## The effect node in `slot` ("effect<N>", the script's N) of `holder` (a
+## screen or layer, or a generator effect), through the places the import
+## gave them under `key` (ctx.effect_places); null if none.
+static func _placed_effect(ctx: _Ctx, holder: Node, key: String, slot: String) -> Node:
+	var effects: Array = holder.call("effect_nodes") if holder.has_method("effect_nodes") else []
+	var n := slot.substr(6).to_int()
+	var places: Dictionary = ctx.effect_places.get(key, {})
+	if places.has(n):
+		n = int(places[n])
+	return effects[n] if n >= 0 and n < effects.size() else null
 
 
 ## An on / off track's keys as the effect's `on` keys (held from key to

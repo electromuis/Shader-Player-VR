@@ -96,7 +96,7 @@ var _dot_w := 20
 func _ready() -> void:
 	vr = vr or get_viewport() != get_tree().root
 	_fs = 28 if vr else 15
-	_label_w = 190 if vr else 118
+	_label_w = 215 if vr else 118
 	_value_w = 104 if vr else 58
 	_diamond_w = 48 if vr else 26
 	_dot_w = 40 if vr else 20
@@ -513,7 +513,9 @@ func _add_transform() -> void:
 			_needs_build = true)
 		name.flat = true
 		name.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		name.custom_minimum_size.x = _label_w
+		# "Position" and "Rotation" are short: in the headset the three numbers
+		# get the room, so the row fits the panel.
+		name.custom_minimum_size.x = _label_w - (55 if vr else 0)
 		name.add_theme_color_override("font_color", ACCENT if open else Color.WHITE)
 		name.tooltip_text = "Sliders for each axis"
 		row.add_child(name)
@@ -575,6 +577,7 @@ func _add_transform() -> void:
 			body.add_child(urow)
 	var tip := _label(body, int(_fs * 0.85), DIM)
 	tip.text = "Click a row for its sliders · drag a number sideways, or click to type · grab to move"
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # else its one line sets the panel's width
 
 
 ## A number field for a transform axis (type, drag it sideways, or its arrows).

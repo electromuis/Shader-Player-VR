@@ -123,7 +123,7 @@ static func spawn_time(t: float) -> float:
 ## changed object), message}.
 func drop(asset: Dictionary, where: Dictionary, head: Vector3, t: float, snap: bool) -> Dictionary:
 	if model == null:
-		return {"ok": false, "message": "Open a piece first."}
+		return {"ok": false, "message": "Open an SPScript first."}
 	var on := String(where.get("on", ""))
 	var on_kind := edits.kind_for(on) if on != "" and edits != null else ""
 	var piece_dir := model.path.get_base_dir()

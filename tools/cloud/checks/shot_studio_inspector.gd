@@ -42,7 +42,7 @@ func shot(name: String) -> void:
 func _initialize() -> void:
 	var dir := OS.get_environment("WORK").path_join("studio_inspector/piece")
 	DirAccess.make_dir_recursive_absolute(dir)
-	DirAccess.remove_absolute(dir.path_join("clip.json"))
+	DirAccess.remove_absolute(dir.path_join("clip.spscript"))
 	var f := FileAccess.open(dir.path_join("clip.mp4"), FileAccess.WRITE)
 	f.store_string("a stand-in: nothing here decodes video")
 	f.close()
@@ -149,6 +149,6 @@ func _initialize() -> void:
 	ins.set_section_open("Display", false)
 	await frames(6)
 	await shot("4_lists")
-	print("save: ", m.save().get("ok", false), " valid ", ScriptFormat.load_from_file(dir.path_join("clip.json")).ok)
+	print("save: ", m.save().get("ok", false), " valid ", ScriptFormat.load_from_file(dir.path_join("clip.spscript")).ok)
 	print("STUDIO INSPECTOR DONE")
 	quit()

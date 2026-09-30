@@ -101,16 +101,16 @@ func _initialize() -> void:
 				{"t": 0.0, "value": [0.0, 2.0, 8.0]}, {"t": 12.0, "value": [0.0, 2.0, 4.0]}]},
 		],
 	}
-	f = FileAccess.open(dir.path_join("clip.json"), FileAccess.WRITE)
+	f = FileAccess.open(dir.path_join("clip.spscript"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(piece, "  "))
 	f.close()
-	DirAccess.remove_absolute(dir.path_join("clip.json.autosave"))
+	DirAccess.remove_absolute(dir.path_join("clip.spscript.autosave"))
 	DirAccess.remove_absolute(AppPaths.save_path(StudioSettings.FILE_NAME))
 	studio = load("res://studio/studio.tscn").instantiate()
 	studio._cli_desktop = true
 	root.add_child(studio)
 	await frames(10)
-	studio.open_piece(dir.path_join("clip.json"))
+	studio.open_piece(dir.path_join("clip.spscript"))
 	await frames(6)
 	var cam = studio.stage.desktop_camera
 	cam.set_view(Vector3(3.2, 3.4, 6.5), Vector3(-9, 0, 0))
@@ -245,7 +245,7 @@ func _initialize() -> void:
 		studio.outliner_panel.visible = false
 
 	print("save: ", studio.save(), ", valid ", studio.model.check().ok)
-	var saved := FileAccess.get_file_as_string(dir.path_join("clip.json"))
+	var saved := FileAccess.get_file_as_string(dir.path_join("clip.spscript"))
 	print("saved file has the group: ", saved.contains("\"parent\": \"group\""))
 	DirAccess.remove_absolute(AppPaths.save_path(StudioSettings.FILE_NAME))
 	quit(0)

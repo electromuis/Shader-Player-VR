@@ -4,10 +4,10 @@ extends VBoxContainer
 ## browser — no popup dialog (embedded `FileDialog.popup_centered` grabs
 ## input in a way that freezes the root viewport when hosted in a
 ## SubViewport). The list shows the parent-nav row `..`, then folders,
-## then scripts (`.json`) and video files. Activating a folder navigates
+## then SPScripts (`.spscript`) and video files. Activating a folder navigates
 ## into it; activating a file hands its path (and the listing's files as the
 ## next/previous playlist) to main.gd's open_file, which
-## loads scripts directly and plays videos (via a same-name `.json` sidecar
+## loads scripts directly and plays videos (via a same-name `.spscript` sidecar
 ## if one exists, otherwise on the default screen).
 ##
 ## Other files are hidden — this is a media picker, not a general explorer.
@@ -246,7 +246,7 @@ func _populate_entries(d: DirAccess) -> void:
 			continue
 		if d.current_is_dir():
 			dirs.append(name)
-		elif name.get_extension().to_lower() == "json" or DefaultScreen.is_video(name):
+		elif ScriptFormat.is_script_path(name) or DefaultScreen.is_video(name):
 			files.append(name)
 		name = d.get_next()
 	dirs = _sorted(dirs, true)

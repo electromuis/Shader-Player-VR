@@ -863,7 +863,7 @@ func effect_options(list: String = EditModel.EFFECTS, id: String = "") -> Array:
 			var path := _resolve(k)
 			if not seen.has(path) and not path.begins_with(CameraFxShaders.BUILTIN_PREFIX) \
 					and CameraFxShaders.is_camera_code(CameraFxShaders.code_for(path)):
-				out.append({"key": String(shaders[k]), "label": "%s (piece)" % String(k).capitalize()})
+				out.append({"key": String(shaders[k]), "label": "%s (SPScript)" % String(k).capitalize()})
 				seen[path] = true
 		return out
 	if list == EditModel.VERTEX_EFFECTS:
@@ -942,7 +942,7 @@ func _shader_options(builtins: Array, effects: bool) -> Array:
 	if library != null:
 		for a in library.of_type("effect" if effects else "layer"):
 			if a.source != "builtin" and not seen.has(a.path):
-				out.append({"key": a.path, "label": "%s (%s)" % [a.label, "piece" if a.source == "piece" else "yours"]})
+				out.append({"key": a.path, "label": "%s (%s)" % [a.label, "SPScript" if a.source == "piece" else "yours"]})
 				seen[a.path] = true
 	return out
 

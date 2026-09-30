@@ -54,7 +54,7 @@ if [ -d "$BUILD/linux" ]; then
 [Desktop Entry]
 Type=Application
 Name=Shader Player VR
-Comment=Scripted VJ video player
+Comment=A VR video player with sound-reactive shaders
 Exec=/opt/shader-player-vr/$NAME.x86_64 %f
 Terminal=false
 Categories=AudioVideo;Video;Player;
@@ -70,7 +70,7 @@ Maintainer: Electromuis <noreply@github.com>
 Section: video
 Priority: optional
 Depends: libc6, libgl1, libvulkan1
-Description: Scripted VJ video player with VR support (OpenXR)
+Description: Shader Player VR, a VR video player with sound-reactive shaders (OpenXR)
 CONTROL
   dpkg-deb --root-owner-group --build "$PKG" "$DIST/$NAME-$VERSION-linux-x86_64.deb"
 fi

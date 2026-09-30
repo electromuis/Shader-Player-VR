@@ -198,17 +198,17 @@ class ScriptsTest(unittest.TestCase):
         return path
 
     def test_sibling_json(self):
-        script = self._write("clip.json", {"format_version": 1, "tracks": []})
+        script = self._write("clip.spscript", {"format_version": 1, "tracks": []})
         self.assertEqual(vj.ScriptIndex().script_for(self.video), script)
 
     def test_added_script_matched_by_media_video(self):
         os.makedirs(os.path.join(self.dir, "piece"))
-        script = self._write(os.path.join("piece", "piece.json"), {"media": {"video": "../clip.mp4"}, "tracks": []})
+        script = self._write(os.path.join("piece", "piece.spscript"), {"media": {"video": "../clip.mp4"}, "tracks": []})
         self.assertEqual(vj.ScriptIndex([script]).script_for(self.video), script)
         self.assertEqual(vj.ScriptIndex([]).script_for(self.video), "")
 
     def test_non_script_json_ignored(self):
-        self._write("clip.json", {"something": "else"})
+        self._write("clip.spscript", {"something": "else"})
         self.assertEqual(vj.ScriptIndex().script_for(self.video), "")
 
 
@@ -232,7 +232,7 @@ class MarkerTest(unittest.TestCase):
 
     def test_markers_map_through_clips(self):
         # Clip on V1 at timeline frames 90025..90525 (1 s in), from 10 s into its media.
-        seg = vj.Segment(90025, 90525, 10.0, 1.0, 25.0, "a.json", "a")
+        seg = vj.Segment(90025, 90525, 10.0, 1.0, 25.0, "a.spscript", "a")
         markers = {
             50: {"name": "despawn cube_1", "note": "", "duration": 1},  # frame 90050 -> 11 s
             75.0: {"name": "vr_cut", "note": '{"to": {}, "transition": {"type": "fade_to_black", "duration": 1}}', "duration": 1},
@@ -240,8 +240,8 @@ class MarkerTest(unittest.TestCase):
             10: {"name": "Marker 3", "note": "", "duration": 1},
         }
         out, problems = vj.markers_to_events(markers, 90000, [seg])
-        self.assertEqual([(e["action"], e["t"]) for e in out["a.json"]], [("despawn", 11.0), ("vr_cut", 11.5)])
-        self.assertEqual(list(out["a.json"][0])[:3], ["type", "t", "action"])
+        self.assertEqual([(e["action"], e["t"]) for e in out["a.spscript"]], [("despawn", 11.0), ("vr_cut", 11.5)])
+        self.assertEqual(list(out["a.spscript"][0])[:3], ["type", "t", "action"])
         self.assertEqual(len(problems), 1)
         self.assertIn("despawn x", problems[0])
 
@@ -260,7 +260,7 @@ class SyncTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         media = os.path.join(self.dir, "clip.mp4")
-        self.script = os.path.join(self.dir, "clip.json")
+        self.script = os.path.join(self.dir, "clip.spscript")
         with open(self.script, "w") as f:
             json.dump({"format_version": 1, "media": {"video": "clip.mp4"}, "tracks": []}, f)
         # V1: the clip from 01:00:02:00 for 20 s, starting 4 s into the media.

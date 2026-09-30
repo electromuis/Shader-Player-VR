@@ -20,7 +20,7 @@ static func _piece(tc: TestCase) -> EditModel:
 	DirAccess.make_dir_recursive_absolute(dir)
 	for f in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(f))
-	var path := dir.path_join("piece.json")
+	var path := dir.path_join("piece.spscript")
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string(JSON.stringify(DOC, "  ") + "\n")
 	f.close()

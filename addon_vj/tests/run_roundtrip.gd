@@ -42,7 +42,7 @@ func _initialize() -> void:
 	_tmp = OS.get_temp_dir().path_join("vj_roundtrip_%d" % Time.get_ticks_usec())
 	var scripts: Array = []
 	for dir in dirs:
-		scripts.append_array(_find_json(dir))
+		scripts.append_array(_find_scripts(dir))
 	for path in scripts:
 		_check(path)
 	_check_authored_ride()
@@ -56,7 +56,7 @@ func _initialize() -> void:
 func _check_authored_ride() -> void:
 	print("== authored ride")
 	var built := ScriptImporterScript.build_scene(
-			ProjectSettings.globalize_path("res://addons/vj_editor/tests/fixtures/ride_steps/video.json"), _tmp.path_join("authored"))
+			ProjectSettings.globalize_path("res://addons/vj_editor/tests/fixtures/ride_steps/video.spscript"), _tmp.path_join("authored"))
 	if not built.ok:
 		_fail("import failed: %s" % built.error)
 		return
@@ -102,13 +102,13 @@ func _check_authored_ride() -> void:
 	print("   %d position keys, cuts at 3.001 and 6.001" % ride.get("position", []).size())
 
 
-func _find_json(dir: String) -> Array:
+func _find_scripts(dir: String) -> Array:
 	var out: Array = []
 	for f in DirAccess.get_files_at(dir):
-		if f.get_extension() == "json":
+		if f.get_extension() == "spscript":
 			out.append(dir.path_join(f))
 	for d in DirAccess.get_directories_at(dir):
-		out.append_array(_find_json(dir.path_join(d)))
+		out.append_array(_find_scripts(dir.path_join(d)))
 	return out
 
 
@@ -134,7 +134,7 @@ func _check(path: String) -> void:
 		_fail("export not stable: " + d)
 
 
-## Imports `json` (files under `dir`) and exports it to `dir`/video.json.
+## Imports `json` (files under `dir`) and exports it to `dir`/video.spscript.
 ## {path, data} or {} (failed).
 func _import_export(json: String, dir: String) -> Dictionary:
 	DirAccess.make_dir_recursive_absolute(dir)
@@ -151,7 +151,7 @@ func _import_export(json: String, dir: String) -> Dictionary:
 	if not res.ok:
 		_fail("export failed: %s" % res.error)
 		return {}
-	var out := out_dir.path_join("video.json")
+	var out := out_dir.path_join("video.spscript")
 	var f := FileAccess.open(out, FileAccess.WRITE)
 	f.store_string(JSON.stringify(res.data, "  "))
 	f.close()

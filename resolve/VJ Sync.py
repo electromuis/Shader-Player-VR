@@ -12,8 +12,8 @@ Two things:
   The player connects to it on its own. Playing, pausing and scrubbing in
   Resolve drive the player; pausing or scrubbing the paused player moves
   Resolve's playhead. The player shows the script of the clip under the
-  playhead: a clip's script is the `.json` next to its media file
-  (`clip.mp4` + `clip.json`, the player's own convention), or an added
+  playhead: a clip's script is the `.spscript` next to its media file
+  (`clip.mp4` + `clip.spscript`, the player's own convention), or an added
   script whose `media.video` is that file.
 
 - Markers -> script events. Timeline markers named after an event action
@@ -119,7 +119,7 @@ def same_path(a, b):
 
 
 class ScriptIndex:
-    """Which VJ script goes with a media file. Files are re-read when they change."""
+    """Which SPScript goes with a media file. Files are re-read when they change."""
 
     def __init__(self, extra_scripts=()):
         self.extra_scripts = list(extra_scripts)
@@ -155,7 +155,7 @@ class ScriptIndex:
     def script_for(self, media_path):
         if not media_path:
             return ""
-        sibling = os.path.splitext(media_path)[0] + ".json"
+        sibling = os.path.splitext(media_path)[0] + ".spscript"
         if self.load(sibling) is not None:
             return sibling
         for script in self.extra_scripts:
@@ -270,7 +270,7 @@ def markers_to_events(markers, timeline_start, segments):
             problems.append("%s: %s" % (label, result))
             continue
         if seg is None:
-            problems.append("%s: not on a clip that has a VJ script" % label)
+            problems.append("%s: not on a clip that has an SPScript" % label)
             continue
         event, offset = result
         event["t"] = round(max(0.0, seg.time_at(frame) - offset), 3)
@@ -776,7 +776,7 @@ class Sync:
         player = ("Player connected" if self.server.connected()
                   else "Waiting for the player on port %d" % self.server.port)
         if self.segment is None:
-            clip = "no clip with a VJ script under the playhead"
+            clip = "no clip with an SPScript under the playhead"
         else:
             clip = "%s -> %s at %.2f s%s" % (self.segment.name, os.path.basename(self.segment.script),
                                             self.t, " (playing)" if self.playing else "")
@@ -867,7 +867,7 @@ def run_window(resolve, sync, tl, scripts, settings):
     def show_scripts():
         names = ", ".join(os.path.basename(s) for s in scripts.extra_scripts)
         items["Scripts"].Text = ("Added scripts: " + names) if names else \
-            "Scripts: the .json next to each clip's media. Add others whose media.video is the clip."
+            "Scripts: the .spscript next to each clip's media. Add others whose media.video is the clip."
 
     def on_close(ev):
         disp.ExitLoop()

@@ -3,7 +3,7 @@
 Godot authoring project for the plan's **worked example**. It started as a copy
 of `project_script_example` (moving screen). Edit `main.tscn` in Godot, then
 click **▶ Preview in player** in the 3D editor toolbar (or **Tools > VJ: Preview
-in player**). That exports to `scripts/forest_tunnel/video.json` and plays it in
+in player**). That exports to `scripts/forest_tunnel/video.spscript` and plays it in
 the real player, starting at the Animation panel's current time.
 
 Scrubbing the `main` animation in the editor gives a rough preview. It shows a
@@ -21,14 +21,14 @@ Running the scene (F5, or **Run Current Scene**) opens a desktop preview. It has
 
 This comes from `addon_vj/preview/desktop_preview.gd`, which `VJScene` adds at runtime (turn it off with `desktop_preview` on the root). Other authoring projects get the same preview without video, unless they also link gde_gozen.
 
-## The piece (video: `scripts/forest_tunnel/video.mp4`, not tracked; 188.9 s)
+## The SPScript (video: `scripts/forest_tunnel/video.mp4`, not tracked; 188.9 s)
 
 | Time | What happens |
 | --- | --- |
 | 0–45 s | Night forest. A big curved (`curvature` 0.35), glowing screen floats and sways, cut to an oval with soft edges (Glow → Oval mask → Edge blur effects). Behind it, the `backdrop` layer (a blurred copy of the video in an oval) glows. The glow and backdrop fade in over the first 4 s. |
 | 42–44.5 s | The forest fades out (`forest:opacity` 1 → 0; `sort_offset` −30 keeps the see-through trees behind the screen). |
 | 45 s | Environment swap: `forest` despawns and `tunnel` spawns at the peak of a 1 s `vr_cut` fade to black (the cut event starts at 44.5 s). The tunnel then fades in over 45–53.5 s (`tunnel:opacity` 0 → 1). |
-| 49–55 s | The screen flattens (display `curvature` → 0), the oval opens up (Oval mask `size` → 2), and the Glow's `intensity` and `inner_strength` and Edge blur fade to 0. Adjacent pieces can then sit edge to edge without seams. |
+| 49–55 s | The screen flattens (display `curvature` → 0), the oval opens up (Oval mask `size` → 2), and the Glow's `intensity` and `inner_strength` and Edge blur fade to 0. Adjacent SPScripts can then sit edge to edge without seams. |
 | 55 s | **Split**: `main_screen` despawns, taking its `backdrop` with it. `screen_left` / `screen_center` / `screen_right` spawn in the same spot inside the `screens` group, showing the video's thirds (a Crop effect each: `left` 0, ⅓, ⅔ and `width` ⅓). |
 | 55–150 s | The columns move independently: they fly apart and their glow returns, then a diagonal, a side swap (the whole group swells, `screen_master:scale`), a vertical cross-over, and a wide spread with warm/cool tints (the group sways, `screen_master:rotation`) while the tunnel speeds up. From 60 s the `rings` layer (Light ring, curved, inner oval cut out) fades in behind them and pulses with the music. |
 | 150–160 s | `rings` fades out, the columns line back up and dim. At 160 s they merge back into `main_screen`, and the backdrop comes back. |
@@ -38,8 +38,8 @@ The effects and the two layers come from the player's "Preset 2" camera preset: 
 
 ## Layout
 
-- `main.tscn`: the piece.
-  - `Stage` (root, `VJScene`): meta, video path, `output_path = res://../scripts/forest_tunnel/video.json`, and an optional `preview_image` (a still to use instead of the test card).
+- `main.tscn`: the SPScript.
+  - `Stage` (root, `VJScene`): meta, video path, `output_path = res://../scripts/forest_tunnel/video.spscript`, and an optional `preview_image` (a still to use instead of the test card).
   - `Viewer` (`VJViewer` camera): the viewer. Its `motion` is *cuts* here, so each key after t=0 on `Viewer:position` / `:rotation` exports as a `vr_cut` (`fade_to_black`, `fade_duration`); *smooth* would make them a ride the viewer glides along. Toggle its camera preview in the 3D editor to see what the viewer sees.
   - `forest`, `tunnel`: custom prefabs, spawned and despawned by their `visible` tracks. Both are VJ objects (`vj_object.gd` attached, see the addon README), with `opacity` keyed for the fades.
   - `main_screen`, `screen_left|center|right`: `screen` prefab instances. None has an artist shader; everything is effects (`VJEffect` children). `main_screen` has `glow`, `oval_mask`, `edge_blur`; each column has `crop`, `glow`.
@@ -80,6 +80,6 @@ self-contained.
   is to cover the environment swap. The screens live in the player's
   `ScreenMount` at the origin, so a viewer sent far away (a cut or a ride)
   leaves them behind, as it would any object in the world.
-- `scripts/forest_tunnel/video.json` is still a format 1 export with the
+- `scripts/forest_tunnel/video.spscript` is still a format 1 export with the
   Bezier tracks baked to linear keys. Re-export it for the exact curves and
   format 2.

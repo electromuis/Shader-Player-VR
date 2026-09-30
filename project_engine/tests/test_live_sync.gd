@@ -5,13 +5,13 @@ extends RefCounted
 ## script already showing uses.
 
 const TEST_PORT := 23918
-const SCRIPT := "C:/pieces/demo/demo.json"
+const SCRIPT := "C:/pieces/demo/demo.spscript"
 
 
 static func test_same_path(t: TestCase) -> void:
-	t.assert_true(LiveSyncClient.same_path("C:\\Pieces\\demo\\demo.json", "c:/pieces/demo/demo.json"))
-	t.assert_true(LiveSyncClient.same_path("C:/pieces/x/../demo/demo.json", SCRIPT))
-	t.assert_false(LiveSyncClient.same_path("C:/pieces/other.json", SCRIPT))
+	t.assert_true(LiveSyncClient.same_path("C:\\Pieces\\demo\\demo.spscript", "c:/pieces/demo/demo.spscript"))
+	t.assert_true(LiveSyncClient.same_path("C:/pieces/x/../demo/demo.spscript", SCRIPT))
+	t.assert_false(LiveSyncClient.same_path("C:/pieces/other.spscript", SCRIPT))
 
 
 static func test_loopback_commands_and_acks(t: TestCase) -> void:
@@ -135,7 +135,7 @@ static func test_disable_drops_and_reenable_reconnects(t: TestCase) -> void:
 
 
 static func test_runner_reload_keeps_playhead(t: TestCase) -> void:
-	var path := "user://test_live_sync_reload.json"
+	var path := "user://test_live_sync_reload.spscript"
 	_write(path, "First")
 	var runner := ScriptRunner.new()
 	runner._registry = ObjectRegistry.new()

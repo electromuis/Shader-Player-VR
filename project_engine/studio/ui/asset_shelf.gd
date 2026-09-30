@@ -35,7 +35,7 @@ const ACCENT := Color(0.3, 0.79, 0.94)
 const DIM := Color(0.72, 0.75, 0.8)
 const PANEL_BG := Color(0.06, 0.06, 0.09, 0.92)
 const OPEN_TAB := "open"
-const SOURCE_LABELS := {"builtin": "", "user": "yours", "piece": "in the piece"}
+const SOURCE_LABELS := {"builtin": "", "user": "yours", "piece": "in the SPScript"}
 const HINTS := {
 	"object": "Press a card and let go where it should stand: it comes on at the playhead, facing you.",
 	"layer": "A layer shows a shader on its own screen. Drop it in the space, or on a layer to change its shader.",
@@ -43,7 +43,7 @@ const HINTS := {
 	"vertex": "Vertex effects bend a screen's or layer's shape (ripple, twist, spin, pulse). Drop one on a screen or a layer: it goes at the end of its vertex effects.",
 	"look": "Your saved looks (the inspector's Save look). Drop one on something of its kind to restyle it (it keeps its place and size), or in the space to add one.",
 	"shadertoy": "Shaders from shadertoy.com. Layer makes one a layer (drop it in the space), Effect an effect (drop it on a screen or a layer). Search opens the site; Paste takes a link to a shader, or its code.",
-	OPEN_TAB: "Open a piece (.json), or a video to start a new piece for it. Save as puts this piece in the folder shown, under the name below.",
+	OPEN_TAB: "Open an SPScript (.spscript), or a video to start a new SPScript for it. Save as puts this SPScript in the folder shown, under the name below.",
 }
 const SHADERTOY_TAB := "shadertoy"
 ## How long after the extension was last in touch it counts as there
@@ -329,7 +329,7 @@ func _make_card(asset: Dictionary) -> Control:
 	col.add_child(name)
 	var source: String = SOURCE_LABELS.get(asset.source, "")
 	if asset.get("in_piece", false):
-		source += " · in the piece"
+		source += " · in the SPScript"
 	var shadertoy := String(asset.type) == SHADERTOY_TAB
 	if shadertoy:
 		source = String(asset.get("author", ""))
@@ -572,13 +572,13 @@ func _make_save_bar() -> Control:
 	bar.add_child(label)
 	_save_name = LineEdit.new()
 	_save_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_save_name.tooltip_text = "The new file's name (.json is added). Ctrl+Shift+S comes here."
+	_save_name.tooltip_text = "The new file's name (.spscript is added). Ctrl+Shift+S comes here."
 	_save_name.text_changed.connect(func(_t): _disarm_save())
 	_save_name.text_submitted.connect(func(_t): press_save_as())
 	bar.add_child(_save_name)
 	_save_button = Button.new()
 	_save_button.focus_mode = Control.FOCUS_NONE
-	_save_button.tooltip_text = "Save the piece as this file and go on with it; the piece's own files come along to another folder."
+	_save_button.tooltip_text = "Save the SPScript as this file and go on with it; its own files come along to another folder."
 	_save_button.pressed.connect(press_save_as)
 	bar.add_child(_save_button)
 	if vr:
@@ -588,15 +588,15 @@ func _make_save_bar() -> Control:
 	return bar
 
 
-## Where Save as writes now: the name (with .json) in the browser's
+## Where Save as writes now: the name (with .spscript) in the browser's
 ## folder; "" in the drives view or without a name.
 func save_as_target() -> String:
 	var dir: String = _files.current_dir() if _files.has_method("current_dir") else ""
 	var name := _save_name.text.strip_edges()
 	if dir == "" or name == "" or not name.is_valid_filename():
 		return ""
-	if name.get_extension().to_lower() != "json":
-		name += ".json"
+	if not ScriptFormat.is_script_path(name):
+		name += "." + ScriptFormat.EXTENSION
 	return dir.path_join(name)
 
 
@@ -649,15 +649,15 @@ func suggest_save_name() -> void:
 static func free_name(piece: String, dir: String) -> String:
 	var base := piece.get_file().get_basename()
 	if base == "":
-		base = "piece"
+		base = "untitled"
 	var n := 2
 	var numbered := RegEx.create_from_string("^(.*\\S) (\\d+)$").search(base)
 	if numbered != null:
 		base = numbered.get_string(1)
 		n = int(numbered.get_string(2)) + 1
-	var name := piece.get_file() if piece.get_file() != "" else base + ".json"
+	var name := piece.get_file() if piece.get_file() != "" else base + "." + ScriptFormat.EXTENSION
 	while dir != "" and FileAccess.file_exists(dir.path_join(name)):
-		name = "%s %d.json" % [base, n]
+		name = "%s %d.%s" % [base, n, ScriptFormat.EXTENSION]
 		n += 1
 	return name
 

@@ -16,7 +16,7 @@ func frames(n: int) -> void:
 func _initialize() -> void:
 	var dir := OS.get_environment("WORK").path_join("studio_vr_labels/piece")
 	DirAccess.make_dir_recursive_absolute(dir)
-	DirAccess.remove_absolute(dir.path_join("clip.json"))
+	DirAccess.remove_absolute(dir.path_join("clip.spscript"))
 	var f := FileAccess.open(dir.path_join("clip.mp4"), FileAccess.WRITE)
 	f.store_string("a stand-in: nothing here decodes video")
 	f.close()

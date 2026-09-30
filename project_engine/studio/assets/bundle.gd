@@ -31,7 +31,7 @@ static func bundle(piece_dir: String, src: String, sub := "") -> Dictionary:
 	if src.begins_with("res://") or src.begins_with("builtin:") or not src.is_absolute_path():
 		return {"ok": true, "path": src, "copied": false}  # the player's, or already the piece's
 	if piece_dir == "":
-		return {"ok": false, "error": "No piece folder to bundle %s into" % src.get_file()}
+		return {"ok": false, "error": "No SPScript folder to bundle %s into" % src.get_file()}
 	if not FileAccess.file_exists(src):
 		return {"ok": false, "error": "%s isn't there" % src}
 	var rel := relative_to(src, piece_dir)
@@ -110,7 +110,7 @@ static func carry(doc: Dictionary, from_dir: String, to_dir: String, history: Ar
 	for rel in files:
 		var dst := to_dir.path_join(rel)
 		if FileAccess.file_exists(dst) and FileAccess.get_file_as_bytes(dst) != FileAccess.get_file_as_bytes(from_dir.path_join(rel)):
-			return {"ok": false, "error": "Not saved: %s is in %s already, and isn't the piece's" % [rel, to_dir]}
+			return {"ok": false, "error": "Not saved: %s is in %s already, and isn't the SPScript's" % [rel, to_dir]}
 	var copied: Array = []
 	for rel in files:
 		var src := from_dir.path_join(rel)

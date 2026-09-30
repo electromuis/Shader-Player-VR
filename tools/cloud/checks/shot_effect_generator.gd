@@ -71,7 +71,7 @@ func generator(effects: Array, extra: Dictionary = {}) -> Dictionary:
 func _initialize() -> void:
 	var dir := OS.get_environment("WORK").path_join("effect_generator/piece")
 	DirAccess.make_dir_recursive_absolute(dir)
-	DirAccess.remove_absolute(dir.path_join("clip.json"))
+	DirAccess.remove_absolute(dir.path_join("clip.spscript"))
 	var f := FileAccess.open(dir.path_join("clip.mp4"), FileAccess.WRITE)
 	f.store_string("a stand-in: nothing here decodes video")
 	f.close()
@@ -158,7 +158,7 @@ func _initialize() -> void:
 	print("gpu passes of gen_round: %d (%s)" % [cost.size(), cost.map(func(p): return "%s:%d" % [p.part, p.effect])])
 	studio.set_meta("cells", cells)
 	await inspector_shots()
-	print("save: ", m.save().get("ok", false), " valid ", ScriptFormat.load_from_file(dir.path_join("clip.json")).ok)
+	print("save: ", m.save().get("ok", false), " valid ", ScriptFormat.load_from_file(dir.path_join("clip.spscript")).ok)
 	print("EFFECT GENERATOR DONE")
 	quit()
 

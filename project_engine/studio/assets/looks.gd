@@ -36,7 +36,7 @@ const KIND_LABELS := {"screen": "Screen", "layer": "Layer", "object": "Object"}
 static func save(model: EditModel, id: String, kind: String, library_dir: String) -> Dictionary:
 	var si := model.spawn_index(id)
 	if si < 0:
-		return {"ok": false, "error": "%s isn't in the piece" % id}
+		return {"ok": false, "error": "%s isn't in the SPScript" % id}
 	var spawn: Dictionary = model.tracks()[si]
 	var piece := _piece_data(model)
 	var prefab := _to_library(piece.resolve_prefab(String(spawn.get("prefab", ""))), library_dir)
@@ -191,7 +191,7 @@ static func _piece_data(model: EditModel) -> TimelineData:
 ## is, anything else copied into the library. {ok, path} / {ok: false, error}.
 static func _to_library(file: String, library_dir: String) -> Dictionary:
 	if file == "":
-		return {"ok": false, "error": "a file it uses isn't named in the piece"}
+		return {"ok": false, "error": "a file it uses isn't named in the SPScript"}
 	return StudioBundle.bundle(library_dir, file)
 
 

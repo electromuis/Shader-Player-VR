@@ -26,11 +26,11 @@ static func is_url(path: String) -> bool:
 	return path.begins_with("http://") or path.begins_with("https://")
 
 
-## Same-name .json next to a video (`clip.mp4` → `clip.json`), or "".
+## Same-name SPScript next to a video (`clip.mp4` → `clip.spscript`), or "".
 static func sidecar_script(video_path: String) -> String:
 	if is_url(video_path):
 		return ""
-	var candidate := video_path.get_basename() + ".json"
+	var candidate := video_path.get_basename() + "." + ScriptFormat.EXTENSION
 	return candidate if FileAccess.file_exists(candidate) else ""
 
 

@@ -130,13 +130,13 @@ static func _example(rel: String) -> String:
 
 
 static func test_example_scripts_parse(tc: TestCase) -> void:
-	for rel in ["minimal/video.json", "moving_screen/video.json", "forest_tunnel/video.json"]:
+	for rel in ["minimal/video.spscript", "moving_screen/video.spscript", "forest_tunnel/video.spscript"]:
 		tc.assert_ok(ScriptFormat.load_from_file(_example(rel)), "scripts/%s must parse" % rel)
 
 
 static func test_forest_tunnel_prefabs_load(tc: TestCase) -> void:
 	# Bundled prefabs are loaded from disk by absolute path, not res://.
-	var r := ScriptFormat.load_from_file(_example("forest_tunnel/video.json"))
+	var r := ScriptFormat.load_from_file(_example("forest_tunnel/video.spscript"))
 	tc.assert_ok(r)
 	if not r.ok:
 		return
@@ -150,7 +150,7 @@ static func test_forest_tunnel_scene_states(tc: TestCase) -> void:
 	# The story's shape, not its timings (they move whenever the scene is
 	# re-edited and re-exported): forest on one screen, a split into three
 	# screens in the tunnel, and back to one screen in the forest.
-	var r := ScriptFormat.load_from_file(_example("forest_tunnel/video.json"))
+	var r := ScriptFormat.load_from_file(_example("forest_tunnel/video.spscript"))
 	tc.assert_ok(r)
 	if not r.ok:
 		return

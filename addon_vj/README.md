@@ -1,17 +1,17 @@
 # VJ Editor (addon)
 
-Author VJ scripts natively in Godot: place prefab instances in a scene, drive
+Author SPScripts natively in Godot: place prefab instances in a scene, drive
 them with an `AnimationPlayer`, and export the whole thing to the JSON format
 the player runtime consumes.
 
-The script JSON is the master copy of a piece. A scene is a way to edit it:
-**Tools > VJ: Import script.json…** builds one from a JSON in an empty
+The SPScript (a JSON file) is the master copy. A scene is a way to edit it:
+**Tools > VJ: Import SPScript…** builds one from a JSON in an empty
 project, and its export writes back to that JSON (see *Import* below).
 
 ## Layout
 
 - `plugin.gd` / `plugin.cfg` — `EditorPlugin`: **Tools > VJ: Export…**,
-  **Tools > VJ: Import script.json…**, **Tools > VJ: Preview in player**, and a **▶ Preview in player** button in
+  **Tools > VJ: Import SPScript…**, **Tools > VJ: Preview in player**, and a **▶ Preview in player** button in
   the 3D editor toolbar
 - `preview/desktop_preview.gd` — runtime-only desktop preview (fly camera, media bar, video)
 - `shadertoy/` — the **Shadertoy** dock (`shadertoy_dock.gd`, see *Shadertoy* below)
@@ -23,7 +23,7 @@ project, and its export writes back to that JSON (see *Import* below).
   - `vj_viewer.gd` — `VJViewer` camera marking the viewer; its keys become `vr_cut`s, or a ride
   - `screen.tscn` + `screen.gd` — video screen with an optional artist shader in a
     SubViewport, then its effects (`VJEffect` children). A glowing screen is
-    a Glow effect; a split-screen piece is a Crop effect first. In the
+    a Glow effect; a split-screen SPScript is a Crop effect first. In the
     editor it shows `preview_image` or a three-column test card (no video decoder)
   - `layer.tscn` + `layer.gd` — shader layer (`VJLayer`): a Shadertoy-style shader
     on its own quad, with effects, like the player's Camera tab layers
@@ -100,7 +100,7 @@ project, and its export writes back to that JSON (see *Import* below).
   Image overlay and the looks: Chroma split, Kaleidoscope, Neon edges, ...); **Empty** takes your own effect shader (include
   `visualizer/effect_prelude.gdshaderinc`) in its `material`. They export as
   `config.effects`; switched-off ones (`enabled` off) go along with
-  `"enabled": false`, which the player skips for the whole piece. Each has a
+  `"enabled": false`, which the player skips for the whole SPScript. Each has a
   `mix` (how much of it shows; animatable) and a `blend` mode (how its picture
   goes over what it works on: Normal, Add, Multiply, Screen, ...), which the
   preview shows as the player does. To switch an effect (or a vertex effect)
@@ -252,7 +252,7 @@ the player is the accurate one.
 
 ## Import
 
-**Tools > VJ: Import script.json…** picks a script and builds `res://main.tscn`
+**Tools > VJ: Import SPScript…** picks a script and builds `res://main.tscn`
 (made the main scene), with custom prefabs copied to `prefabs/` and custom
 shaders to `shaders/`. It only runs in an empty project (no scenes outside
 `addons/`): the JSON is the master and the scene a view of it, so there's
@@ -260,7 +260,7 @@ nothing to merge. The scene's `output_path` is the JSON you imported, so
 **Export** / **Preview** write back to it. Headless:
 
 ```
-godot --headless --path <empty project> --script res://addons/vj_editor/importer/run_import.gd -- <script.json>
+godot --headless --path <empty project> --script res://addons/vj_editor/importer/run_import.gd -- <file.spscript>
 ```
 
 Everything the exporter writes imports exactly, so exporting an imported
@@ -314,7 +314,7 @@ and what won't work in the player:
 **Add as layer** saves it as `res://shaders/shadertoy/<name>_<id>.gdshader`
 (once: an existing file is kept, since you may have edited it) and adds a
 layer with it to the open scene, 16 × 9 m in front of the viewer, selected
-(undoable). Export bundles the shader into the piece like any custom shader.
+(undoable). Export bundles the shader into the SPScript like any custom shader.
 **Save .gdshader** only writes the file.
 
 The conversion (`ShadertoyShader`) wraps the code in the Shadertoy includes

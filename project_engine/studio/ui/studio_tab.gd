@@ -37,7 +37,7 @@ func _ready() -> void:
 	_haptics = _check("Ticks in the controllers (grab, snap, key, drop)")
 	_haptics.toggled.connect(func(on: bool): _apply(func(): _settings.haptics = on))
 	_row("Haptics", _haptics, "haptics")
-	_autosave = _check("Keep unsaved changes in <piece>.autosave every minute")
+	_autosave = _check("Keep unsaved changes in <name>.spscript.autosave every minute")
 	_autosave.toggled.connect(func(on: bool): _apply(func(): _settings.autosave = on))
 	_row("Autosave", _autosave, "autosave")
 	_grid = _check("1 m lines on the floor while editing")

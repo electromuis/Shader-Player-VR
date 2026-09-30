@@ -1159,7 +1159,7 @@ func _refresh_viewer(t: float) -> void:
 	var pose := vt.pose_at(t)
 	if pose.is_empty():
 		_viewer_state.text = "At %s: at home (the seat), until %s." % [StudioStatus.timecode(t),
-				StudioStatus.timecode(vt.start_time()) if not vt.is_empty() else "the script moves them"]
+				StudioStatus.timecode(vt.start_time()) if not vt.is_empty() else "the SPScript moves them"]
 		return
 	var m := vt.motion_at(t)
 	var p: Vector3 = pose.position

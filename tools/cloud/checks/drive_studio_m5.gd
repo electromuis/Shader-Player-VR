@@ -349,7 +349,7 @@ func _initialize() -> void:
 	root.add_child(main)
 	await frames(10)
 	var preg: ObjectRegistry = main.runner.registry()
-	main.open_file(elsewhere.path_join("clip.json"), false)
+	main.open_file(elsewhere.path_join("clip.spscript"), false)
 	main.runner.set_video_duration(30.0)
 	main.runner.seek(10.0)
 	await frames(6)

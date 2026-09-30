@@ -1,4 +1,5 @@
 // @title Hue cycle
+// @idle speed == 0.0 and spread == 0.0 and saturation == 1.0
 // Rotates the picture's hues over time, in waves across it, and boosts
 // saturation: a slow acid colour shift.
 shader_type canvas_item;

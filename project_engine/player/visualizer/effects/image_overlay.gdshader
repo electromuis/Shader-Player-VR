@@ -1,4 +1,5 @@
 // @title Image overlay
+// @idle opacity <= 0.0
 // Puts a picture from an images/ folder over the picture: on top (by its
 // alpha), added as light, multiplied, screened, or as a mask that keeps
 // the picture where the image is bright and opaque.

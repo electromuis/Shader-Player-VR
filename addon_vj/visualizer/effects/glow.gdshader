@@ -1,4 +1,5 @@
 // @title Glow
+// @idle intensity <= 0.0 and edge_brighten <= 0.0
 // A halo around the picture, made from the picture itself and brightened,
 // and a brightening just inside its edge. The halo draws in a transparent
 // margin the screen adds around the picture.

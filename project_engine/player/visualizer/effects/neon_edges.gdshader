@@ -1,4 +1,5 @@
 // @title Neon edges
+// @idle glow <= 0.0 and keep >= 1.0
 // Traces the picture's edges in glowing rainbow neon over a darkened copy
 // of it (`keep` 0: edges only, on black).
 shader_type canvas_item;

@@ -14,6 +14,9 @@ const QUIT_CONFIRM_SECONDS := 3.0
 ## grabber are hard to hit with a mouse ray or a VR laser.
 const SLIDER_TRACK_PX := 10
 const SLIDER_GRABBER_PX := 30
+## CheckButtons' on / off switch.
+const SWITCH_W_PX := 40
+const SWITCH_H_PX := 22
 const ACCENT := Color(0.35, 0.55, 0.9)
 
 @onready var camera_tab: Node = %CameraTab
@@ -68,7 +71,35 @@ static func _panel_theme() -> Theme:
 	t.set_icon("grabber", "HSlider", _dot(Color(0.88, 0.92, 1.0)))
 	t.set_icon("grabber_highlight", "HSlider", _dot(Color.WHITE))
 	t.set_icon("grabber_disabled", "HSlider", _dot(Color(0.45, 0.45, 0.5)))
+	for on in [true, false]:
+		var state := "checked" if on else "unchecked"
+		t.set_icon(state, "CheckButton", _switch(on, false))
+		t.set_icon(state + "_mirrored", "CheckButton", _switch(on, false))
+		t.set_icon(state + "_disabled", "CheckButton", _switch(on, true))
+		t.set_icon(state + "_disabled_mirrored", "CheckButton", _switch(on, true))
 	return t
+
+
+## A CheckButton's switch: a pill with its knob on the track's middle line,
+## at the right (lit) when on, as Studio's inspector draws its own. The
+## default theme's is small, and its off track all but vanishes on the
+## panel.
+static func _switch(on: bool, disabled: bool) -> Texture2D:
+	var track := ACCENT if on else Color(0.3, 0.33, 0.4)
+	var knob := Color.WHITE if on else Color(0.85, 0.87, 0.9)
+	var fade := 0.45 if disabled else 1.0
+	var r := SWITCH_H_PX / 2.0
+	var knob_at := Vector2(SWITCH_W_PX - r if on else r, r)
+	var img := Image.create_empty(SWITCH_W_PX, SWITCH_H_PX, false, Image.FORMAT_RGBA8)
+	for y in SWITCH_H_PX:
+		for x in SWITCH_W_PX:
+			var p := Vector2(x + 0.5, y + 0.5)
+			# Coverage from the distance to each edge, for smooth edges.
+			var inside := clampf(r + 0.5 - p.distance_to(Vector2(clampf(p.x, r, SWITCH_W_PX - r), r)), 0.0, 1.0)
+			var on_knob := clampf(r * 0.72 + 0.5 - p.distance_to(knob_at), 0.0, 1.0)
+			var c := track.lerp(knob, on_knob)
+			img.set_pixel(x, y, Color(c, inside * fade))
+	return ImageTexture.create_from_image(img)
 
 
 ## Round grabber icon: a filled circle with a soft edge.

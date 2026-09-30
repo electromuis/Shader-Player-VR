@@ -567,6 +567,47 @@ func save() -> bool:
 	return r.ok
 
 
+## Save the piece as `to_path` and go on with that file (the shelf's Open
+## tab). In another folder its own files come along (EditModel.save_as).
+## The file it came from keeps what it had at its last save, and its
+## autosave goes: those changes are in the new file now.
+func save_as(to_path: String) -> bool:
+	if model == null:
+		return false
+	var was := model.path
+	if to_path.simplify_path().to_lower() == was.simplify_path().to_lower():
+		return save()
+	StudioSafety.back_up(to_path)  # the file it replaces, if there's one
+	var r := model.save_as(to_path)
+	if not r.ok:
+		_say(String(r.error))
+		return false
+	StudioSafety.clear_autosave(was)
+	StudioSafety.clear_autosave(model.path)
+	_autosaved_text = ""
+	_autosaved_at = -1
+	library.piece_dir = model.path.get_base_dir()
+	_refresh_shelf()
+	runner.apply_edit(model.timeline(), true)  # its new folder
+	var copied: Array = r.copied
+	_say("Saved as %s%s." % [model.path.get_file(),
+			"" if copied.is_empty() else ", with %d of the piece's files" % copied.size()])
+	for view in _shelves():
+		view.saved_as()
+	return true
+
+
+## The shelf's Open tab, at its Save as line.
+func show_save_as() -> void:
+	if model == null:
+		_say("Open a piece first.")
+		return
+	shelf_on = true
+	for view in _shelves():
+		view.show_save_as()
+	_show_shelf()
+
+
 func undo() -> void:
 	if model == null:
 		return
@@ -633,6 +674,7 @@ func _on_command(id: StringName) -> void:
 			if model != null:
 				ribbon.step_key(1 if id == &"studio_next_key" else -1)
 		&"studio_save": save()
+		&"studio_save_as": show_save_as()
 		&"studio_undo": undo()
 		&"studio_redo": redo()
 		&"studio_reset_view": stage.reset_view()
@@ -1257,6 +1299,8 @@ func _bind_shelf(view: StudioAssetShelf) -> void:
 	view.said.connect(_say)
 	view.taken.connect(_on_taken.bind(view))
 	view.open_requested.connect(func(path: String): open_piece(path))
+	view.save_as_requested.connect(func(path: String): save_as(path))
+	view.piece_path = func(): return model.path if model != null else ""
 	view.close_requested.connect(_fold.bind(&"studio_toggle_shelf"), CONNECT_DEFERRED)
 	thumbnailer.thumbnail_ready.connect(view.on_thumbnail)
 	thumbnailer.loop_ready.connect(view.on_loop)

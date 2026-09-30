@@ -25,8 +25,8 @@ const HINTS := [
 		["Tab", "Play / Edit"], ["Space", "play / pause"], ["← →", "1 s"], ["Shift+← →", "10 s"],
 		["Home", "start"], ["↓ ↑", "prev / next key"], ["L", "loop"], ["[  ]", "loop from / to here"]]],
 	["Edit", [
-		["Ctrl+Z", "undo"], ["Ctrl+Shift+Z", "redo"], ["Ctrl+S", "save"], ["Delete", "delete"],
-		["I", "key it"], ["Shift+I", "auto-key"], ["Shift+G", "snap"], ["Ctrl+L", "save its look"]]],
+		["Ctrl+Z", "undo"], ["Ctrl+Shift+Z", "redo"], ["Ctrl+S", "save"], ["Ctrl+Shift+S", "save as"],
+		["Delete", "delete"], ["I", "key it"], ["Shift+I", "auto-key"], ["Shift+G", "snap"], ["Ctrl+L", "save its look"]]],
 	["Select", [
 		["Click", "select"], ["Drag", "move"], ["Wheel", "nearer / further (dragging)"],
 		["Ctrl+Wheel", "scale (dragging)"], ["Esc", "deselect"],
